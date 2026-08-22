@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'" />
+    <title>MCP Manager</title>
+    <style>
+      :root {
+        --bg: #ffffff; --fg: #1a1a1a; --muted: #6a6a6a;
+        --line: #e2e2e2; --card: #f7f7f8; --accent: #2563eb; --danger: #dc2626;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1b1c1e; --fg: #e8e8e8; --muted: #9a9a9a;
+          --line: #34363a; --card: #232427; --accent: #60a5fa; --danger: #f87171;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; font: 13px/1.5 system-ui, sans-serif;
+        background: var(--bg); color: var(--fg);
+      }
+      header {
+        display: flex; align-items: center; gap: 12px;
+        padding: 12px 16px; border-bottom: 1px solid var(--line);
+      }
+      header h1 { font-size: 15px; margin: 0; flex: 1; }
+      .hint { color: var(--muted); font-size: 12px; }
+      main { padding: 16px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+      th { font-weight: 600; }
+      th.tool, td.tool { text-align: center; width: 88px; }
+      .name { font-weight: 600; }
+      .def { color: var(--muted); font-size: 11px; word-break: break-all; }
+      input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+      button {
+        font: inherit; padding: 5px 12px; border: 1px solid var(--line);
+        background: var(--card); color: var(--fg); border-radius: 6px; cursor: pointer;
+      }
+      button:hover { border-color: var(--accent); }
+      button.link { border: none; background: none; color: var(--danger); padding: 2px 6px; }
+      select { font: inherit; padding: 5px; background: var(--card); color: var(--fg);
+        border: 1px solid var(--line); border-radius: 6px; }
+      #msg { padding: 0 16px; min-height: 18px; font-size: 12px; }
+      #msg.err { color: var(--danger); }
+      #msg.ok { color: #16a34a; }
+      @media (prefers-color-scheme: dark) { #msg.ok { color: #4ade80; } }
+      .panel { margin-top: 20px; padding: 14px; background: var(--card);
+        border: 1px solid var(--line); border-radius: 8px; }
+      .panel h2 { font-size: 13px; margin: 0 0 10px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .row input[type="text"] { flex: 1; min-width: 120px; font: inherit; padding: 5px 8px;
+        background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
+      .empty { color: var(--muted); padding: 24px; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>MCP Manager</h1>
+      <span class="hint">Restart a tool after changes to apply them.</span>
+      <button id="refresh">Refresh</button>
+    </header>
+    <div id="msg"></div>
+    <main>
+      <div id="matrix"></div>
+
+      <div class="panel">
+        <h2>Import from a tool</h2>
+        <div class="row">
+          <select id="importTool"></select>
+          <button id="importBtn">Import</button>
+          <span class="hint">Read servers already configured in that tool into the registry.</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Add a server</h2>
+        <div class="row">
+          <input id="addName" type="text" placeholder="name" />
+          <input id="addCommand" type="text" placeholder="command (e.g. npx)" />
+        </div>
+        <div class="row" style="margin-top: 8px">
+          <input id="addArgs" type="text" placeholder="args, space separated (e.g. -y @scope/pkg)" />
+          <input id="addEnv" type="text" placeholder="env, space separated KEY=VALUE" />
+          <button id="addBtn">Add</button>
+        </div>
+      </div>
+    </main>
+    <script src="renderer.js"></script>
+  </body>
+</html>

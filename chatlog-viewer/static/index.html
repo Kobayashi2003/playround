@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat Log Viewer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%97%A8%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <button id="side-toggle" class="icon-btn" title="Hide the sidebar (Ctrl+B)">◀</button>
+  <div class="brand">Chat Log<span>Viewer</span></div>
+
+  <div class="searchbox">
+    <input id="search" type="search" placeholder="Search what I said…   ( / to focus )" autocomplete="off">
+    <span id="search-count" class="search-count"></span>
+  </div>
+
+  <div class="chips" id="source-chips">
+    <button class="chip on" data-source="all">All</button>
+    <button class="chip" data-source="claude">Claude Code</button>
+    <button class="chip" data-source="codex">Codex</button>
+  </div>
+
+  <div class="spacer"></div>
+  <span id="status" class="status"></span>
+  <button id="reindex" class="ghost" title="Re-scan the log folders">Reindex</button>
+</header>
+
+<main>
+  <aside class="sidebar" id="sidebar">
+    <div class="side-head">
+      <div class="control">
+        <span class="control-label">Group</span>
+        <div class="seg" id="group-chips">
+          <button class="seg-btn on" data-group="cwd">Folder</button>
+          <button class="seg-btn" data-group="date">Time</button>
+          <button class="seg-btn" data-group="none">Flat</button>
+        </div>
+      </div>
+      <div class="control">
+        <span class="control-label">Show</span>
+        <div class="seg" id="view-chips">
+          <button class="seg-btn on" data-view="all">All</button>
+          <button class="seg-btn" data-view="star" title="Starred">★</button>
+          <button class="seg-btn" data-view="archived">Archived</button>
+        </div>
+      </div>
+      <label class="tick"><input type="checkbox" id="hide-empty" checked> Hide sessions I never spoke in</label>
+    </div>
+    <div id="session-list" class="session-list"></div>
+  </aside>
+
+  <div class="resizer" id="resizer" title="Drag to resize · double-click to reset"></div>
+
+  <section class="viewer" id="viewer">
+    <div class="empty">
+      <h1>Pick a conversation</h1>
+      <p>Every Claude Code and Codex session, grouped by working folder or by time.<br>
+         <b>User messages are shown in full</b>; assistant replies, reasoning and tool
+         calls are collapsed by default.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+  // The viewer is served at the origin root when it runs alone, and under a path
+  // prefix when a shared edge fronts it beside other apps. Assets above are linked
+  // relatively so they resolve either way; the API calls in app.js are
+  // root-absolute, so they are prefixed with this — the document's own directory,
+  // which the server guarantees by redirecting the bare prefix to the slashed form.
+  const MOUNT = new URL(".", document.baseURI).pathname.replace(/\/$/, "");
+</script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+{
+  "$schema": "../schema/app.schema.json",
+  "order": 30,
+  "name": "Visual Novel Database",
+  "description": "Visual novel catalogue, artwork and music library.",
+  "icon": "📚",
+  "enabled": true,
+  "root": "${paths.project}/VisualNovelDatabase",
+  "basePath": "/vndb",
+  "ports": {
+    "frontend": 5010,
+    "vndbserve": 5000,
+    "imgserve": 5001,
+    "userserve": 5002,
+    "transserve": 5003,
+    "musicserve": 5004
+  },
+  "env": {
+    "NEXT_PORT": "${ports.frontend}",
+    "VNDBSERVE_PORT": "${ports.vndbserve}",
+    "IMGSERVE_PORT": "${ports.imgserve}",
+    "USERSERVE_PORT": "${ports.userserve}",
+    "TRANSSERVE_PORT": "${ports.transserve}",
+    "MUSICSERVE_PORT": "${ports.musicserve}"
+  },
+  "routes": {
+    "snippet": "${root}/Caddyfile.snippet",
+    "env": "${root}/caddy-env.ps1"
+  },
+  "launch": {
+    "file": "pwsh",
+    "args": [
+      "-NoProfile",
+      "-File",
+      "${root}/start-prod.ps1",
+      "-NoCaddy"
+    ]
+  }
+}

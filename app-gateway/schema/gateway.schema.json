@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local/app-gateway/gateway.schema.json",
+  "title": "app-gateway settings",
+  "description": "Settings for the gateway itself. No app appears here — an app is a file in apps/, described by app.schema.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+
+    "bind": {
+      "type": "string",
+      "default": ":30709",
+      "description": "Public listen address for the one Caddy the gateway runs. This is the address the tunnel forwards to, so it should rarely change; -Bind overrides it for a single run.",
+      "pattern": "^[^\\s]*:\\d+$"
+    },
+
+    "appsDir": {
+      "type": "string",
+      "default": "apps",
+      "description": "Directory scanned for app plugins, relative to this file. Every *.json in it is one app. Point it elsewhere for a second registry, or keep two directories and switch with -Config."
+    },
+
+    "site": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Chrome for the generated landing page. Present so no app-specific text is baked into the builder.",
+      "properties": {
+        "title":        { "type": "string", "description": "Page <title> and heading." },
+        "tagline":      { "type": "string", "description": "One line under the heading." },
+        "fallbackIcon": { "type": "string", "description": "Card icon for an app that declares none." }
+      }
+    },
+
+    "paths": {
+      "type": "object",
+      "description": "Named directories, referenced as ${paths.NAME} in an app's root. Relative values resolve against this file's directory. They exist so relocating a checkout is one edit here rather than one per app.",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "./schema/gateway.schema.json",
+  "bind": ":30709",
+  "appsDir": "apps",
+  "site": {
+    "title": "Gateway",
+    "tagline": "One ingress, several apps. Pick one.",
+    "fallbackIcon": "📦"
+  },
+  "paths": {
+    "project": "../../project",
+    "playround": ".."
+  }
+}

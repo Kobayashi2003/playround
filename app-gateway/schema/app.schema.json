@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local/app-gateway/app.schema.json",
+  "title": "app-gateway app plugin",
+  "description": "One app, in one file. apps/<id>.json is the registry entry: dropping a file in registers an app, deleting it unregisters one, and nothing else has to be edited. JSON carries no comments, so this schema is where the protocol is documented; README.md has the prose. Placeholders usable in every string below: ${id}, ${root}, ${basePath}, ${bind}, ${paths.NAME}, ${ports.NAME}.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "root"],
+  "properties": {
+    "$schema": { "type": "string" },
+
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "description": "Optional. The file name is the id; stating it here is a cross-check, and a mismatch is an error. This is what -App, -Enable, -Disable and -Port name, and what prefixes generated Caddy matchers."
+    },
+    "name":        { "type": "string", "description": "Display name on the landing card." },
+    "description": { "type": "string", "description": "One line on the landing card." },
+    "icon":        { "type": "string", "description": "Card glyph. Falls back to site.fallbackIcon in gateway.json." },
+
+    "order": {
+      "type": "integer",
+      "default": 100,
+      "description": "Sort key for the landing page and for spawn order; ties break on id. A file's name decides its identity, so ordering could not also live there."
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a bare gateway.ps1 includes this app. False means registered but dormant: not launched, not routed, no card. -Enable / -Disable flip this and rewrite this file alone; -App overrides it for one run. Deleting the file is the other way to unregister."
+    },
+    "hidden": {
+      "type": "boolean",
+      "default": false,
+      "description": "Run and route the app but leave it off the landing page, for something reached by a direct link rather than by browsing."
+    },
+
+    "root": {
+      "type": "string",
+      "description": "The app's directory. Relative values resolve against the gateway directory (where gateway.json lives), not this file's; ${paths.NAME} expands first. Must exist."
+    },
+    "basePath": {
+      "type": "string",
+      "pattern": "^/[^\\s]*[^/\\s]$",
+      "description": "Public path prefix the app is reached under, no trailing slash. Every app shares one origin here, so the root belongs to the landing page and each app must live under a prefix it also knows about itself: a build-time basePath for Next, a runtime flag for the rest. Required for a landing card and for the default proxy route.",
+      "examples": ["/hearth", "/vndb"]
+    },
+    "probe": {
+      "type": "string",
+      "description": "Path the landing card HEADs to decide whether the app is up. Defaults to basePath."
+    },
+
+    "ports": {
+      "type": "object",
+      "description": "Ports this app listens on, named by role. This is where the gateway places an app rather than discovering it: a number written here is handed to the app (through env or a launch argument) and to the route that proxies to it, so the two cannot drift. Two enabled apps claiming the same number is a load error, which is the collision separate projects could not see.",
+      "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 65535 }
+    },
+
+    "env": {
+      "type": "object",
+      "description": "Environment for this app alone, set around its launch and around its routes.env script and then restored, so one app's variables never reach another's. This is how a port declared above reaches an app that reads its own configuration.",
+      "additionalProperties": { "type": "string" }
+    },
+
+    "routes": {
+      "description": "How the shared Caddy reaches this app. Omit entirely for an app that is launched but not fronted. Exactly one of snippet or proxy.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "snippet": {
+          "type": "string",
+          "description": "Path to a Caddyfile fragment the project maintains, imported verbatim. For an app whose routing is its own business: auth gates, cache fast-paths, several backends. The project's standalone Caddyfile imports the same file, so routes are written once."
+        },
+        "env": {
+          "type": "string",
+          "description": "PowerShell script returning a hashtable of the variables a snippet expands. Lives in the project because the project owns where it listens. Run with this app's env applied, so a port placed here reaches it."
+        },
+        "proxy": {
+          "type": "array",
+          "description": "Declarative routes, for an app that knows nothing about Caddy. Generated into the site block.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["upstream"],
+            "properties": {
+              "paths": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Caddy path matchers. Defaults to the app's basePath plus everything under it; the bare prefix is included because an app's redirect to the trailing-slash form has to be matched too."
+              },
+              "upstream": {
+                "type": "string",
+                "description": "host:port, e.g. 127.0.0.1:${ports.http}. Loopback rather than localhost: on Windows localhost resolves to ::1 first and each cold connection to an IPv4-only listener eats a ~20s timeout."
+              },
+              "strip": {
+                "type": "boolean",
+                "default": false,
+                "description": "Strip the matched prefix before proxying (handle_path). Leave false when the app serves under the prefix itself, which it must if it emits absolute URLs."
+              },
+              "stream": {
+                "type": "boolean",
+                "default": false,
+                "description": "flush_interval -1: pass bytes through instead of buffering. Needed for long-lived Range or SSE connections, which are otherwise dropped under backpressure."
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "launch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file"],
+      "description": "The child process. Omit for an app that is already running under its own supervision and only needs routing.",
+      "properties": {
+        "file": { "type": "string", "description": "Executable. Prefer the project's own launcher over restating its startup here: it knows its own preflight." },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd":  { "type": "string", "description": "Working directory. Defaults to the app's root." }
+      }
+    }
+  }
+}

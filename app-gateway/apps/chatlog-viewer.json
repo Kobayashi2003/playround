@@ -1,0 +1,33 @@
+{
+  "$schema": "../schema/app.schema.json",
+  "order": 40,
+  "name": "Chat Log Viewer",
+  "description": "Read Claude Code and Codex session logs, grouped by folder or by time.",
+  "icon": "🗯",
+  "enabled": true,
+  "root": "${paths.playround}/chatlog-viewer",
+  "basePath": "/chatlog",
+  "ports": {
+    "http": 8777
+  },
+  "routes": {
+    "proxy": [
+      {
+        "upstream": "127.0.0.1:${ports.http}"
+      }
+    ]
+  },
+  "launch": {
+    "file": "python",
+    "args": [
+      "server.py",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "${ports.http}",
+      "--base-path",
+      "${basePath}",
+      "--no-open"
+    ]
+  }
+}

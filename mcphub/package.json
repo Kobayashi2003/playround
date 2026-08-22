@@ -1,0 +1,31 @@
+{
+  "name": "mcphub",
+  "version": "0.1.0",
+  "description": "Toggle MCP servers on/off across VS Code, Cursor, Claude Code and Codex",
+  "type": "module",
+  "bin": {
+    "mcpm": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc && node scripts/copy-desktop.mjs",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "desktop": "npm run build && electron dist/desktop/main.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5",
+    "commander": "^12.1.0",
+    "jsonc-parser": "^3.3.1"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^22.10.0",
+    "electron": "^33.4.11",
+    "png-to-ico": "^3.0.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

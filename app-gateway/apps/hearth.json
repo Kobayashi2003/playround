@@ -1,0 +1,29 @@
+{
+  "$schema": "../schema/app.schema.json",
+  "order": 10,
+  "name": "Hearth",
+  "description": "Your files, at home — browse, preview and manage them in the browser.",
+  "icon": "🏠",
+  "enabled": true,
+  "root": "${paths.project}/Hearth",
+  "basePath": "/hearth",
+  "ports": {
+    "backend": 5111
+  },
+  "env": {
+    "HEARTH_PORT": "${ports.backend}"
+  },
+  "routes": {
+    "snippet": "${root}/Caddyfile.snippet",
+    "env": "${root}/caddy-env.ps1"
+  },
+  "launch": {
+    "file": "pwsh",
+    "args": [
+      "-NoProfile",
+      "-File",
+      "${root}/start.ps1",
+      "-NoCaddy"
+    ]
+  }
+}
