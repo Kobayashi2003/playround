@@ -1,163 +1,149 @@
 # lnlib — 蔵書棚
 
 A local bookshelf and reader for a Japanese light novel / manga / artbook
-collection. Browse what you own, see what you are missing, and read a volume
-in the browser.
+collection.
 
-Standard library only. No dependencies, no build step, no package manager.
+The index and server are Python standard library only. The interface is React
+and has to be built once.
 
 ```
-python -m lnlib scan      # index the shelves
-python -m lnlib covers    # extract cover images
-python -m lnlib serve     # open the UI at http://127.0.0.1:8770
+cd web && npm install && npm run build   # the front end, once
+python -m lnlib scan                     # index the shelves
+python -m lnlib covers                   # extract cover images
+python -m lnlib serve                    # http://127.0.0.1:8770
 ```
 
-`serve` also takes `--host`, `--port` and `--base-path /prefix`; the same three
-can be set in `config.json` as `host`, `port` and `base_path`. `base_path` is for
-running behind a shared edge, where one public port fronts several apps and the
-origin root belongs to none of them: the prefix is stripped at the door so every
-route keeps its own shape, and the page resolves its own URLs against the
-directory it was served from, so nothing else has to be told where it is mounted.
+`npm run dev` in `web/` serves the interface with hot reloading and proxies
+`/api`, `/cover` and `/book` through to `serve`.
 
-## What it is for
+`serve` takes `--host`, `--port` and `--base-path /prefix` (also settable in
+`config.json`); the prefix is for running behind a shared edge that fronts
+several apps on one port. `python -m lnlib --help` lists the rest.
 
-- **What do I have?** Browse by shelf, or search across everything. Rearrange
-  the shelves on disk and `scan` picks the new arrangement up on its own.
-- **What am I missing?** Volumes you do not own are `.txt` placeholders named
-  exactly like the books; the 欠落巻 view lists every one of them.
-- **Read it.** Open any volume in the built-in reader and it remembers where
-  you stopped.
+## One row is one book
+
+There is no series in this index. A volume is a file; a title is read as it was
+written; a volume number is only ever taken from the name of the file it sits
+in. Whatever grouping the collection has is the grouping it has on disk, which
+is why a book lists the other files in its folder and claims nothing more.
+
+Opening a book is a dialog over the shelf, not a page of its own — the grid
+keeps its rows and its scroll position behind it. It is still a route, so the
+back button closes it and a link opens straight onto it.
 
 ## Layout it understands
 
-Nothing about the layout is configured. Each root is read as it is found, and
-the two shapes below can sit side by side in the same root:
+Nothing about the layout is configured; each root is read as it is found.
 
 ```
-<root>/<shelf>/[imprint][author][illustrator][YYMMDD] Title.epub   a flat shelf
-<root>/<shelf>/[author] Series Title/[YYMMDD] Volume.epub          a series folder
-<root>/<shelf>/[author] Series/第01巻/*.jpg                        scanned pages
+<root>/<shelf>/[imprint][author][illustrator][YYMMDD] Title.epub   loose on a shelf
+<root>/<shelf>/[author] Folder Title/[YYMMDD] Volume.epub          inside a folder
+<root>/<shelf>/[author] Something/第01巻/*.jpg                     scanned pages
 ```
 
-A folder whose name starts with `[` belongs to whoever made the book, so it is
-content — a series, or a volume of page scans. Any other folder directly under
-a root is a shelf (`1. 連載中`, `3. 完結` …). A folder starting with `_` is
-ignored, which is how a staging area stays out of the library. Add a shelf,
-rename one, or empty one, and the next scan simply reflects it.
+A folder starting with `[` is content — a place books sit in, or a volume of
+page scans. Any other folder under a root is a shelf. A folder starting with `_`
+is ignored, which is how a staging area and the trash stay out of the library.
 
-The bracketed tags are read by how many there are: three or more means
-imprint / author / illustrator, two means imprint / author, one is the author.
-Six digits anywhere in them is the original print release date.
+Bracketed tags are read by how many there are: three or more is
+imprint / author / illustrator, two is imprint / author, one is the author. Six
+digits anywhere in them is the release date. A folder lends its credits to the
+files inside it.
 
-**Novels are a flat pile of files**, so the series a volume belongs to is
-recovered from its title — the trailing number, a `~subtitle~`, or a number
-sitting between the name and a per-volume subtitle (`緋弾のアリア IX 蒼き閃光`)
-are peeled away and what remains is the series. That is what puts
-`ひきこまり吸血姫の悶々12` next to the `.txt` standing in for volume 11.
-
-`[YYMMDD]` is the original print release date. A `.txt` always means "not owned"
-— this collection has no text-format novels.
-
-Roots are configured in `config.json`; only the folders themselves are.
+Roots live in `config.json`:
 
 ```bash
-python -m lnlib config                              # show roots
 python -m lnlib config --add-root "E:\..." --label "…" --kind novel
 ```
 
-## The reader
+## Formats
 
-Open a volume from its series page (読む / 続き), or pick up where you left off
-from 読書中 in the sidebar.
+Every recognised extension is a format the shelf counts and filters by; a `.txt`
+is a text file, not a stand-in for something missing.
 
 | format | how it is read |
 |---|---|
-| `.epub` | the spine, one section at a time, in an iframe |
-| `.cbz` | page images in filename order |
-| image folder | page images in filename order |
-| `.pdf` | handed to the built-in PDF viewer of the browser |
-| `.azw3` `.mobi` `.cbr` | no renderer — 外部 opens it in the desktop app |
+| `.epub` | the bundled reader: pagination, vertical writing, search, marks |
+| `.txt` | text, decoded server-side, horizontal or vertical |
+| `.cbz`, image folder | page images in filename order |
+| `.pdf` | the browser's own viewer |
+| `.azw3` `.mobi` `.cbr` | no renderer — 外部 opens the desktop app |
 
-The inside of a book is served as a virtual directory (`/book/<id>/f/…`), so an
-epub's own CSS, fonts and images resolve without rewriting a single link. That
-is also why **vertical writing and right-to-left page progression just work** —
-they are the book's own stylesheet, rendered by the browser. The reader reads
-`page-progression-direction` and flips the arrow keys and the page buttons to
-match; in a right-to-left book, ◀ and the left half of a manga page move
-*forward*.
+## The index remembers
 
-Controls: ← → PageUp PageDown Space to turn, `+` `-` for text size, Esc to
-leave. 目次 opens the table of contents (EPUB3 nav, else the NCX), 紙 cycles the
-reading background (紙 / 白 / セピア / 暗), A− A＋ scale the text.
+It is a record of what has been seen, not a mirror of what is on disk this
+minute. That is the whole of how books leave it:
 
-Position is saved as you read — the spine section plus how far into it, or the
-page number for manga — and restored the next time you open the volume. It is
-keyed by the file's path, so renaming a book on disk starts it over.
+- **`scan` adds and updates; it never deletes.** A book it did not find is
+  marked absent and keeps everything else. A root it could not open is skipped
+  entirely, so an unplugged drive marks nothing.
+- **Opening a book that is really gone retires it** — the one moment the absence
+  has been tested rather than inferred. It goes to the trash, not to nothing.
+- **Deleting asks what to do with the file.** 記録だけ削除 leaves it on disk;
+  ファイルもゴミ箱へ moves it too.
+- **The trash is real.** A file moves to a `_trash` folder inside its own root —
+  already ignored by the scanner, and on the same drive, so trashing a 14 GB
+  folder of scans is a rename rather than a copy. Restoring returns file and row
+  with the id it had. Only 「完全に削除」 destroys anything, and never a file
+  this shelf did not move.
 
 ```bash
-python -m lnlib reading      # everything with saved progress
-python -m lnlib book 1234    # what the reader sees inside one volume
+python -m lnlib delete 1234 --file --yes  # off the shelf, file to _trash
+python -m lnlib trash                     # what is in there
+python -m lnlib restore 7                 # put one back
+python -m lnlib trash --empty --yes       # the only destructive command
 ```
 
-## Covers
+Reading progress is keyed by path, so it survives a rescan and comes back with a
+restored book.
 
-Extracted byte-for-byte and cached under `data/covers/` — nothing is decoded or
-re-encoded, which is why no imaging library is needed.
+## The reader
 
-| format | how |
-|---|---|
-| `.epub` | OPF `<meta name="cover">`, else EPUB3 `cover-image`, else first image |
-| `.cbz` | first image by filename |
-| image folder | first image by filename |
-| `.pdf` | first large embedded JPEG |
-| `.azw3` / `.mobi` | first large embedded JPEG |
-| `.txt` | none — it is a placeholder, not a book |
+`epub-reader-engine`, vendored under `web/src/epub-reader/` from
+component-atlas. It opens the container, parses the package and paginates in the
+browser, so **vertical writing and right-to-left progression are the book's own**
+— and there is exactly one EPUB implementation here. Python hands it the file
+and nothing else. Those files are upstream's and are not edited; re-copy them
+wholesale when the engine moves on.
 
-`python -m lnlib covers --redo` rebuilds them all. Without `--redo` an image
-already in the cache is reused, so re-running `scan` after the shelves change
-costs a few seconds rather than another walk through several thousand epubs.
+Position is kept twice: the reader's own session (locator, preferences, marks)
+in `localStorage`, because its storage port is synchronous; and, throttled, on
+the server, which is what 読書中 and the progress badges are built from. Opening
+a book takes whichever was written last.
 
 ## Why the shelf stays smooth
 
-The covers are byte-for-byte copies of what was inside the books: on this
-collection they average ~1 MB and 2.4 megapixels, and the largest is 67 MB.
-Drawn at 132 px that costs roughly 10 MB of decoded bitmap per tile, so a
-shelf of a thousand series used to take hundreds of megabytes and stall every
-few rows. Two things fix it, and neither adds a dependency:
+Covers are byte-for-byte copies out of the books — ~1 MB and 2.4 megapixels on
+average, the largest 67 MB. Four thousand of those would be hundreds of
+megabytes of decoded bitmap. Four things prevent it:
 
-- **The grid is virtual.** Only the rows crossing the viewport exist as
-  elements — a few dozen — and the card elements are recycled as they scroll.
-  The empty space above and below is exact, so the scrollbar still tells the
-  truth. Rows of data are fetched a page at a time as you reach them.
-- **Thumbnails are made by the browser.** There is no imaging library on the
-  Python side, so `web/thumbs.js` fetches each cover once, lets the browser
-  decode it straight down to 264 px, re-encodes it as a ~30 KB JPEG and keeps
-  it in IndexedDB. After the first look at a tile it costs 30 KB instead of
-  1 MB. The cache is stamped with the scan it was built from and is discarded
-  automatically after a rescan, because `scan` renumbers items.
+- **The grid is virtual** — only rows crossing the viewport exist as elements,
+  with exact empty space above and below so the scrollbar stays honest.
+- **Rows arrive a page at a time**, only for the range about to be drawn, and
+  what has been fetched is kept, so leaving a book lands back on the same rows.
+- **Thumbnails are made by the browser** — each cover is fetched once, decoded
+  straight down to 264 px, re-encoded to ~30 KB and kept in IndexedDB.
+- **Nothing flashes** — spinners are held back ~180 ms, search waits for the
+  typing to settle, scrolling is handled once per frame.
 
-Measured on this collection, scrolling the same distance through すべて:
-
-| | DOM cards | cover traffic | stalls > 50 ms | worst frame |
-|---|---|---|---|---|
-| before | 480 | 285 MB | 20 (1.8 s total) | 235 ms |
-| after, first visit | ~90 | 28 MB | 0 | 17 ms |
-| after, cached | ~90 | 0 MB | 0 | 9 ms |
-
-If IndexedDB or `createImageBitmap` is unavailable the grid quietly falls back
-to the full-size covers; it is slower, exactly as it was before, but correct.
+The reader is a separate bundle, not downloaded until a book is opened.
 
 ## Files
 
 ```
-lnlib/          config, naming rules, scanner, cover extraction,
-                the reader, queries, HTTP server, CLI
-web/            single-page UI (no framework)
-                app.js is the shelf and reader, thumbs.js the cover cache
-data/           SQLite index + cover cache — rebuilt by `scan`
-config.json     roots, host, port
+lnlib/            scanner, cover extraction, HTTP server, CLI
+  queries.py      everything that reads the index
+  library.py      everything that changes it: forget, discard, restore
+web/src/
+  lib/            api client, page store, thumbnail cache, timing hooks
+  views/          shelf, reading, formats, folders, trash, reader
+  components/     grid, covers, book dialog, select
+  reader/         epub / images / text, each its own lazy chunk
+  epub-reader/    vendored engine — upstream files, not edited here
+web/dist/         built bundle, which is what `serve` serves
+data/             SQLite index + cover cache
 ```
 
-Everything in `data/` except reading progress is derived from disk and can be
-thrown away; `scan` and `covers` rebuild it. Reading positions live in the same
-database, so back up `data/library.db` if you care about them.
+`data/covers/` is pure cache. `data/library.db` is not: it holds reading
+progress *and* the record of books whose files are no longer where they were.
+Back it up if you care about either.

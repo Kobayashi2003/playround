@@ -15,11 +15,20 @@ DATA_DIR = os.path.join(PROJECT_DIR, "data")
 CACHE_DIR = os.path.join(DATA_DIR, "covers")
 DB_PATH = os.path.join(DATA_DIR, "library.db")
 
-BOOK_EXT = {".epub", ".azw3", ".mobi", ".pdf", ".cbz", ".cbr"}
+BOOK_EXT = {".epub", ".azw3", ".mobi", ".pdf", ".cbz", ".cbr", ".txt"}
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
-# A .txt is never a book in this collection -- it is a placeholder standing in
-# for a volume the owner does not have, named exactly like the real file.
-MISSING_EXT = {".txt"}
+
+
+def format_of(ext: str, is_dir: bool = False) -> str:
+    """What kind of file this is, as one lowercase word.
+
+    The extension is the answer, minus its dot; a folder of page scans is
+    `images`. Nothing is mapped or grouped, so a format that turns up in the
+    collection tomorrow counts itself without being added here first.
+    """
+    if is_dir or ext == "<dir>":
+        return "images"
+    return (ext or "").lstrip(".").lower() or "other"
 
 DEFAULT_ROOTS = [
     {"path": r"E:\書籍 (ライトノベル)", "label": "ライトノベル", "kind": "novel"},
@@ -87,6 +96,7 @@ class Config:
         tmp = CONFIG_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")          # it is a text file; it ends with a newline
         os.replace(tmp, CONFIG_PATH)
 
     def enabled_roots(self) -> list[Root]:

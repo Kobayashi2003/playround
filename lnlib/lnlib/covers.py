@@ -9,7 +9,7 @@ re-encoded, so no imaging library is needed. Per format:
   image folder first image by filename order
   .pdf         first sufficiently large embedded JPEG (DCTDecode streams)
   .azw3/.mobi  first sufficiently large embedded JPEG in the record area
-  .txt         a placeholder for a volume that is not owned -- never has a cover
+  .txt         plain text, so there is no image inside it to copy out
 """
 from __future__ import annotations
 
@@ -225,9 +225,6 @@ EXTRACTORS = {
 
 def extract(path: str, ext: str, is_dir: bool, reuse: bool = True) -> dict:
     """-> {state, cache_name, mime, source, detail}"""
-    if not is_dir and ext.lower() in config.MISSING_EXT:
-        return dict(state="none", source="placeholder",
-                    detail="not owned", cache_name=None, mime=None)
     if reuse:
         got = _cached(path)
         if got:
@@ -237,9 +234,6 @@ def extract(path: str, ext: str, is_dir: bool, reuse: bool = True) -> dict:
         fn, source = _folder_cover, "folder-first"
     else:
         ext = ext.lower()
-        if ext in config.MISSING_EXT:
-            return dict(state="none", source="placeholder",
-                        detail="not owned", cache_name=None, mime=None)
         fn = EXTRACTORS.get(ext)
         source = {".epub": "epub-opf", ".cbz": "zip-first", ".pdf": "pdf-jpeg",
                   ".azw3": "mobi-jpeg", ".mobi": "mobi-jpeg"}.get(ext, "none")

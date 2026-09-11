@@ -1,18 +1,29 @@
 """SQLite storage.
 
-Two kinds of data live here and they are treated very differently:
+The index is a *record of what has been seen*, not a mirror of what is on disk
+this minute. `scan` adds what it finds and updates what has changed, and a book
+it no longer finds is marked `present = 0` rather than deleted: a drive that is
+not plugged in, a folder being reorganised, or a rename in progress must not
+quietly cost the shelf everything it knew.
 
-* Derived data (series/items/covers) is a *cache* of what is on disk. It can be
-  thrown away and rebuilt by `scan` at any time. Nothing may be stored here
-  that cannot be recovered from the filesystem.
+So a row leaves the index only when someone means it to:
 
-* Durable data (reading progress) belongs to the reader and must survive a
-  rescan, so it is keyed by the book's path rather than by its row id.
+* opening a book and finding the file genuinely gone retires its row, because
+  that is the one moment the absence has actually been confirmed;
+* deleting a book from the shelf moves its row to `trash`, and optionally the
+  file with it, and both can be put back.
+
+Covers are still pure cache -- keyed by book id, rebuilt from the file on
+demand. Reading progress is keyed by path so a rescan cannot lose it.
+
+One row is one book. There is no series table: the shelf shows volumes, and
+whatever grouping the collection has is the grouping it has on disk. Every file
+the scanner recognises is a book of some `format`, `.txt` included -- the index
+records what a thing is, not what it is instead of.
 """
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import time
 from typing import Any
@@ -23,47 +34,48 @@ SCHEMA = """
 PRAGMA journal_mode=WAL;
 
 -- ---------- derived cache (safe to drop and rebuild) ----------
-CREATE TABLE IF NOT EXISTS series (
+CREATE TABLE IF NOT EXISTS books (
     id           INTEGER PRIMARY KEY,
     root_label   TEXT NOT NULL,
     root_kind    TEXT NOT NULL,
     shelf        TEXT NOT NULL,
-    author       TEXT,
-    title        TEXT NOT NULL,
-    path         TEXT NOT NULL,
-    is_flat      INTEGER NOT NULL DEFAULT 0,
-    n_items      INTEGER NOT NULL DEFAULT 0,
-    n_missing    INTEGER NOT NULL DEFAULT 0,
-    n_undated    INTEGER NOT NULL DEFAULT 0,
-    first_date   TEXT,
-    last_date    TEXT,
-    series_key   TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS ix_series_shelf ON series(root_label, shelf);
-CREATE INDEX IF NOT EXISTS ix_series_key   ON series(series_key);
-
-CREATE TABLE IF NOT EXISTS items (
-    id           INTEGER PRIMARY KEY,
-    series_id    INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    folder       TEXT NOT NULL DEFAULT '',  -- containing folder, '' when loose
     path         TEXT NOT NULL UNIQUE,
     filename     TEXT NOT NULL,
     title        TEXT NOT NULL,
+    author       TEXT,
+    imprint      TEXT,
+    illustrator  TEXT,
     ext          TEXT NOT NULL,
+    -- The extension without its dot, or `images` for a folder of page scans.
+    -- Kept beside `ext` because it is what the shelf counts and filters by.
+    format       TEXT NOT NULL DEFAULT '',
     date         TEXT,
     volume       TEXT,
-    is_missing   INTEGER NOT NULL DEFAULT 0,
     is_extra     INTEGER NOT NULL DEFAULT 0,
     is_dir       INTEGER NOT NULL DEFAULT 0,
     size         INTEGER NOT NULL DEFAULT 0,
     mtime        REAL NOT NULL DEFAULT 0,
     sort_date    TEXT,
-    sort_vol     REAL
+    sort_vol     REAL,
+    -- Whether the last scan still found this file. A 0 here is a question, not
+    -- a verdict: the row keeps everything it knew until someone confirms.
+    present      INTEGER NOT NULL DEFAULT 1,
+    first_seen   REAL NOT NULL DEFAULT 0,
+    last_seen    REAL NOT NULL DEFAULT 0,
+    -- Folded once here rather than in every query: the search box matches the
+    -- same way `naming.norm` does, which SQL's own lower()/replace() cannot.
+    norm_title   TEXT NOT NULL DEFAULT '',
+    norm_author  TEXT NOT NULL DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS ix_items_series ON items(series_id);
-CREATE INDEX IF NOT EXISTS ix_items_missing ON items(is_missing);
+CREATE INDEX IF NOT EXISTS ix_books_shelf   ON books(root_label, shelf);
+CREATE INDEX IF NOT EXISTS ix_books_format  ON books(format);
+CREATE INDEX IF NOT EXISTS ix_books_present ON books(present);
+CREATE INDEX IF NOT EXISTS ix_books_sort    ON books(sort_date, sort_vol);
+CREATE INDEX IF NOT EXISTS ix_books_author  ON books(norm_author);
 
 CREATE TABLE IF NOT EXISTS covers (
-    item_id      INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    book_id      INTEGER PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
     cache_name   TEXT,
     mime         TEXT,
     source       TEXT,          -- epub-opf | zip-first | folder-first | pdf-jpeg | mobi-jpeg | none
@@ -72,12 +84,32 @@ CREATE TABLE IF NOT EXISTS covers (
     updated_at   REAL NOT NULL
 );
 
+-- Books taken off the shelf. The whole row is kept as JSON so putting one back
+-- restores exactly what was there, including the id it had. `file_state` says
+-- what happened to the file itself: `kept` means it is still where it was and
+-- only the record was dropped; `trashed` means it was moved to `trash_path`,
+-- which is inside the same root and so was a rename rather than a copy.
+CREATE TABLE IF NOT EXISTS trash (
+    id           INTEGER PRIMARY KEY,
+    path         TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    author       TEXT,
+    format       TEXT NOT NULL DEFAULT '',
+    size         INTEGER NOT NULL DEFAULT 0,
+    row          TEXT NOT NULL,   -- the whole books row, JSON
+    file_state   TEXT NOT NULL,   -- kept | trashed | vanished
+    trash_path   TEXT,
+    reason       TEXT,            -- deleted | vanished
+    trashed_at   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_trash_at ON trash(trashed_at DESC);
+
 -- ---------- durable, survives rescans ----------
 -- Where the reader left off. Keyed by path so a rescan does not lose it; a
 -- book renamed on disk simply starts again from the beginning.
 CREATE TABLE IF NOT EXISTS reading (
     path         TEXT PRIMARY KEY,
-    locator      TEXT,           -- epub: spine href | images: page index | pdf: page
+    locator      TEXT,           -- epub: JSON locator | images: page index | pdf: page
     position     REAL NOT NULL DEFAULT 0,   -- 0..1 within the current section
     percent      REAL NOT NULL DEFAULT 0,   -- 0..1 through the whole book
     finished     INTEGER NOT NULL DEFAULT 0,
@@ -91,6 +123,11 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 """
 
+# Tables the series-shaped index used. `scan` no longer writes them and every
+# query has moved to `books`, so an old database is brought forward by dropping
+# them; reading progress is keyed by path and is not touched.
+LEGACY_TABLES = ("items", "series")
+
 
 def connect() -> sqlite3.Connection:
     config.ensure_dirs()
@@ -102,7 +139,56 @@ def connect() -> sqlite3.Connection:
 
 def init() -> None:
     with connect() as conn:
+        _migrate(conn)
         conn.executescript(SCHEMA)
+        _stamp_epoch(conn)
+
+
+def _stamp_epoch(conn: sqlite3.Connection) -> None:
+    """Mark which incarnation of the books table this is.
+
+    Book ids used to be reassigned by every scan, so anything keyed by one --
+    the browser's thumbnail cache, above all -- had to be discarded whenever
+    the shelf was rescanned. A scan now updates rows in place and ids survive
+    it, so the only thing that can invalidate them is the table being built
+    again from nothing. This is stamped exactly then, and it is what the front
+    end compares against instead of the time of the last scan.
+    """
+    if get_meta(conn, "index_epoch") is None:
+        set_meta(conn, "index_epoch", time.time())
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Bring a database written by the series-shaped index forward.
+
+    The covers table used to be keyed by `item_id`, and item ids came from a
+    table that no longer exists, so there is nothing in it worth keeping -- the
+    cached image files themselves are found again by path hash on the next
+    extraction. Reading progress is keyed by path and survives untouched.
+    """
+    have = {r["name"] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    # `is_missing` is gone: a .txt is a text file rather than the absence of an
+    # epub, so the column it was recorded in has no meaning to carry forward.
+    # The table is derived from disk and `scan` rebuilds it in seconds.
+    if "books" in have:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(books)")}
+        if "format" not in cols or "is_missing" in cols or "present" not in cols:
+            conn.execute("DROP TABLE books")
+            have.discard("books")
+            if "covers" in have:
+                conn.execute("DROP TABLE covers")
+                have.discard("covers")
+            # Ids start again from 1, so everything keyed by one is stale.
+            # Clearing the stamp is what tells the browser to drop its cache.
+            conn.execute("DELETE FROM meta WHERE key='index_epoch'")
+    if "covers" in have:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(covers)")}
+        if "book_id" not in cols:
+            conn.execute("DROP TABLE covers")
+    for name in LEGACY_TABLES:
+        if name in have:
+            conn.execute(f"DROP TABLE IF EXISTS {name}")
 
 
 def set_meta(conn: sqlite3.Connection, key: str, value: Any) -> None:
@@ -121,12 +207,6 @@ def get_meta(conn: sqlite3.Connection, key: str, default=None):
         return json.loads(row["value"])
     except (TypeError, ValueError):
         return default
-
-
-def series_key(author: str | None, title: str) -> str:
-    """Stable identity for a series, independent of its current folder name."""
-    from .naming import norm
-    return f"{norm(author or '')}|{norm(title)}"
 
 
 def now() -> float:

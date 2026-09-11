@@ -6,13 +6,13 @@ says what they mean, which is the only rule the whole collection agrees on:
     [imprint][author][illustrator][YYMMDD] Title.epub   a novel
     [imprint][author][YYMMDD] Title.epub                no illustrator credited
     [author][YYMMDD] Title                              an artbook folder
-    [author] Series Title/                              a series folder
-    [YYMMDD] Volume Title.epub                          inside a series folder
+    [author] Folder Title/                              a folder of books
+    [YYMMDD] Volume Title.epub                          inside such a folder
 
-Novels are no longer grouped by folder -- a shelf is a flat pile of files -- so
-the series a volume belongs to has to be recovered from its title, which is
-what `series_of` does. A volume the owner does not have is a .txt file named
-exactly like the real thing, so the two sit in the same inferred series.
+Every file is one book and nothing here tries to work out which books belong
+together: a title is read as it was written, and the volume number is only ever
+taken from the name of the file it sits in. Whatever grouping the collection
+has is the grouping it has on disk.
 
 Everything here is pure string handling with no I/O.
 """
@@ -24,35 +24,6 @@ import unicodedata
 RE_TAGS = re.compile(r"^\s*((?:\[[^\]]*\]\s*)+)(.*)$", re.S)
 RE_TAG = re.compile(r"\[([^\]]*)\]")
 RE_DATE6 = re.compile(r"^\d{6}$")
-RE_DATE = re.compile(r"\[(?P<date>\d{6})\]")
-
-# A book split in half keeps the volume number and adds 上 / 下; the marker has
-# to come off before the number can be seen. Whitespace is required so that a
-# title merely ending in one of these words is left alone.
-RE_PART_TAIL = re.compile(r"[\s　]+(?:上|中|下|前編|後編|前巻|後巻)\s*$")
-
-# Trailing pieces that are decoration rather than part of the series name.
-RE_TILDE_TAIL = re.compile(r"[~〜～][^~〜～]*[~〜～]\s*$")
-RE_TAIL_NUM = re.compile(
-    r"[\s　]*(?:第)?\s*\d{1,3}(?:\.\d)?\s*(?:巻|話|時間目)?\s*$")
-# The volume in brackets at the end: 五等分の花嫁【春夏秋冬】(1)
-RE_TAIL_BRACKET_NUM = re.compile(
-    r"[\s　]*[（(［\[【]\s*(?P<vol>\d{1,3})\s*[）)］\]】][\s　]*$")
-RE_TAIL_ROMAN = re.compile(r"[\s　]+[IVXLCivxlc]{1,8}\s*$")
-# 灼眼のシャナIII -- a numeral welded straight onto the title. Only counted
-# after a Japanese character, so an English word ending in "IX" is left
-# alone, and a lone L or C is not a volume (彼女のL is a title, not book 50).
-RE_TAIL_ROMAN_GLUED = re.compile(r"(.)((?:[IVXLC]{2,}|[IVX]))\s*$")
-# "Title 03 Subtitle" and "Title3 Subtitle": the volume number sits between the
-# series name and a per-volume subtitle. The lookbehind keeps the whole number
-# together, so a title opening with a year cannot be split down the middle.
-RE_MID_NUM = re.compile(
-    r"^(?P<base>.{3,}?)[\s　]*(?<!\d)(?P<vol>\d{1,3})"
-    r"(?:[\s　]+|[.．][\s　]*)(?P<sub>\S.*)$")
-# The same shape with a roman numeral: 緋弾のアリア IX 蒼き閃光. Uppercase only,
-# so a lowercase English word cannot be mistaken for a numeral.
-RE_MID_ROMAN = re.compile(
-    r"^(?P<base>.{3,}?)[\s　]+(?P<vol>[IVXLC]{1,8})[\s　]+(?P<sub>\S.*)$")
 
 _ROMAN_VALUE = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
 
@@ -73,25 +44,6 @@ def roman(text: str) -> int | None:
         total += -v if nxt and nxt > v else v
     return total or None
 
-
-class _RomanTable(dict):
-    """`x in ROMAN` / `ROMAN[x]` for any numeral, not just the first thirty."""
-
-    def __contains__(self, key):
-        return roman(key) is not None
-
-    def __getitem__(self, key):
-        got = roman(key)
-        if got is None:
-            raise KeyError(key)
-        return got
-
-    def get(self, key, default=None):
-        got = roman(key)
-        return default if got is None else got
-
-
-ROMAN = _RomanTable()
 
 # Titles that carry no volume number of their own.
 EXTRA_HINTS = (
@@ -161,16 +113,21 @@ def read_tags(stem: str) -> dict:
             "date": date, "title": title}
 
 
-def parse_series_dir(name: str) -> tuple[str | None, str]:
-    """'[白米良] ありふれた職業で世界最強' -> ('白米良', 'ありふれた…')."""
+def parse_folder(name: str) -> dict:
+    """A content folder's own tags: '[白米良] ありふれた…' -> author + title.
+
+    The folder is not a series any more, only a place several books sit in, so
+    what it carries is credit the files inside may leave off.
+    """
     got = read_tags(name.strip())
-    return got["author"], (got["title"] or name.strip())
+    got["title"] = got["title"] or name.strip()
+    return got
 
 
-def parse_item(filename: str, in_series_dir: bool) -> dict:
-    """Split a filename into author / date / title.
+def parse_item(filename: str, in_folder: bool) -> dict:
+    """Split a filename into its credits, date and title.
 
-    Inside a series folder the author lives on the folder, so the file is
+    Inside a content folder the author lives on the folder, so the file is
     usually just '[YYMMDD] Title'; a lone tag there is the date, not a person.
     """
     stem = filename
@@ -181,7 +138,7 @@ def parse_item(filename: str, in_series_dir: bool) -> dict:
 
     got = read_tags(stem)
     title = got["title"] or stem
-    author = None if in_series_dir else got["author"]
+    author = None if in_folder else got["author"]
     return {
         "author": (author or "").strip() or None,
         "imprint": got["imprint"],
@@ -192,75 +149,13 @@ def parse_item(filename: str, in_series_dir: bool) -> dict:
     }
 
 
-def series_of(title: str) -> tuple[str, str | None]:
-    """The series a volume title belongs to, and its volume number.
+def volume_of(title: str) -> str | None:
+    """The volume number written in this one title, for sorting and display.
 
-    A shelf of novels is a flat pile of files, so this is what puts
-    'ひきこまり吸血姫の悶々12' next to the .txt standing in for volume 11.
-    Peeling is repeated because a title can carry several layers of decoration:
-    '無職転生 ~異世界行ったら本気だす~4' loses the subtitle, then the number.
+    Nothing is inferred from the neighbours: if the name does not say which
+    volume it is, it does not have one here.
     """
     t = nfkc(title).strip()
-    volume = None
-    for _ in range(4):
-        before = t
-        t = RE_TILDE_TAIL.sub("", t).strip()
-        t = RE_PART_TAIL.sub("", t).strip()
-        m = RE_TAIL_BRACKET_NUM.search(t)
-        if m:
-            if volume is None:
-                volume = m.group("vol")
-            t = t[:m.start()].strip()
-        m = RE_TAIL_NUM.search(t)
-        if m:
-            found = re.search(r"\d{1,3}(?:\.\d)?", m.group(0))
-            if volume is None and found:
-                volume = found.group(0)
-            t = t[:m.start()].strip()
-        m = RE_TAIL_ROMAN_GLUED.search(t)
-        if m and ord(m.group(1)) > 127:
-            got = roman(m.group(2))
-            if got:
-                if volume is None:
-                    volume = str(got)
-                t = t[:m.start(2)].strip()
-        m = RE_TAIL_ROMAN.search(t)
-        if m:
-            got = roman(m.group(0))
-            if got:
-                if volume is None:
-                    volume = str(got)
-                t = t[:m.start()].strip()
-        t = t.rstrip("　 ・-–—")
-        if t == before:
-            break
-
-    m = RE_MID_NUM.match(t)
-    if m:
-        t = m.group("base").strip()
-        if volume is None:
-            volume = m.group("vol")
-    else:
-        m = RE_MID_ROMAN.match(t)
-        if m and m.group("vol") in ROMAN:
-            t = m.group("base").strip()
-            if volume is None:
-                volume = str(ROMAN[m.group("vol")])
-
-    if not t:                       # a title that was nothing but decoration
-        return nfkc(title).strip(), volume
-    if volume is not None:
-        volume = volume.lstrip("0") or "0"
-    return t, volume
-
-
-def guess_volume(title: str, series_title: str | None = None) -> str | None:
-    """Best-effort volume number for sorting. Display never depends on this."""
-    t = nfkc(title).strip()
-    if series_title:
-        st = nfkc(series_title).strip()
-        if t.startswith(st):
-            t = t[len(st):].strip()
     if not t:
         return None
     # 第01巻 / 第3話 -- how every scanned comic volume is named.
@@ -272,12 +167,21 @@ def guess_volume(title: str, series_title: str | None = None) -> str | None:
         v = m.group(1)
         return v if "." in v else str(int(v))
     m = re.match(r"^([IVX]{1,6})(?![A-Za-z])", t, re.I)
-    if m and m.group(1).upper() in ROMAN:
-        return str(ROMAN[m.group(1).upper()])
+    if m and roman(m.group(1)) is not None:
+        return str(roman(m.group(1)))
+    # The volume in brackets at the end: 五等分の花嫁【春夏秋冬】(1)
+    m = re.search(r"[（(［\[【]\s*(\d{1,3})\s*[）)］\]】]\s*$", t)
+    if m:
+        return str(int(m.group(1)))
     m = re.search(r"(?<![0-9A-Za-z])(\d{1,3}(?:\.\d)?)\s*$", t)
     if m:
         v = m.group(1)
         return v if "." in v else str(int(v))
+    # 緋弾のアリア IX -- a numeral at the end. Uppercase and preceded by space,
+    # so a lowercase English word cannot be mistaken for one.
+    m = re.search(r"[\s　]+([IVXLC]{1,8})\s*$", t)
+    if m and roman(m.group(1)) is not None:
+        return str(roman(m.group(1)))
     return None
 
 

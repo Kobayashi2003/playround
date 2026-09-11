@@ -1,139 +1,193 @@
-"""Read-side queries shared by the web server and the CLI."""
+"""Read-side queries shared by the web server and the CLI.
+
+Everything is a book. A view is a filter over one table and a window of rows
+out of it, which is what lets the shelf ask for exactly the page it is about to
+draw and nothing else.
+"""
 from __future__ import annotations
 
 from . import db
 from .naming import norm
 
+# What the shelf can be sorted by. Each is (SQL, label); the tie-breakers are
+# fixed so paging is stable -- a row must never appear on two pages because two
+# books share a date.
+ORDERS = {
+    "date": "b.sort_date DESC, b.sort_vol, b.norm_title, b.id",
+    "date_asc": "b.sort_date, b.sort_vol, b.norm_title, b.id",
+    "title": "b.norm_title, b.sort_date, b.id",
+    "author": "b.norm_author='', b.norm_author, b.norm_title, b.sort_vol, b.id",
+    "added": "b.mtime DESC, b.id",
+    "format": "b.format, b.norm_author, b.norm_title, b.id",
+}
+DEFAULT_ORDER = "author"
+
+# Columns the shelf grid needs. The full row is fetched only for one book at a
+# time, so a page of 120 cards does not carry paths and sizes it never draws.
+CARD_COLUMNS = ("b.id, b.title, b.author, b.shelf, b.folder, b.root_label, "
+                "b.root_kind, b.date, b.volume, b.ext, b.format, b.is_extra, "
+                "b.is_dir, b.present")
+
 
 def overview() -> dict:
+    """Counts the sidebar is built from: per shelf, per format, and in total."""
     with db.connect() as conn:
         shelves = conn.execute(
-            "SELECT root_label, root_kind, shelf, COUNT(*) n_series, "
-            "SUM(n_items) n_items, SUM(n_missing) n_missing, SUM(n_undated) n_undated "
-            "FROM series GROUP BY root_label, shelf "
+            "SELECT root_label, root_kind, shelf, COUNT(*) n_books, "
+            "SUM(date IS NULL) n_undated, SUM(present=0) n_absent "
+            "FROM books GROUP BY root_label, shelf "
             "ORDER BY root_label, shelf"
         ).fetchall()
+        formats = conn.execute(
+            "SELECT format, COUNT(*) n_books, SUM(size) bytes, "
+            "SUM(present=0) n_absent "
+            "FROM books GROUP BY format ORDER BY n_books DESC, format"
+        ).fetchall()
         totals = conn.execute(
-            "SELECT COUNT(*) n_series, SUM(n_items) n_items, "
-            "SUM(n_missing) n_missing, SUM(n_undated) n_undated FROM series"
+            "SELECT COUNT(*) n_books, SUM(date IS NULL) n_undated, "
+            "SUM(present=0) n_absent, COUNT(DISTINCT format) n_formats, "
+            "SUM(size) bytes FROM books"
         ).fetchone()
+        n_trash = conn.execute("SELECT COUNT(*) c FROM trash").fetchone()["c"]
         last = db.get_meta(conn, "last_scan")
+        epoch = db.get_meta(conn, "index_epoch")
     return {
         "shelves": [dict(r) for r in shelves],
+        "formats": [dict(r) for r in formats],
         "totals": dict(totals) if totals else {},
+        "n_trash": n_trash,
+        # Which incarnation of the index this is. Ids survive a scan now, so
+        # anything the browser keyed by one only has to be dropped when this
+        # changes -- not every time the shelf is read off disk again.
+        "index_epoch": epoch,
         "last_scan": last,
     }
 
 
-def series_list(root: str | None = None, shelf: str | None = None,
-                q: str | None = None, only: str | None = None,
-                offset: int = 0, limit: int = 120) -> dict:
+def _filter(root, shelf, folder, q, only, fmt) -> tuple[str, list]:
     where, args = [], []
     if root:
-        where.append("s.root_label=?")
+        where.append("b.root_label=?")
         args.append(root)
     if shelf is not None and shelf != "":
-        where.append("s.shelf=?")
+        where.append("b.shelf=?")
         args.append(shelf)
-    if only == "missing":
-        where.append("s.n_missing > 0")
-    elif only == "undated":
-        where.append("s.n_undated > 0")
+    if folder is not None and folder != "":
+        where.append("b.folder=?")
+        args.append(folder)
+    if fmt:
+        # Several formats at once: `format=epub,pdf` is how the shelf asks for
+        # "the ones I can actually read here".
+        wanted = [f.strip().lstrip(".").lower() for f in str(fmt).split(",")
+                  if f.strip()]
+        if wanted:
+            where.append(f"b.format IN ({','.join('?' * len(wanted))})")
+            args += wanted
+    if only == "undated":
+        where.append("b.date IS NULL")
+    elif only == "extra":
+        where.append("b.is_extra=1")
+    elif only == "absent":
+        where.append("b.present=0")
+    elif only == "present":
+        where.append("b.present=1")
     if q:
-        where.append("(s.norm_title LIKE ? OR s.norm_author LIKE ?)")
+        where.append("(b.norm_title LIKE ? OR b.norm_author LIKE ?)")
         like = f"%{norm(q)}%"
         args += [like, like]
+    return (" WHERE " + " AND ".join(where)) if where else "", args
 
-    sql_from = ("FROM (SELECT *, "
-                "      replace(replace(lower(title),' ',''),'　','') norm_title, "
-                "      replace(replace(lower(COALESCE(author,'')),' ',''),'　','') norm_author "
-                "      FROM series) s")
-    clause = (" WHERE " + " AND ".join(where)) if where else ""
+
+def books(root: str | None = None, shelf: str | None = None,
+          folder: str | None = None, q: str | None = None,
+          only: str | None = None, fmt: str | None = None,
+          order: str | None = None, offset: int = 0, limit: int = 120) -> dict:
+    """One page of the shelf, with the cover each card should draw."""
+    clause, args = _filter(root, shelf, folder, q, only, fmt)
+    by = ORDERS.get(order or DEFAULT_ORDER, ORDERS[DEFAULT_ORDER])
 
     with db.connect() as conn:
-        total = conn.execute(f"SELECT COUNT(*) c {sql_from}{clause}", args).fetchone()["c"]
+        total = conn.execute(
+            f"SELECT COUNT(*) c FROM books b{clause}", args).fetchone()["c"]
         rows = conn.execute(
-            f"SELECT s.* {sql_from}{clause} "
-            "ORDER BY s.root_label, s.shelf, s.author IS NULL, s.author, s.title "
-            "LIMIT ? OFFSET ?", args + [limit, offset]).fetchall()
-        out = []
-        for r in rows:
-            d = dict(r)
-            d.pop("norm_title", None)
-            d.pop("norm_author", None)
-            out.append(d)
-
-        # One window query for the whole page instead of a cover lookup per row:
-        # at 120 rows that is 1 statement rather than 121.
-        ids = [d["id"] for d in out]
-        covers_by_series: dict[int, tuple] = {}
-        if ids:
-            marks = ",".join("?" * len(ids))
-            for c in conn.execute(
-                    "SELECT series_id, item_id, state FROM ("
-                    "  SELECT i.series_id, i.id item_id, c.state, ROW_NUMBER() OVER ("
-                    "    PARTITION BY i.series_id ORDER BY"
-                    "      CASE WHEN c.state='ok' THEN 0 ELSE 1 END,"
-                    "      i.is_extra, i.sort_date, i.sort_vol) rn"
-                    "  FROM items i LEFT JOIN covers c ON c.item_id=i.id"
-                    f"  WHERE i.is_missing=0 AND i.series_id IN ({marks})"
-                    ") WHERE rn=1", ids):
-                covers_by_series[c["series_id"]] = (c["item_id"], c["state"])
-        for d in out:
-            hit = covers_by_series.get(d["id"])
-            d["cover_item_id"] = hit[0] if hit else None
-            # The grid uses this to avoid requesting a cover that is known not
-            # to exist -- a 404 per card is the most expensive kind of nothing.
-            d["cover_state"] = hit[1] if hit else None
-    return {"total": total, "offset": offset, "limit": limit, "series": out}
+            f"SELECT {CARD_COLUMNS}, c.state cover_state, "
+            "r.percent read_percent, r.finished read_finished "
+            "FROM books b LEFT JOIN covers c ON c.book_id=b.id "
+            f"LEFT JOIN reading r ON r.path=b.path{clause} "
+            f"ORDER BY {by} LIMIT ? OFFSET ?", args + [limit, offset]).fetchall()
+        # What the format filter could still narrow to, counted under every
+        # *other* filter that is active. A format offering nothing here is not
+        # offered at all, so the control never leads anywhere empty.
+        facets = conn.execute(
+            f"SELECT b.format, COUNT(*) n FROM books b{clause} "
+            "GROUP BY b.format ORDER BY n DESC, b.format",
+            args).fetchall() if not fmt else []
+    return {"total": total, "offset": offset, "limit": limit,
+            "order": order or DEFAULT_ORDER, "format": fmt,
+            "facets": [dict(r) for r in facets],
+            "books": [dict(r) for r in rows]}
 
 
-def series_detail(series_id: int) -> dict | None:
+def book(book_id: int) -> dict | None:
+    """One book in full, plus the other files in the folder it sits in.
+
+    That is a fact about the disk rather than a claim about which books belong
+    together, and it only means anything when there is a folder: a book lying
+    loose on a shelf shares that shelf with a thousand others, and listing them
+    would say nothing at all.
+    """
     with db.connect() as conn:
-        s = conn.execute("SELECT * FROM series WHERE id=?", (series_id,)).fetchone()
-        if not s:
+        row = conn.execute(
+            "SELECT b.*, c.state cover_state, c.source cover_source, "
+            "r.percent read_percent, r.locator read_locator, "
+            "r.position read_position, r.finished read_finished, "
+            "r.updated_at read_at "
+            "FROM books b LEFT JOIN covers c ON c.book_id=b.id "
+            "LEFT JOIN reading r ON r.path=b.path WHERE b.id=?",
+            (book_id,)).fetchone()
+        if not row:
             return None
-        items = conn.execute(
-            "SELECT i.*, c.state cover_state, c.source cover_source, "
-            "r.percent read_percent, r.locator read_locator, r.finished read_finished "
-            "FROM items i LEFT JOIN covers c ON c.item_id=i.id "
-            "LEFT JOIN reading r ON r.path=i.path "
-            "WHERE i.series_id=? "
-            "ORDER BY i.is_extra, i.sort_date, i.sort_vol, i.title", (series_id,)
-        ).fetchall()
-    return {"series": dict(s), "items": [dict(r) for r in items]}
+        d = dict(row)
+        near = [] if not d["folder"] else conn.execute(
+            f"SELECT {CARD_COLUMNS}, c.state cover_state "
+            "FROM books b LEFT JOIN covers c ON c.book_id=b.id "
+            "WHERE b.root_label=? AND b.shelf=? AND b.folder=? "
+            "ORDER BY b.sort_date, b.sort_vol, b.norm_title, b.id LIMIT 200",
+            (d["root_label"], d["shelf"], d["folder"])).fetchall()
+    return {"book": d, "nearby": [dict(r) for r in near]}
 
 
-def missing(root: str | None = None, limit: int = 2000) -> dict:
-    """Every volume represented by a placeholder -- the main 'what do I lack' view."""
-    where, args = ["i.is_missing=1"], []
-    if root:
-        where.append("s.root_label=?")
-        args.append(root)
+def formats(root: str | None = None, shelf: str | None = None) -> dict:
+    """How the collection breaks down by file format, with what it costs.
+
+    This is the whole of the "what have I got, and as what?" question now that
+    a `.txt` is a text file rather than a volume that is missing.
+    """
+    clause, args = _filter(root, shelf, None, None, None, None)
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT i.*, s.title series_title, s.author, s.shelf, s.root_label, "
-            "s.id series_id, s.series_key "
-            "FROM items i JOIN series s ON s.id=i.series_id "
-            f"WHERE {' AND '.join(where)} "
-            "ORDER BY s.root_label, s.author, s.title, i.sort_vol, i.sort_date "
-            "LIMIT ?", args + [limit]).fetchall()
-    grouped: dict[str, dict] = {}
-    for r in rows:
-        d = dict(r)
-        k = f"{d['author']}|{d['series_title']}"
-        g = grouped.setdefault(k, {"author": d["author"], "title": d["series_title"],
-                                   "shelf": d["shelf"], "root_label": d["root_label"],
-                                   "series_id": d["series_id"],
-                                   "series_key": d["series_key"], "items": []})
-        g["items"].append(d)
-    return {"count": len(rows), "groups": list(grouped.values())}
+            "SELECT b.format, COUNT(*) n_books, SUM(b.size) bytes, "
+            "SUM(b.is_dir) n_dirs, MIN(b.date) first_date, MAX(b.date) last_date, "
+            "COUNT(DISTINCT b.norm_author) n_authors "
+            f"FROM books b{clause} GROUP BY b.format "
+            "ORDER BY n_books DESC, b.format", args).fetchall()
+        by_shelf = conn.execute(
+            "SELECT b.root_label, b.shelf, b.format, COUNT(*) n_books "
+            f"FROM books b{clause} GROUP BY b.root_label, b.shelf, b.format "
+            "ORDER BY b.root_label, b.shelf, n_books DESC", args).fetchall()
+    return {"formats": [dict(r) for r in rows],
+            "by_shelf": [dict(r) for r in by_shelf]}
 
 
-def item(item_id: int) -> dict | None:
+def folders(root: str | None = None, shelf: str | None = None) -> dict:
+    """The content folders on a shelf, for jumping straight to one of them."""
+    clause, args = _filter(root, shelf, None, None, None, None)
+    extra = " AND b.folder<>''" if clause else " WHERE b.folder<>''"
     with db.connect() as conn:
-        r = conn.execute(
-            "SELECT i.*, s.title series_title, s.author, s.series_key, s.root_label "
-            "FROM items i JOIN series s ON s.id=i.series_id WHERE i.id=?",
-            (item_id,)).fetchone()
-    return dict(r) if r else None
+        rows = conn.execute(
+            "SELECT b.root_label, b.shelf, b.folder, COUNT(*) n_books, "
+            "MIN(b.author) author, COUNT(DISTINCT b.format) n_formats "
+            f"FROM books b{clause}{extra} "
+            "GROUP BY b.root_label, b.shelf, b.folder "
+            "ORDER BY b.root_label, b.shelf, b.folder", args).fetchall()
+    return {"folders": [dict(r) for r in rows]}

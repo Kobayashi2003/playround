@@ -9,9 +9,20 @@ import argparse
 import json
 import os
 import sys
+import time
 
-from . import config, coverjob, db, queries, reader
+from . import config, coverjob, db, library, queries, reader
 from . import scan as scanner
+
+
+def _gb(n) -> str:
+    """Bytes as something readable; the sizes here run from KB to hundreds of GB."""
+    size = float(n or 0)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{size:.0f} {unit}" if unit in ("B", "KB") else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
 
 
 def _out(obj, as_json: bool):
@@ -46,58 +57,79 @@ def cmd_overview(a):
     ov = queries.overview()
     if not a.json:
         t = ov["totals"]
-        print(f"{t.get('n_series',0)} series / {t.get('n_items',0)} items / "
-              f"{t.get('n_missing',0)} missing / {t.get('n_undated',0)} undated")
-        for s in ov["shelves"]:
-            print(f"  {s['root_label']:<14} {s['shelf'] or '(flat)':<18} "
-                  f"series={s['n_series']:<5} items={s['n_items']:<6} "
-                  f"missing={s['n_missing']:<5} undated={s['n_undated']}")
+        print(f"{t.get('n_books', 0)} books in {t.get('n_formats', 0)} formats "
+              f"/ {t.get('n_undated', 0)} undated "
+              f"/ {_gb(t.get('bytes'))}")
+        for row in ov["shelves"]:
+            print(f"  {row['root_label']:<14} {row['shelf'] or '(flat)':<18} "
+                  f"books={row['n_books']:<6} undated={row['n_undated']}")
+        print()
+        for row in ov["formats"]:
+            print(f"  {row['format']:<10} {row['n_books']:>6}  {_gb(row['bytes'])}")
     return _out(ov, a.json)
 
 
-def cmd_series(a):
-    res = queries.series_list(root=a.root, shelf=a.shelf, q=a.q, only=a.only,
-                              offset=a.offset, limit=a.limit)
+def _print_books(rows):
+    for b in rows:
+        mark = "extra" if b["is_extra"] else ""
+        pct = b.get("read_percent")
+        read = f"{round(pct * 100)}%" if pct else ""
+        print(f"  [{b['id']:>6}] {b['format']:<7} {b['date'] or '        '}  "
+              f"[{(b['author'] or '?')[:14]:<14}] {b['title'][:46]:<46} "
+              f"{mark} {read}")
+
+
+def cmd_books(a):
+    res = queries.books(root=a.root, shelf=a.shelf, folder=a.folder, q=a.q,
+                        only=a.only, fmt=a.format, order=a.order,
+                        offset=a.offset, limit=a.limit)
     if not a.json:
-        print(f"{res['total']} series")
-        for s in res["series"]:
-            flag = []
-            if s["n_missing"]:
-                flag.append(f"missing={s['n_missing']}")
-            if s["n_undated"]:
-                flag.append(f"undated={s['n_undated']}")
-            print(f"  [{s['id']:>5}] [{s['author'] or '?'}] {s['title'][:52]:<52} "
-                  f"{s['n_items']:>3} items  {' '.join(flag)}")
+        print(f"{res['total']} books")
+        _print_books(res["books"])
+        if res["facets"]:
+            print("  by format: " + ", ".join(
+                f"{f['format']} {f['n']}" for f in res["facets"]))
     return _out(res, a.json)
 
 
 def cmd_show(a):
-    d = queries.series_detail(a.id)
+    d = queries.book(a.id)
     if not d:
-        print("no such series", file=sys.stderr)
+        print("no such book", file=sys.stderr)
         return None
     if not a.json:
-        s = d["series"]
-        print(f"[{s['author']}] {s['title']}")
-        print(f"  {s['root_label']} / {s['shelf']}   key={s['series_key']}")
-        print(f"  {s['path']}")
-        for i in d["items"]:
-            mark = "MISSING" if i["is_missing"] else ("extra" if i["is_extra"] else "")
-            pct = i.get("read_percent")
-            read = f"{round(pct * 100)}%" if pct else ""
-            print(f"    [{i['id']:>6}] {i['date'] or '        '}  "
-                  f"v{i['volume'] or '-':<5} {i['title'][:52]:<52} {mark} {read}")
+        b = d["book"]
+        print(f"[{b['author'] or '?'}] {b['title']}")
+        print(f"  {b['root_label']} / {b['shelf'] or '(flat)'}"
+              f"{' / ' + b['folder'] if b['folder'] else ''}")
+        print(f"  {b['path']}")
+        print(f"  {b['ext']}  {b['date'] or 'no date'}  "
+              f"{'第' + b['volume'] + '巻' if b['volume'] else ''}")
+        if d["nearby"]:
+            print(f"  beside it in the same folder:")
+            _print_books([n for n in d["nearby"] if n["id"] != b["id"]])
     return _out(d, a.json)
 
 
-def cmd_missing(a):
-    res = queries.missing(root=a.root)
+def cmd_formats(a):
+    res = queries.formats(root=a.root, shelf=a.shelf)
     if not a.json:
-        print(f"{res['count']} missing volumes in {len(res['groups'])} series")
-        for g in res["groups"]:
-            print(f"  [{g['author']}] {g['title'][:50]}")
-            for i in g["items"]:
-                print(f"      {i['date'] or '        '}  {i['title'][:60]}")
+        print(f"{len(res['formats'])} formats")
+        for f in res["formats"]:
+            span = (f"{f['first_date']} - {f['last_date']}"
+                    if f["first_date"] else "no dates")
+            print(f"  {f['format']:<10} {f['n_books']:>6} books  "
+                  f"{_gb(f['bytes']):>10}  {f['n_authors']:>5} authors  {span}")
+    return _out(res, a.json)
+
+
+def cmd_folders(a):
+    res = queries.folders(root=a.root, shelf=a.shelf)
+    if not a.json:
+        print(f"{len(res['folders'])} folders")
+        for f in res["folders"]:
+            print(f"  {f['root_label']:<14} {f['shelf'] or '(flat)':<16} "
+                  f"{f['folder'][:44]:<44} {f['n_books']:>3} books")
     return _out(res, a.json)
 
 
@@ -109,8 +141,8 @@ def cmd_reading(a):
         for r in rows:
             pct = round((r["percent"] or 0) * 100)
             flag = "done" if r["finished"] else f"{pct:>3}%"
-            print(f"  [{r['item_id']:>6}] {flag}  {r['series_title'][:34]:<34} "
-                  f"{r['title'][:40]}")
+            print(f"  [{r['id']:>6}] {flag}  {(r['author'] or '?')[:20]:<20} "
+                  f"{r['title'][:44]}")
     return _out(rows, a.json)
 
 
@@ -120,19 +152,86 @@ def cmd_book(a):
         if d.get("error"):
             print(d["error"], file=sys.stderr)
             return None
-        it = d["item"]
-        print(f"[{it['author'] or '?'}] {it['title']}   ({d['kind']})")
+        b = d["book"]
+        print(f"[{b['author'] or '?'}] {b['title']}   ({d['kind']})")
         if d.get("detail"):
             print(f"  {d['detail']}")
-        if d["kind"] == "epub":
-            m = d["meta"]
-            print(f"  {m['direction']} / {m['layout']} / {len(d['sections'])} sections"
-                  f" / {len(d['toc'])} toc entries")
-            for t in d["toc"][:40]:
-                print("    " + "  " * t["depth"] + t["label"][:60])
-        elif d["kind"] == "images":
-            print(f"  {len(d['pages'])} pages")
+        if d["kind"] == "images":
+            print(f"  {len(d['pages'])} pages, {d['direction']}")
+        elif d["kind"] == "epub":
+            print(f"  {b['size']:,} bytes -- opened and paginated in the browser")
+        elif d["kind"] == "text":
+            print(f"  {len(d['text']):,} characters, decoded as {d['encoding']}")
+        p = d.get("progress")
+        if p:
+            print(f"  read {round((p['percent'] or 0) * 100)}%"
+                  f"{' (finished)' if p['finished'] else ''}")
     return _out(d, a.json)
+
+
+def cmd_delete(a):
+    """Take a book off the shelf. The file only moves if asked."""
+    d = queries.book(a.id)
+    if not d:
+        print("no such book", file=sys.stderr)
+        return None
+    b = d["book"]
+    if a.file and not a.yes:
+        print(f"this would move the file to its root's _trash folder:")
+        print(f"  {b['path']}")
+        print("re-run with --yes to go ahead")
+        return None
+    res = library.discard(a.id) if a.file else library.forget(a.id)
+    if not a.json:
+        if res.get("ok"):
+            where = {"trashed": "file moved to _trash",
+                     "kept": "file left where it is",
+                     "vanished": "file was already gone"}
+            print(f"removed [{a.id}] {b['title']}  "
+                  f"({where.get(res.get('file_state'), '')})")
+            print(f"  restore with: lnlib restore {res.get('trash_id')}")
+        else:
+            print(res.get("reason", "failed"), file=sys.stderr)
+    return _out(res, a.json)
+
+
+def cmd_trash(a):
+    if a.empty:
+        if not a.yes:
+            listing = library.trash(limit=1000)
+            files = sum(1 for i in listing["items"]
+                        if i["file_state"] == "trashed")
+            print(f"{listing['total']} entries, of which {files} still hold a "
+                  f"file that would be deleted for good")
+            print("re-run with --yes to go ahead")
+            return None
+        res = library.empty(older_than_days=a.older_than)
+        if not a.json:
+            print(f"emptied {res['entries']} entries, "
+                  f"{res['files_deleted']} files deleted, "
+                  f"{res['files_kept']} left alone, {res['failed']} failed")
+        return _out(res, a.json)
+
+    res = library.trash(limit=a.limit)
+    if not a.json:
+        print(f"{res['total']} in the trash")
+        for i in res["items"]:
+            when = time.strftime("%Y-%m-%d %H:%M",
+                                 time.localtime(i["trashed_at"]))
+            print(f"  [{i['id']:>5}] {when}  {i['file_state']:<9} "
+                  f"{i['format']:<7} {i['title'][:46]}")
+    return _out(res, a.json)
+
+
+def cmd_restore(a):
+    res = library.restore(a.id)
+    if not a.json:
+        if res.get("ok"):
+            print(f"restored {res['title']}"
+                  f"{'' if res.get('present') else '  (file still missing)'}")
+        else:
+            print(res.get("reason", "failed"), file=sys.stderr)
+    return _out(res, a.json)
 
 
 def cmd_config(a):
@@ -184,20 +283,29 @@ def build_parser():
     s = sub.add_parser("overview", help="counts per shelf")
     s.set_defaults(fn=cmd_overview)
 
-    s = sub.add_parser("series", help="list series")
-    s.add_argument("--root"); s.add_argument("--shelf"); s.add_argument("--q")
-    s.add_argument("--only", choices=["missing", "undated"])
+    s = sub.add_parser("books", help="list books")
+    s.add_argument("--root"); s.add_argument("--shelf"); s.add_argument("--folder")
+    s.add_argument("--q")
+    s.add_argument("--format", metavar="epub[,pdf…]",
+                   help="only these formats, comma separated")
+    s.add_argument("--only",
+                   choices=["undated", "extra", "absent", "present"])
+    s.add_argument("--order", choices=sorted(queries.ORDERS), default=queries.DEFAULT_ORDER)
     s.add_argument("--offset", type=int, default=0)
     s.add_argument("--limit", type=int, default=100)
-    s.set_defaults(fn=cmd_series)
+    s.set_defaults(fn=cmd_books)
 
-    s = sub.add_parser("show", help="one series with its volumes")
+    s = sub.add_parser("show", help="one book and what sits beside it")
     s.add_argument("id", type=int)
     s.set_defaults(fn=cmd_show)
 
-    s = sub.add_parser("missing", help="all placeholder volumes")
-    s.add_argument("--root")
-    s.set_defaults(fn=cmd_missing)
+    s = sub.add_parser("formats", help="what the collection is made of")
+    s.add_argument("--root"); s.add_argument("--shelf")
+    s.set_defaults(fn=cmd_formats)
+
+    s = sub.add_parser("folders", help="content folders on the shelves")
+    s.add_argument("--root"); s.add_argument("--shelf")
+    s.set_defaults(fn=cmd_folders)
 
     s = sub.add_parser("reading", help="books with saved reading progress")
     s.add_argument("--limit", type=int, default=60)
@@ -206,6 +314,26 @@ def build_parser():
     s = sub.add_parser("book", help="what the reader sees inside one volume")
     s.add_argument("id", type=int)
     s.set_defaults(fn=cmd_book)
+
+    s = sub.add_parser("delete", help="take a book off the shelf")
+    s.add_argument("id", type=int)
+    s.add_argument("--file", action="store_true",
+                   help="move the file to its root's _trash folder too")
+    s.add_argument("--yes", action="store_true", help="do not ask")
+    s.set_defaults(fn=cmd_delete)
+
+    s = sub.add_parser("trash", help="books taken off the shelf")
+    s.add_argument("--limit", type=int, default=50)
+    s.add_argument("--empty", action="store_true",
+                   help="delete trashed files for good")
+    s.add_argument("--older-than", type=float, metavar="DAYS",
+                   help="with --empty, only entries older than this")
+    s.add_argument("--yes", action="store_true", help="do not ask")
+    s.set_defaults(fn=cmd_trash)
+
+    s = sub.add_parser("restore", help="put a trashed book back")
+    s.add_argument("id", type=int, help="the trash id, from `lnlib trash`")
+    s.set_defaults(fn=cmd_restore)
 
     s = sub.add_parser("config", help="inspect or edit roots")
     s.add_argument("--add-root"); s.add_argument("--remove-root")

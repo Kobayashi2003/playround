@@ -4,43 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>蔵書棚 — lnlib</title>
-<link rel="stylesheet" href="style.css">
+<script>
+  // The theme is read back before the first paint so the shelf does not flash
+  // the wrong colours while React is still starting up.
+  try {
+    var t = localStorage.getItem("lnlib.theme");
+    if (t) document.documentElement.setAttribute("data-theme", t);
+  } catch (e) { /* private mode: the media query decides instead */ }
+</script>
 </head>
 <body>
-<div id="app">
-  <aside id="side">
-    <div class="brand">
-      <h1 class="mincho">蔵書棚</h1>
-      <span class="v">lnlib</span>
-    </div>
-    <nav class="nav" id="nav"></nav>
-    <div class="sidefoot">
-      <button id="btn-theme" class="sm" title="表示テーマ">◐ テーマ</button>
-      <button id="btn-scan" class="sm" title="ディスクを読み直す">再スキャン</button>
-    </div>
-  </aside>
-
-  <main id="main">
-    <div class="topbar">
-      <button class="menu-btn sm" id="btn-menu">☰</button>
-      <h2 id="title">蔵書</h2>
-      <span class="sub" id="subtitle"></span>
-      <input type="search" id="q" placeholder="作者・作品名で絞り込む" autocomplete="off">
-    </div>
-    <div class="content" id="content"></div>
-  </main>
-</div>
-<div id="reader"></div>
-<script>
-  // The shelf is served at the origin root when it runs alone, and under a path
-  // prefix when a shared edge fronts it beside other apps. The stylesheet and the
-  // scripts are linked relatively so they resolve either way; the API, cover and
-  // book URLs below are root-absolute, so they are prefixed with this — the
-  // document's own directory, which the server guarantees by redirecting the bare
-  // prefix to the slashed form.
-  const MOUNT = new URL(".", document.baseURI).pathname.replace(/\/$/, "");
-</script>
-<script src="thumbs.js"></script>
-<script src="app.js"></script>
+<div id="root"></div>
+<script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

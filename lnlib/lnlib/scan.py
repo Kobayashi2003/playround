@@ -1,19 +1,25 @@
-"""Walk the roots and rebuild the derived tables.
+"""Walk the roots and rebuild the derived table.
 
 The shelves are not laid out the same way everywhere, and the layout changes
 over time, so nothing here is configured -- it is all read off the disk:
 
     a folder whose name starts with "["   is content: an author or a publisher
-                                          owns it, so it is a series or a
-                                          scanned volume
+                                          owns it, so it either is one volume
+                                          of page scans or holds several books
     any other folder directly under a root is a shelf (1. 連載中, 3. 完結 …)
     files sitting loose on a shelf         are books
 
-Novels now live as a flat pile of files on each shelf rather than in per-series
-folders, so their series is recovered from the titles by `naming.series_of`;
-that is what keeps a volume next to the .txt placeholder standing in for the
-one after it. Comics and artbooks still use folders, and both shapes are
-scanned side by side without being told which is which.
+Every file is one book and that is where it ends: nothing is grouped, inferred
+or joined back together. A folder that holds books is recorded on each of them
+as the place they sit in, and it lends them the author its own name credits,
+but it is not a thing in the index of its own. Every recognised extension is a
+format the shelf can count and filter by, `.txt` no differently from the rest.
+
+A scan adds and updates; it does not delete. A book it did not find this time
+is marked `present = 0` and keeps everything else it knew, because far and away
+the likeliest reason a file is missing is that the drive holding it is not
+plugged in. A root that could not be opened at all is skipped entirely rather
+than being read as an empty one, so an unplugged drive marks nothing.
 """
 from __future__ import annotations
 
@@ -21,12 +27,12 @@ import os
 import time
 
 from . import config, db
-from .naming import guess_volume, is_extra, norm, parse_item, parse_series_dir, series_of
-from .config import BOOK_EXT, IMAGE_EXT, MISSING_EXT
+from .naming import is_extra, norm, parse_folder, parse_item, volume_of
+from .config import BOOK_EXT, IMAGE_EXT, format_of
 
 
 def _is_image_volume(path: str) -> bool:
-    """A folder of page scans counts as one volume, not as a series."""
+    """A folder of page scans counts as one volume, not as a place."""
     try:
         entries = os.listdir(path)
     except OSError:
@@ -36,7 +42,7 @@ def _is_image_volume(path: str) -> bool:
         ext = os.path.splitext(e)[1].lower()
         if ext in IMAGE_EXT:
             imgs += 1
-        elif ext in BOOK_EXT or ext in MISSING_EXT:
+        elif ext in BOOK_EXT:
             books += 1
     return imgs > 0 and books == 0
 
@@ -62,7 +68,8 @@ def _shelves_of(root_path: str) -> list[str]:
     return [n for n in names if _is_shelf(root_path, n)]
 
 
-def _collect_items(folder: str, in_series_dir: bool) -> list[dict]:
+def _collect_books(folder: str, in_folder: bool) -> list[dict]:
+    """Every book directly inside one folder, files and page-scan folders alike."""
     out: list[dict] = []
     try:
         entries = sorted(os.listdir(folder))
@@ -70,34 +77,33 @@ def _collect_items(folder: str, in_series_dir: bool) -> list[dict]:
         return out
     for name in entries:
         full = os.path.join(folder, name)
-        if name.startswith("_") or name.startswith("."):
+        if name.startswith(("_", ".")):
             continue
         if os.path.isdir(full):
-            if _is_image_volume(full):
-                meta = parse_item(name + ".dir", in_series_dir)
-                try:
-                    st = os.stat(full)
-                    size = sum(
-                        os.path.getsize(os.path.join(full, f))
-                        for f in os.listdir(full)
-                        if os.path.isfile(os.path.join(full, f))
-                    )
-                except OSError:
-                    st, size = None, 0
-                out.append(dict(path=full, filename=name, ext="<dir>", is_dir=1,
-                                is_missing=0, size=size,
-                                mtime=st.st_mtime if st else 0, **meta))
+            if not _is_image_volume(full):
+                continue
+            meta = parse_item(name + ".dir", in_folder)
+            try:
+                st = os.stat(full)
+                size = sum(
+                    os.path.getsize(os.path.join(full, f))
+                    for f in os.listdir(full)
+                    if os.path.isfile(os.path.join(full, f))
+                )
+            except OSError:
+                st, size = None, 0
+            out.append(dict(path=full, filename=name, ext="<dir>", is_dir=1,
+                            size=size, mtime=st.st_mtime if st else 0, **meta))
             continue
         ext = os.path.splitext(name)[1].lower()
-        if ext not in BOOK_EXT and ext not in MISSING_EXT:
+        if ext not in BOOK_EXT:
             continue
-        meta = parse_item(name, in_series_dir)
+        meta = parse_item(name, in_folder)
         try:
             st = os.stat(full)
         except OSError:
             continue
         out.append(dict(path=full, filename=name, ext=ext, is_dir=0,
-                        is_missing=1 if ext in MISSING_EXT else 0,
                         size=st.st_size, mtime=st.st_mtime, **meta))
     return out
 
@@ -106,12 +112,11 @@ def scan(verbose: bool = True) -> dict:
     cfg = config.Config.load()
     db.init()
     started = time.time()
-    stats = {"roots": 0, "series": 0, "items": 0, "missing": 0, "skipped_roots": []}
+    stats = {"roots": 0, "books": 0, "new": 0, "updated": 0, "returned": 0,
+             "vanished": 0, "formats": {}, "skipped_roots": []}
+    scanned_roots: list[str] = []
 
     with db.connect() as conn:
-        conn.execute("DELETE FROM items")
-        conn.execute("DELETE FROM series")
-
         for root in cfg.roots:
             if not root.enabled:
                 continue
@@ -119,15 +124,17 @@ def scan(verbose: bool = True) -> dict:
                 stats["skipped_roots"].append(root.path)
                 continue
             stats["roots"] += 1
+            scanned_roots.append(root.path)
 
-            # The root itself is scanned as an unnamed shelf so loose books
-            # and series folders sitting beside the shelves are not lost.
+            # The root itself is scanned as an unnamed shelf so loose books and
+            # content folders sitting beside the shelves are not lost.
             shelves = _shelves_of(root.path)
-            skip = set(shelves)
-            _scan_shelf(conn, root, "", root.path, skip, stats)
+            _scan_shelf(conn, root, "", root.path, set(shelves), stats)
             for shelf in shelves:
                 _scan_shelf(conn, root, shelf, os.path.join(root.path, shelf),
                             set(), stats)
+
+        _mark_absent(conn, scanned_roots, started, stats)
 
         db.set_meta(conn, "last_scan", {"at": time.time(),
                                         "seconds": round(time.time() - started, 2),
@@ -136,12 +143,43 @@ def scan(verbose: bool = True) -> dict:
 
     stats["seconds"] = round(time.time() - started, 2)
     if verbose:
-        print(f"scanned {stats['roots']} roots: {stats['series']} series, "
-              f"{stats['items']} items ({stats['missing']} missing) "
+        kinds = ", ".join(f"{k} {n}" for k, n in
+                          sorted(stats["formats"].items(), key=lambda kv: -kv[1]))
+        print(f"scanned {stats['roots']} roots: {stats['books']} books found "
               f"in {stats['seconds']}s")
+        print(f"  {stats['new']} new, {stats['updated']} changed, "
+              f"{stats['returned']} back again, {stats['vanished']} not found")
+        if kinds:
+            print(f"  {kinds}")
         for p in stats["skipped_roots"]:
-            print(f"  ! root not found: {p}")
+            print(f"  ! root not readable, nothing in it was touched: {p}")
     return stats
+
+
+def _mark_absent(conn, scanned_roots, started, stats) -> None:
+    """Flag what was not seen this time, without throwing any of it away.
+
+    Only books under a root that was actually read are considered. A root that
+    is not mounted was skipped above, so none of its books are called missing
+    on the strength of a scan that never looked at them.
+
+    The roots are matched by path prefix rather than by label, because labels
+    are free text and nothing stops two roots from sharing one -- and a shared
+    label would let a mounted drive declare an unmounted drive's books gone.
+    The comparison is `substr` rather than `LIKE` so that the brackets and
+    underscores these folder names are full of cannot act as wildcards.
+    """
+    if not scanned_roots:
+        return
+    where, args = [], [started]
+    for path in scanned_roots:
+        prefix = path if path.endswith(os.sep) else path + os.sep
+        where.append("substr(path, 1, ?) = ?")
+        args += [len(prefix), prefix]
+    cur = conn.execute(
+        f"UPDATE books SET present=0 WHERE present=1 AND last_seen < ? "
+        f"AND ({' OR '.join(where)})", args)
+    stats["vanished"] = cur.rowcount or 0
 
 
 def _scan_shelf(conn, root, shelf, shelf_path, skip, stats) -> None:
@@ -150,89 +188,80 @@ def _scan_shelf(conn, root, shelf, shelf_path, skip, stats) -> None:
     except OSError:
         return
 
-    # Folders that hold a series. A folder of page scans is one volume, not a
-    # series, so it falls through to the loose pass below.
+    # Books loose on the shelf itself.
+    for book in _collect_books(shelf_path, in_folder=False):
+        if os.path.basename(book["path"]) in skip:
+            continue
+        _insert(conn, root, shelf, "", None, book, stats)
+
+    # Books inside a content folder. The folder is only a place, but its name
+    # credits an author the files inside usually leave off.
     for name in entries:
         if name.startswith(("_", ".")) or name in skip:
             continue
         full = os.path.join(shelf_path, name)
         if not os.path.isdir(full) or _is_image_volume(full):
             continue
-        author, title = parse_series_dir(name)
-        items = _collect_items(full, in_series_dir=True)
-        if not items:
-            continue
-        _insert_series(conn, root, shelf, author, title, full,
-                       is_flat=False, items=items, stats=stats)
-
-    # Loose books, grouped into the series their titles imply.
-    loose = [it for it in _collect_items(shelf_path, in_series_dir=False)
-             if os.path.basename(it["path"]) not in skip]
-    groups: dict[tuple[str, str], dict] = {}
-    for it in loose:
-        base, volume = series_of(it["title"])
-        it["volume_hint"] = volume
-        key = (norm(it.get("author") or ""), norm(base))
-        g = groups.get(key)
-        if g is None:
-            groups[key] = {"author": it.get("author"), "title": base,
-                           "items": [it]}
-        else:
-            g["items"].append(it)
-
-    for g in groups.values():
-        items = g["items"]
-        # The opening volume of a series usually carries no number at all --
-        # it is simply the series name. Give it one, but only when exactly one
-        # volume is unnumbered, so a side story cannot be mistaken for it.
-        if len(items) > 1:
-            blank = [it for it in items
-                     if not it["volume_hint"] and not is_extra(it["title"])]
-            if len(blank) == 1:
-                blank[0]["volume_hint"] = "1"
-        # A group of one keeps its own title: calling a standalone book by a
-        # stripped-down series name would only lose information.
-        title = g["title"] if len(items) > 1 else items[0]["title"]
-        path = shelf_path if len(items) > 1 else items[0]["path"]
-        _insert_series(conn, root, shelf, g["author"], title, path,
-                       is_flat=True, items=items, stats=stats)
+        credit = parse_folder(name)
+        for book in _collect_books(full, in_folder=True):
+            _insert(conn, root, shelf, name, credit, book, stats)
 
 
-def _insert_series(conn, root, shelf, author, title, path, is_flat, items, stats):
-    key = db.series_key(author, title)
-    dates = [i["date"] for i in items if i["date"]]
-    n_missing = sum(1 for i in items if i["is_missing"])
-    cur = conn.execute(
-        "INSERT INTO series(root_label,root_kind,shelf,author,title,path,is_flat,"
-        "n_items,n_missing,n_undated,first_date,last_date,series_key) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (root.label, root.kind, shelf, author, title, path, int(is_flat),
-         len(items), n_missing, sum(1 for i in items if not i["date"]),
-         min(dates) if dates else None, max(dates) if dates else None, key),
+def _insert(conn, root, shelf, folder, credit, book, stats) -> None:
+    """Record one book, updating the row already there rather than replacing it.
+
+    `path` is the identity, so a book that has not moved keeps its id, and with
+    it every cover already extracted for it. `first_seen` is only ever written
+    once -- it is the one thing here the filesystem cannot say.
+    """
+    author = book.get("author") or (credit or {}).get("author")
+    imprint = book.get("imprint") or (credit or {}).get("imprint")
+    illustrator = book.get("illustrator") or (credit or {}).get("illustrator")
+    title = book["title"]
+    volume = volume_of(title)
+    fmt = format_of(book["ext"], bool(book["is_dir"]))
+    try:
+        sort_vol = float(volume) if volume else 1e9
+    except ValueError:
+        sort_vol = 1e9
+
+    now = db.now()
+    before = conn.execute(
+        "SELECT present, size, mtime, title, shelf, folder FROM books "
+        "WHERE path=?", (book["path"],)).fetchone()
+
+    conn.execute(
+        "INSERT INTO books("
+        "root_label,root_kind,shelf,folder,path,filename,title,author,imprint,"
+        "illustrator,ext,format,date,volume,is_extra,is_dir,size,mtime,"
+        "sort_date,sort_vol,norm_title,norm_author,present,first_seen,last_seen) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?) "
+        "ON CONFLICT(path) DO UPDATE SET "
+        "root_label=excluded.root_label, root_kind=excluded.root_kind, "
+        "shelf=excluded.shelf, folder=excluded.folder, "
+        "filename=excluded.filename, title=excluded.title, "
+        "author=excluded.author, imprint=excluded.imprint, "
+        "illustrator=excluded.illustrator, ext=excluded.ext, "
+        "format=excluded.format, date=excluded.date, volume=excluded.volume, "
+        "is_extra=excluded.is_extra, is_dir=excluded.is_dir, "
+        "size=excluded.size, mtime=excluded.mtime, "
+        "sort_date=excluded.sort_date, sort_vol=excluded.sort_vol, "
+        "norm_title=excluded.norm_title, norm_author=excluded.norm_author, "
+        "present=1, last_seen=excluded.last_seen",
+        (root.label, root.kind, shelf, folder, book["path"], book["filename"],
+         title, author, imprint, illustrator, book["ext"], fmt, book["date"],
+         volume, int(is_extra(title)), book["is_dir"], book["size"],
+         book["mtime"], book["date"] or "9999-99-99", sort_vol,
+         norm(title), norm(author or ""), now, now),
     )
-    sid = cur.lastrowid
-    stats["series"] += 1
 
-    for it in items:
-        vol = it.get("volume_hint") or guess_volume(
-            it["title"], title if len(items) > 1 else None)
-        # The first volume rarely carries a number; if the title is exactly the
-        # series name then that is what it is.
-        if vol is None and len(items) > 1 and not is_extra(it["title"])                 and norm(it["title"]) == norm(title):
-            vol = "1"
-        try:
-            sort_vol = float(vol) if vol else 1e9
-        except ValueError:
-            sort_vol = 1e9
-        conn.execute(
-            "INSERT OR IGNORE INTO items(series_id,path,filename,title,ext,date,volume,"
-            "is_missing,is_extra,is_dir,size,mtime,sort_date,sort_vol) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (sid, it["path"], it["filename"], it["title"], it["ext"], it["date"], vol,
-             it["is_missing"], int(is_extra(it["title"])), it["is_dir"],
-             it["size"], it["mtime"], it["date"] or "9999-99-99", sort_vol),
-        )
-        stats["items"] += 1
-        if it["is_missing"]:
-            stats["missing"] += 1
-
+    stats["books"] += 1
+    stats["formats"][fmt] = stats["formats"].get(fmt, 0) + 1
+    if before is None:
+        stats["new"] += 1
+    elif not before["present"]:
+        stats["returned"] += 1
+    elif (before["size"] != book["size"] or before["mtime"] != book["mtime"]
+          or before["title"] != title or before["shelf"] != shelf
+          or before["folder"] != folder):
+        stats["updated"] += 1
