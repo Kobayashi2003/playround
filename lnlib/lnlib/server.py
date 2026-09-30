@@ -232,20 +232,12 @@ class Handler(BaseHTTPRequestHandler):
                     int(body["book_id"]), body.get("locator"),
                     float(body.get("position") or 0), float(body.get("percent") or 0),
                     bool(body.get("finished"))))
-            if path == "/api/books/delete":
-                # `file` says what happens to the file itself, and nothing
-                # is assumed: the caller has to say "trash" out loud.
-                book_id = int(body["book_id"])
-                if body.get("file") == "trash":
-                    return self._json(library.discard(book_id))
-                return self._json(library.forget(book_id))
-            if path == "/api/trash/restore":
-                return self._json(library.restore(int(body["trash_id"])))
-            if path == "/api/trash/empty":
-                return self._json(library.empty(
-                    trash_id=(int(body["trash_id"])
-                              if body.get("trash_id") is not None else None),
-                    older_than_days=body.get("older_than_days")))
+            # One book or thirty thousand go through the same two routes;
+            # a single book is a batch of one.
+            if path == "/api/books/batch":
+                return self._books_batch(body)
+            if path == "/api/trash/batch":
+                return self._trash_batch(body)
             if path == "/api/open":
                 target = body.get("path") or ""
                 if not os.path.exists(target):
@@ -263,6 +255,78 @@ class Handler(BaseHTTPRequestHandler):
             self._err(400, f"missing field {e}")
         except Exception as e:                                     # noqa: BLE001
             self._err(500, f"{type(e).__name__}: {e}")
+
+    # -------------------------------------------------------------- batches
+    def _resolve_books(self, body: dict) -> list[int]:
+        """The ids a batch is about: listed outright, or "everything in this
+        view" given as the view's own filter minus anything unticked.
+
+        The filter is resolved here rather than in the browser because the
+        browser only ever holds the pages it has scrolled past; "select all" on
+        a shelf of thirty thousand has to mean all thirty thousand.
+        """
+        if body.get("ids") is not None:
+            return [int(x) for x in body["ids"]]
+        query = body.get("query")
+        if query is None:
+            raise KeyError("ids or query")
+        ids = queries.book_ids(
+            root=query.get("root"), shelf=query.get("shelf"),
+            folder=query.get("folder"), q=query.get("q"),
+            only=query.get("only"), fmt=query.get("format"))
+        skip = {int(x) for x in body.get("exclude") or []}
+        return [i for i in ids if i not in skip]
+
+    def _check_expected(self, body: dict, ids: list) -> bool:
+        """Refuse a batch whose size is not the size the user agreed to.
+
+        The confirmation said "N 冊"; if the library changed in between -- a
+        scan found more books matching the same filter -- acting anyway would
+        touch books nobody looked at. Better to stop and let them look again.
+        """
+        expect = body.get("expect")
+        if expect is None or int(expect) == len(ids):
+            return True
+        self._json({"error": f"対象が {int(expect)} 冊から {len(ids)} 冊に変わりました。"
+                             "もう一度確認してください", "changed": True,
+                    "expected": int(expect), "found": len(ids)}, 409)
+        return False
+
+    def _books_batch(self, body: dict):
+        action = body.get("action")
+        ids = self._resolve_books(body)
+        if not ids:
+            return self._err(400, "nothing selected")
+        if not self._check_expected(body, ids):
+            return None
+        if action == "forget":
+            return self._json(library.forget_many(ids))
+        if action == "trash":
+            return self._json(library.discard_many(ids))
+        if action == "clear_progress":
+            return self._json(library.clear_progress_many(ids))
+        return self._err(400, f"unknown action: {action}")
+
+    def _trash_batch(self, body: dict):
+        action = body.get("action")
+        if body.get("all"):
+            # Everything in the trash, less anything unticked -- resolved here
+            # because the list in the browser shows only the newest entries.
+            skip = {int(x) for x in body.get("exclude") or []}
+            with db.connect() as conn:
+                ids = [r["id"] for r in conn.execute("SELECT id FROM trash")
+                       if r["id"] not in skip]
+        else:
+            ids = [int(x) for x in body.get("ids") or []]
+        if not ids:
+            return self._err(400, "nothing selected")
+        if not self._check_expected(body, ids):
+            return None
+        if action == "restore":
+            return self._json(library.restore_many(ids))
+        if action == "purge":
+            return self._json(library.empty(trash_ids=ids))
+        return self._err(400, f"unknown action: {action}")
 
     # ---------------------------------------------------------------- books
     def _book(self, path: str, as_: str | None = None):

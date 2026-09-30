@@ -12,8 +12,8 @@
 
 import { url } from "./mount";
 import type {
-  Book, BookCard, BookPage, FolderRow, FormatDetail, Manifest, Overview,
-  ReadingRow, ShelfFormat, ShelfQuery, TrashRow,
+  BatchResult, Book, BookCard, BookPage, FolderRow, FormatDetail, Manifest,
+  Overview, ReadingRow, ShelfFormat, ShelfQuery, TrashRow,
 } from "./types";
 
 export class ApiError extends Error {
@@ -38,21 +38,15 @@ const MAX_ENTRIES = 240;
 const cache = new Map<string, Entry>();
 const inflight = new Map<string, Promise<unknown>>();
 
-/** The generation everything cached belongs to; a rescan renumbers the books. */
-let generation = 0;
-
 /** Throw away everything remembered. Called after a scan, and by the reader
     when it has written progress the shelf would otherwise show stale. */
 export function invalidate(prefix?: string): void {
   if (!prefix) {
     cache.clear();
-    generation += 1;
     return;
   }
   for (const key of cache.keys()) if (key.includes(prefix)) cache.delete(key);
 }
-
-export const cacheGeneration = () => generation;
 
 function remember(key: string, value: unknown): void {
   cache.set(key, { at: Date.now(), value });
@@ -172,20 +166,25 @@ export const api = {
   clearProgress: (bookId: number) =>
     post<{ ok: boolean }>("/api/progress", { book_id: bookId, clear: true }),
 
-  /** `file` is the whole decision: "keep" leaves it on disk, "trash" moves
-      it into its root's _trash folder, from where it can be restored. */
-  deleteBook: (bookId: number, file: "keep" | "trash") =>
-    post<{ ok: boolean; reason?: string; trash_id?: number; file_state?: string }>(
-      "/api/books/delete", { book_id: bookId, file }),
+  /** One action over many books: listed by id, or "everything in this view"
+      given as the view's filter minus what was unticked. `expect` is the count
+      the user confirmed; the server refuses if the filter now matches more. */
+  batchBooks: (body: {
+    action: "forget" | "trash" | "clear_progress";
+    ids?: readonly number[];
+    query?: ShelfQuery;
+    exclude?: readonly number[];
+    expect: number;
+  }) => post<BatchResult>("/api/books/batch", body),
 
-  restore: (trashId: number) =>
-    post<{ ok: boolean; reason?: string; title?: string; present?: number }>(
-      "/api/trash/restore", { trash_id: trashId }),
-
-  emptyTrash: (trashId?: number) =>
-    post<{ ok: boolean; entries: number; files_deleted: number;
-           files_kept: number; failed: number }>(
-      "/api/trash/empty", trashId === undefined ? {} : { trash_id: trashId }),
+  batchTrash: (body: {
+    action: "restore" | "purge";
+    ids?: readonly number[];
+    all?: boolean;
+    exclude?: readonly number[];
+    expect: number;
+  }) => post<BatchResult & { files_deleted?: number; entries?: number }>(
+    "/api/trash/batch", body),
 
   open: (path: string) => post<{ ok: boolean }>("/api/open", { path }),
   reveal: (path: string) => post<{ ok: boolean }>("/api/reveal", { path }),

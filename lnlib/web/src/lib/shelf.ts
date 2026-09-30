@@ -135,11 +135,12 @@ export interface ShelfHandle {
   readonly error: string | null;
   /** True until the first page has landed, which is the only blocking wait. */
   readonly loading: boolean;
-  /** True while any further page is on its way in. */
-  readonly fetching: boolean;
   /** Ask for every page covering this row range; already-held pages are free. */
   ensure(from: number, to: number): void;
-  reload(): void;
+  /** The same, but waits: resolves once every row in the range is held. A
+      Shift-selection across a stretch scrolled past too quickly to load has to
+      know what is in it before it can pick it. */
+  loadRange(from: number, to: number): Promise<readonly (BookCard | undefined)[]>;
   readonly scrollTop: number;
   rememberScroll(top: number): void;
 }
@@ -167,13 +168,15 @@ export function useShelf(query: ShelfQuery, order: SortOrder): ShelfHandle {
     }
   }, [store]);
 
-  const reload = useCallback(() => {
-    store.rows = [];
-    store.total = -1;
-    store.loaded.clear();
-    store.inflight.clear();
-    announce(store);
-    void loadPage(store, 0);
+  const loadRange = useCallback(async (from: number, to: number) => {
+    const last = store.total >= 0 ? Math.min(to, store.total - 1) : to;
+    const waits: Promise<void>[] = [];
+    for (let page = Math.floor(Math.max(0, from) / PAGE);
+         page <= Math.floor(Math.max(0, last) / PAGE); page++) {
+      waits.push(loadPage(store, page));
+    }
+    await Promise.all(waits);
+    return store.rows;
   }, [store]);
 
   const rememberScroll = useCallback((top: number) => {
@@ -186,9 +189,8 @@ export function useShelf(query: ShelfQuery, order: SortOrder): ShelfHandle {
     facets: store.facets,
     error: store.error,
     loading: store.total < 0 && !store.error,
-    fetching: store.inflight.size > 0,
     ensure,
-    reload,
+    loadRange,
     scrollTop: store.scrollTop,
     rememberScroll,
   };

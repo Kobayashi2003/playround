@@ -170,28 +170,24 @@ def cmd_book(a):
 
 
 def cmd_delete(a):
-    """Take a book off the shelf. The file only moves if asked."""
-    d = queries.book(a.id)
-    if not d:
-        print("no such book", file=sys.stderr)
-        return None
-    b = d["book"]
+    """Take books off the shelf. Files only move if asked."""
+    ids = list(dict.fromkeys(a.ids))
     if a.file and not a.yes:
-        print(f"this would move the file to its root's _trash folder:")
-        print(f"  {b['path']}")
+        print(f"this would move {len(ids)} file(s) to their root's _trash folder:")
+        for book_id in ids[:10]:
+            d = queries.book(book_id)
+            print(f"  [{book_id}] {d['book']['path'] if d else '(no such book)'}")
+        if len(ids) > 10:
+            print(f"  … and {len(ids) - 10} more")
         print("re-run with --yes to go ahead")
         return None
-    res = library.discard(a.id) if a.file else library.forget(a.id)
+    res = library.discard_many(ids) if a.file else library.forget_many(ids)
     if not a.json:
-        if res.get("ok"):
-            where = {"trashed": "file moved to _trash",
-                     "kept": "file left where it is",
-                     "vanished": "file was already gone"}
-            print(f"removed [{a.id}] {b['title']}  "
-                  f"({where.get(res.get('file_state'), '')})")
-            print(f"  restore with: lnlib restore {res.get('trash_id')}")
-        else:
-            print(res.get("reason", "failed"), file=sys.stderr)
+        where = "files moved to _trash" if a.file else "files left where they are"
+        print(f"removed {res['done']} of {res['total']} book(s)  ({where})")
+        for f in res["failures"]:
+            print(f"  ! [{f['id']}] {f['reason']}")
+        print("  restore with: lnlib trash, then lnlib restore <id> …")
     return _out(res, a.json)
 
 
@@ -224,38 +220,60 @@ def cmd_trash(a):
 
 
 def cmd_restore(a):
-    res = library.restore(a.id)
+    res = library.restore_many(a.ids)
     if not a.json:
-        if res.get("ok"):
-            print(f"restored {res['title']}"
-                  f"{'' if res.get('present') else '  (file still missing)'}")
-        else:
-            print(res.get("reason", "failed"), file=sys.stderr)
+        print(f"restored {res['done']} of {res['total']}")
+        for f in res["failures"]:
+            print(f"  ! [{f['id']}] {f.get('title') or ''} {f['reason']}")
     return _out(res, a.json)
 
 
 def cmd_config(a):
+    """Inspect or edit roots.
+
+    Removing a root also takes its books off the shelf -- it is never scanned
+    again, so they would otherwise stay listed forever. Files and reading
+    progress are not touched; adding the root back restores everything.
+    """
     cfg = config.Config.load()
-    if a.add_root:
-        path = os.path.abspath(a.add_root)
+    changed = False
+
+    for raw in a.remove_root or []:
+        target = os.path.normcase(os.path.abspath(raw))
+        keep = [r for r in cfg.roots
+                if os.path.normcase(os.path.abspath(r.path)) != target]
+        if len(keep) == len(cfg.roots):
+            print(f"not a root: {raw}")
+            continue
+        gone = [r for r in cfg.roots if r not in keep]
+        cfg.roots = keep
+        changed = True
+        for r in gone:
+            res = library.drop_root(r.path)
+            print(f"removed root {r.path}  ({res['removed']} books off the shelf)")
+
+    for raw in a.add_root or []:
+        path = os.path.abspath(raw)
+        if not os.path.isdir(path):
+            print(f"not a folder: {path}")
+            continue
         if any(os.path.normcase(r.path) == os.path.normcase(path) for r in cfg.roots):
-            print("root already present")
-        else:
-            cfg.roots.append(config.Root(path=path, label=a.label or os.path.basename(path),
-                                         kind=a.kind or "novel"))
-            cfg.save()
-            print(f"added root {path}")
-    elif a.remove_root:
-        before = len(cfg.roots)
-        cfg.roots = [r for r in cfg.roots
-                     if os.path.normcase(r.path) != os.path.normcase(a.remove_root)]
+            print(f"already a root: {path}")
+            continue
+        layout = a.layout or "shelves"
+        cfg.roots.append(config.Root(
+            path=path, label=a.label or os.path.basename(path.rstrip("\\/")),
+            kind=a.kind or "novel", layout=layout))
+        changed = True
+        print(f"added root {path}  (layout: {layout})")
+
+    if changed:
         cfg.save()
-        print(f"removed {before - len(cfg.roots)} root(s)")
     else:
         for r in cfg.roots:
             mark = "" if os.path.isdir(r.path) else "   [MISSING]"
-            print(f"  {'on ' if r.enabled else 'off'} {r.kind:<8} {r.label:<16} "
-                  f"{r.path}{mark}")
+            print(f"  {'on ' if r.enabled else 'off'} {r.layout:<8} {r.kind:<8} "
+                  f"{r.label:<18} {r.path}{mark}")
     return _out([r.__dict__ for r in config.Config.load().roots], a.json)
 
 
@@ -315,8 +333,8 @@ def build_parser():
     s.add_argument("id", type=int)
     s.set_defaults(fn=cmd_book)
 
-    s = sub.add_parser("delete", help="take a book off the shelf")
-    s.add_argument("id", type=int)
+    s = sub.add_parser("delete", help="take books off the shelf")
+    s.add_argument("ids", type=int, nargs="+", metavar="ID")
     s.add_argument("--file", action="store_true",
                    help="move the file to its root's _trash folder too")
     s.add_argument("--yes", action="store_true", help="do not ask")
@@ -331,13 +349,24 @@ def build_parser():
     s.add_argument("--yes", action="store_true", help="do not ask")
     s.set_defaults(fn=cmd_trash)
 
-    s = sub.add_parser("restore", help="put a trashed book back")
-    s.add_argument("id", type=int, help="the trash id, from `lnlib trash`")
+    s = sub.add_parser("restore", help="put trashed books back")
+    s.add_argument("ids", type=int, nargs="+", metavar="ID",
+                   help="trash ids, from `lnlib trash`")
     s.set_defaults(fn=cmd_restore)
 
     s = sub.add_parser("config", help="inspect or edit roots")
-    s.add_argument("--add-root"); s.add_argument("--remove-root")
-    s.add_argument("--label"); s.add_argument("--kind")
+    s.add_argument("--add-root", action="append", metavar="PATH",
+                   help="add a root; may be given more than once")
+    s.add_argument("--remove-root", action="append", metavar="PATH",
+                   help="remove a root and take its books off the shelf; "
+                        "may be given more than once")
+    s.add_argument("--label", help="shelf name for an added root "
+                                   "(default: the folder's name)")
+    s.add_argument("--kind")
+    s.add_argument("--layout", choices=config.LAYOUTS,
+                   help="shelves: folders under the root are shelves (default); "
+                        "authors: folders under the root are authors, "
+                        "as in a Calibre export")
     s.set_defaults(fn=cmd_config)
 
     return p

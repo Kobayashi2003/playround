@@ -240,7 +240,44 @@ export function snapPaginatedToPage(
   axis.write(geometry.snappedOffset);
 }
 
+const PAGE_EXTENT_MARKER_ID = 'epub-reader-page-extent';
+
+/**
+ * Paginated vertical text ends one page margin short of a whole page: the
+ * padding below the last column is not scrollable overflow, so a chapter's last
+ * page cannot be reached and lands cropped. A 1px marker on the root (outside
+ * the body, where search and locators never look) pads the extent to whole pages.
+ */
+function ensureWholeVerticalPages(document: Document): void {
+  const root = document.documentElement;
+  const body = document.body;
+  const view = document.defaultView;
+  if (!root || !body || !view) return;
+  if (view.getComputedStyle(root).writingMode === 'horizontal-tb') return;
+  if (view.getComputedStyle(body).columnWidth === 'auto') return;
+  const page = root.clientHeight;
+  if (page <= 0) return;
+
+  // The body's extent never includes the root's marker, so the marker is moved,
+  // not removed: removing it would clamp the scroll and re-trigger measuring.
+  const extent = body.scrollHeight;
+  // A pixel of tolerance: an extent a rounding error past a page is that page.
+  const whole = Math.ceil((extent - 1) / page) * page;
+  let marker = document.getElementById(PAGE_EXTENT_MARKER_ID);
+  if (!marker) {
+    marker = document.createElement('div');
+    marker.id = PAGE_EXTENT_MARKER_ID;
+    marker.setAttribute('aria-hidden', 'true');
+    marker.style.cssText =
+      'position:absolute;left:0;width:1px;height:1px;visibility:hidden;pointer-events:none;';
+    root.append(marker);
+  }
+  const top = `${Math.max(0, whole - 1)}px`;
+  if (marker.style.top !== top) marker.style.top = top;
+}
+
 export function measureDocument(document: Document): DocumentMeasurement {
+  ensureWholeVerticalPages(document);
   const root = document.documentElement;
   const body = document.body;
   return {

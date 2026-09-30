@@ -1,0 +1,22 @@
+{
+  "roots": [
+    {
+      "path": "D:\\Books\\Novels",
+      "label": "Novels",
+      "kind": "novel",
+      "enabled": true,
+      "layout": "shelves"
+    },
+    {
+      "path": "D:\\Books\\Calibre",
+      "label": "Calibre",
+      "kind": "novel",
+      "enabled": true,
+      "layout": "authors"
+    }
+  ],
+  "host": "127.0.0.1",
+  "port": 8770,
+  "base_path": "",
+  "theme": "auto"
+}

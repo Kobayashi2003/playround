@@ -3,11 +3,16 @@
 `queries` reads the index; everything that changes it is here. There is one
 rule the whole module is built around: nothing is destroyed in a single step.
 
-    forget()    the record goes to the trash, the file is not touched
-    discard()   the record goes to the trash and the file goes with it
-    retire()    the same, for a file that has already been confirmed gone
-    restore()   both come back, exactly as they were
-    empty()     the only operation that actually deletes anything
+    forget_many()   the records go to the trash, the files are not touched
+    discard_many()  the records go to the trash and the files go with them
+    retire()        the same, for a file already confirmed gone
+    restore()       both come back, exactly as they were
+    empty()         the only operation that actually deletes anything
+
+Everything that removes books is a batch, because one book is a batch of one
+and two code paths for the same act would drift apart. A batch never stops at
+the first failure -- one locked file is no reason to leave the other nine
+hundred where they were -- and reports, per book, what could not be done.
 
 The file trash is a `_trash` folder inside the book's own root, not a folder
 under `data/`. Two reasons, and both matter: a folder whose name starts with
@@ -28,13 +33,17 @@ from . import config, db
 TRASH_DIR = "_trash"
 
 
-def _root_for(path: str) -> config.Root | None:
-    """The configured root a path lies under, by longest match."""
-    cfg = config.Config.load()
+def _root_for(path: str, roots: list | None = None) -> config.Root | None:
+    """The configured root a path lies under, by longest match.
+
+    `roots` lets a batch read the configuration once instead of once per book.
+    """
+    if roots is None:
+        roots = config.Config.load().roots
     target = os.path.normcase(os.path.abspath(path))
     best: config.Root | None = None
     best_base = ""
-    for root in cfg.roots:
+    for root in roots:
         base = os.path.normcase(os.path.abspath(root.path))
         if target != base and not target.startswith(base + os.sep):
             continue
@@ -46,13 +55,13 @@ def _root_for(path: str) -> config.Root | None:
     return best
 
 
-def root_is_reachable(path: str) -> bool:
+def root_is_reachable(path: str, roots: list | None = None) -> bool:
     """Whether the drive holding this book is actually there right now.
 
     A file that is missing because its root is not mounted says nothing about
     the book, so no conclusion is drawn from its absence.
     """
-    root = _root_for(path)
+    root = _root_for(path, roots)
     return bool(root and os.path.isdir(root.path))
 
 
@@ -68,9 +77,9 @@ def _unique(dest: str) -> str:
     return f"{stem} ({int(time.time())}){ext}"
 
 
-def _to_trash(path: str) -> str:
+def _to_trash(path: str, roots: list | None = None) -> str:
     """Move a file or folder into its root's trash. Returns where it landed."""
-    root = _root_for(path)
+    root = _root_for(path, roots)
     if not root:
         raise ValueError("this book is not under any configured root")
     if not os.path.isdir(root.path):
@@ -100,48 +109,6 @@ def _bin_it(conn, row, file_state: str, trash_path: str | None,
          payload, file_state, trash_path, reason, db.now()))
     conn.execute("DELETE FROM books WHERE id=?", (row["id"],))
     return cur.lastrowid
-
-
-def forget(book_id: int) -> dict:
-    """Take a book off the shelf and leave the file exactly where it is."""
-    with db.connect() as conn:
-        row = _row(conn, book_id)
-        if not row:
-            return {"ok": False, "reason": "no such book"}
-        trash_id = _bin_it(conn, row, "kept", None, "deleted")
-    return {"ok": True, "trash_id": trash_id, "file_state": "kept",
-            "title": row["title"]}
-
-
-def discard(book_id: int) -> dict:
-    """Take a book off the shelf and move the file to its root's trash.
-
-    The record is written only after the file has actually moved: a half-done
-    delete should leave the book on the shelf, not leave the shelf claiming to
-    have thrown away something still sitting on disk.
-    """
-    with db.connect() as conn:
-        row = _row(conn, book_id)
-        if not row:
-            return {"ok": False, "reason": "no such book"}
-        path = row["path"]
-
-    if not os.path.exists(path):
-        # Already gone. That is not a failure, it is the outcome asked for.
-        return retire(book_id, reason="vanished")
-
-    try:
-        landed = _to_trash(path)
-    except (OSError, ValueError) as e:
-        return {"ok": False, "reason": f"{type(e).__name__}: {e}"}
-
-    with db.connect() as conn:
-        row = _row(conn, book_id)
-        if not row:                       # deleted underneath us; file is moved
-            return {"ok": True, "file_state": "trashed", "trash_path": landed}
-        trash_id = _bin_it(conn, row, "trashed", landed, "deleted")
-    return {"ok": True, "trash_id": trash_id, "file_state": "trashed",
-            "trash_path": landed, "title": row["title"]}
 
 
 def retire(book_id: int, reason: str = "vanished") -> dict:
@@ -239,12 +206,17 @@ def restore(trash_id: int) -> dict:
     return {"ok": True, "title": entry["title"], "present": row["present"]}
 
 
-def empty(trash_id: int | None = None, older_than_days: float | None = None) -> dict:
+def empty(trash_id: int | None = None, older_than_days: float | None = None,
+          trash_ids: list[int] | None = None) -> dict:
     """Delete for real. Nothing else in this module does.
 
     Files that were only ever recorded (`kept`) are left alone: forgetting a
     book was never a claim on the file, and emptying the trash must not become
     a way to delete one by surprise.
+
+    An entry is dropped only once its file is actually gone. If a file cannot
+    be deleted -- open in another program, say -- its entry stays, so the file
+    is not left sitting in `_trash` with nothing pointing at it.
     """
     where, args = [], []
     if trash_id is not None:
@@ -253,16 +225,24 @@ def empty(trash_id: int | None = None, older_than_days: float | None = None) -> 
     if older_than_days is not None:
         where.append("trashed_at < ?")
         args.append(time.time() - older_than_days * 86400)
+    if trash_ids is not None:
+        if not trash_ids:
+            return {"ok": True, "entries": 0, "files_deleted": 0,
+                    "files_kept": 0, "failed": 0}
+        where.append(f"id IN ({','.join('?' * len(trash_ids))})")
+        args += list(trash_ids)
     clause = (" WHERE " + " AND ".join(where)) if where else ""
 
     with db.connect() as conn:
         rows = conn.execute(f"SELECT * FROM trash{clause}", args).fetchall()
 
     deleted = failed = kept = 0
+    done: list[int] = []
     for entry in rows:
         target = entry["trash_path"]
         if entry["file_state"] != "trashed" or not target:
             kept += 1
+            done.append(entry["id"])
             continue
         try:
             if os.path.isdir(target):
@@ -270,10 +250,137 @@ def empty(trash_id: int | None = None, older_than_days: float | None = None) -> 
             elif os.path.exists(target):
                 os.remove(target)
             deleted += 1
+            done.append(entry["id"])
         except OSError:
             failed += 1
 
     with db.connect() as conn:
-        conn.execute(f"DELETE FROM trash{clause}", args)
-    return {"ok": True, "entries": len(rows), "files_deleted": deleted,
+        for chunk in _chunks(done):
+            conn.execute(f"DELETE FROM trash WHERE id IN ({','.join('?' * len(chunk))})",
+                         chunk)
+    return {"ok": True, "entries": len(done), "files_deleted": deleted,
             "files_kept": kept, "failed": failed}
+
+
+# ------------------------------------------------------------------ batches
+BATCH_COMMIT = 50               # rows between commits while files are moving
+MAX_REPORTED = 50               # failures listed back; the rest are counted
+
+
+def _chunks(items: list, size: int = 500):
+    """SQLite caps the number of `?` in one statement; stay well under it."""
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
+def _report(total: int, done: int, failures: list[dict]) -> dict:
+    return {"ok": not failures, "total": total, "done": done,
+            "failed": len(failures), "failures": failures[:MAX_REPORTED]}
+
+
+def forget_many(book_ids: list[int]) -> dict:
+    """Take many books off the shelf; no file is touched."""
+    ids = list(dict.fromkeys(book_ids))
+    done, failures = 0, []
+    with db.connect() as conn:
+        for book_id in ids:
+            row = _row(conn, book_id)
+            if not row:
+                failures.append({"id": book_id, "reason": "no such book"})
+                continue
+            _bin_it(conn, row, "kept", None, "deleted")
+            done += 1
+    return _report(len(ids), done, failures)
+
+
+def discard_many(book_ids: list[int]) -> dict:
+    """Take many books off the shelf and move each file to its root's trash.
+
+    Book by book, and in the same order as `discard`: the file moves first and
+    the row follows, so an interrupted batch leaves every book either fully
+    done or fully untouched. Rows are committed in small groups so a crash
+    part-way through does not lose the record of files already moved.
+    """
+    ids = list(dict.fromkeys(book_ids))
+    roots = config.Config.load().roots
+    done, failures = 0, []
+    with db.connect() as conn:
+        for n, book_id in enumerate(ids, 1):
+            row = _row(conn, book_id)
+            if not row:
+                failures.append({"id": book_id, "reason": "no such book"})
+                continue
+            path = row["path"]
+            if not os.path.exists(path):
+                if root_is_reachable(path, roots):
+                    _bin_it(conn, row, "vanished", None, "vanished")
+                    done += 1
+                else:
+                    failures.append({"id": book_id, "title": row["title"],
+                                     "reason": "ドライブが見つかりません"})
+                continue
+            try:
+                landed = _to_trash(path, roots)
+            except (OSError, ValueError) as e:
+                failures.append({"id": book_id, "title": row["title"],
+                                 "reason": f"{type(e).__name__}: {e}"})
+                continue
+            _bin_it(conn, row, "trashed", landed, "deleted")
+            done += 1
+            if n % BATCH_COMMIT == 0:
+                conn.commit()
+    return _report(len(ids), done, failures)
+
+
+def restore_many(trash_ids: list[int]) -> dict:
+    """Put many books back. Each is restored exactly as `restore` would."""
+    ids = list(dict.fromkeys(trash_ids))
+    done, failures = 0, []
+    for trash_id in ids:
+        res = restore(trash_id)
+        if res.get("ok"):
+            done += 1
+        else:
+            failures.append({"id": trash_id, "title": res.get("title"),
+                             "reason": res.get("reason", "failed")})
+    return _report(len(ids), done, failures)
+
+
+def clear_progress_many(book_ids: list[int]) -> dict:
+    """Forget where reading had got to in many books at once."""
+    ids = list(dict.fromkeys(book_ids))
+    cleared = 0
+    with db.connect() as conn:
+        for chunk in _chunks(ids):
+            cur = conn.execute(
+                "DELETE FROM reading WHERE path IN (SELECT path FROM books "
+                f"WHERE id IN ({','.join('?' * len(chunk))}))", chunk)
+            cleared += cur.rowcount or 0
+    return {"ok": True, "total": len(ids), "done": cleared, "failed": 0,
+            "failures": []}
+
+
+def drop_root(path: str) -> dict:
+    """Forget every book under a root that is no longer part of the library.
+
+    This is different from a drive being unplugged. A root that is still in
+    the configuration but cannot be read is left entirely alone; a root that
+    has been *removed* from the configuration is never scanned again, so its
+    books would otherwise sit on the shelf indefinitely, looking present.
+
+    Only index rows go. The files are not touched, reading progress is keyed by
+    path and stays, and the cover images on disk are found again by path hash
+    -- so adding the root back and scanning brings everything back as it was.
+    """
+    prefix = os.path.abspath(path)
+    prefix = prefix if prefix.endswith(os.sep) else prefix + os.sep
+    with db.connect() as conn:
+        cur = conn.execute("DELETE FROM books WHERE substr(path, 1, ?) = ?",
+                           (len(prefix), prefix))
+        removed = cur.rowcount or 0
+        if removed:
+            # A different set of books entirely: the browser's thumbnails for
+            # these can go. Ids are never reused, so this is housekeeping --
+            # it frees the space rather than preventing a wrong cover.
+            db.set_meta(conn, "index_epoch", time.time())
+    return {"removed": removed}

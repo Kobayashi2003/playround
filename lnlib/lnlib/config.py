@@ -15,8 +15,22 @@ DATA_DIR = os.path.join(PROJECT_DIR, "data")
 CACHE_DIR = os.path.join(DATA_DIR, "covers")
 DB_PATH = os.path.join(DATA_DIR, "library.db")
 
-BOOK_EXT = {".epub", ".azw3", ".mobi", ".pdf", ".cbz", ".cbr", ".txt"}
+BOOK_EXT = {".epub", ".azw3", ".mobi", ".pdf", ".cbz", ".cbr", ".txt",
+            # Comic archives under their ordinary names. A .zip is read exactly
+            # like a .cbz, which is all a .cbz is; the rest are recorded and
+            # counted but opened in the desktop app, as a .cbr always was.
+            ".zip", ".rar", ".7z", ".tar"}
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
+
+# How the top level of a root is laid out. Everything below it is walked the
+# same way whichever this is.
+#
+#   shelves   folders directly under the root are shelves (1. 連載中, EPUB …);
+#             the default, and what a root with no setting means
+#   authors   folders directly under the root are authors, the way a Calibre
+#             export is laid out: Author/Title - Author.epub. The root is one
+#             shelf, and each folder's name is the credit for what is inside it
+LAYOUTS = ("shelves", "authors")
 
 
 def format_of(ext: str, is_dir: bool = False) -> str:
@@ -30,11 +44,10 @@ def format_of(ext: str, is_dir: bool = False) -> str:
         return "images"
     return (ext or "").lstrip(".").lower() or "other"
 
-DEFAULT_ROOTS = [
-    {"path": r"E:\書籍 (ライトノベル)", "label": "ライトノベル", "kind": "novel"},
-    {"path": r"E:\書籍 (一般コミック)", "label": "一般コミック", "kind": "manga"},
-    {"path": r"E:\書籍 (アートワークス)", "label": "アートワークス", "kind": "artbook"},
-]
+# A fresh checkout starts with no roots: which folders a library lives in is
+# this machine's business, not the repository's. `config --add-root` adds them,
+# and config.example.json shows what the file looks like.
+DEFAULT_ROOTS: list[dict] = []
 
 
 @dataclass
@@ -43,6 +56,7 @@ class Root:
     label: str
     kind: str = "novel"
     enabled: bool = True
+    layout: str = "shelves"
 
     @staticmethod
     def of(raw: dict) -> "Root":

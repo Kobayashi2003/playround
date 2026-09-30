@@ -36,16 +36,19 @@ export function ReadingView({ onCount }: { readonly onCount: (n: number) => void
           <div key={row.id} className="card" onClick={() => go(`#/read/${row.id}`)}>
             <div className="thumb">
               <Cover bookId={row.id} state={row.cover_state} alt="" />
-              <span className={`badge${row.finished ? " ok" : ""}`}>
-                {row.finished ? "読了" : `${percent}%`}
-              </span>
+              {row.finished ? <span className="badge ok">読了</span> : null}
+              {!row.finished ? (
+                <span className="progress" title={`${percent}%`}>
+                  <i style={{ width: `${percent}%` }} />
+                </span>
+              ) : null}
             </div>
             <div className="cap">
               <div className="t">{row.title}</div>
               <div className="a">{row.author || "作者不明"}</div>
-              <div className="bar">
-                <i style={{ width: `${row.finished ? 100 : percent}%` }} />
-              </div>
+              {/* This is the view about how far in you are, so here the number
+                  is worth a line of its own. */}
+              <div className="pct">{row.finished ? "読了" : `${percent}%`}</div>
             </div>
           </div>
         );

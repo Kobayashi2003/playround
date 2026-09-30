@@ -128,6 +128,22 @@ def books(root: str | None = None, shelf: str | None = None,
             "books": [dict(r) for r in rows]}
 
 
+def book_ids(root: str | None = None, shelf: str | None = None,
+             folder: str | None = None, q: str | None = None,
+             only: str | None = None, fmt: str | None = None) -> list[int]:
+    """Every id a shelf view would show, under exactly the same filter.
+
+    This is what "select everything here" resolves to on the server, so a
+    batch acts on precisely the books the view was counting -- not on a copy of
+    the ids the browser happened to have loaded, which for a shelf of tens of
+    thousands would be a fraction of them.
+    """
+    clause, args = _filter(root, shelf, folder, q, only, fmt)
+    with db.connect() as conn:
+        return [r["id"] for r in conn.execute(
+            f"SELECT b.id FROM books b{clause} ORDER BY b.id", args)]
+
+
 def book(book_id: int) -> dict | None:
     """One book in full, plus the other files in the folder it sits in.
 

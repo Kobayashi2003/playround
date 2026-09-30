@@ -217,6 +217,7 @@ def _scan_jpeg(path: str, limit: int) -> tuple[bytes, str] | None:
 EXTRACTORS = {
     ".epub": _epub_cover,
     ".cbz": _cbz_cover,
+    ".zip": _cbz_cover,           # the same thing, under its ordinary name
     ".pdf": lambda p: _scan_jpeg(p, 12 * 1024 * 1024),
     ".azw3": lambda p: _scan_jpeg(p, 12 * 1024 * 1024),
     ".mobi": lambda p: _scan_jpeg(p, 12 * 1024 * 1024),
@@ -235,7 +236,8 @@ def extract(path: str, ext: str, is_dir: bool, reuse: bool = True) -> dict:
     else:
         ext = ext.lower()
         fn = EXTRACTORS.get(ext)
-        source = {".epub": "epub-opf", ".cbz": "zip-first", ".pdf": "pdf-jpeg",
+        source = {".epub": "epub-opf", ".cbz": "zip-first", ".zip": "zip-first",
+                  ".pdf": "pdf-jpeg",
                   ".azw3": "mobi-jpeg", ".mobi": "mobi-jpeg"}.get(ext, "none")
         if fn is None:
             return dict(state="none", source="none",

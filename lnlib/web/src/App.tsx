@@ -201,7 +201,7 @@ function Body({ route, content, search, onCount, onChange }: {
     case "reading":
       return <ReadingView onCount={onCount} />;
     case "folders":
-      return <FoldersView search={search} />;
+      return <FoldersView search={search} scrollParent={content} />;
     case "formats":
       return <FormatsView />;
     case "trash":
@@ -220,6 +220,7 @@ function Body({ route, content, search, onCount, onChange }: {
           route={route}
           scrollParent={content}
           search={search}
+          onChange={onChange}
         />
       );
   }

@@ -127,6 +127,15 @@ export interface TrashRow {
   readonly trashed_at: number;
 }
 
+/** What a batch reports back: how many of how many, and why the rest failed. */
+export interface BatchResult {
+  readonly ok: boolean;
+  readonly total: number;
+  readonly done: number;
+  readonly failed: number;
+  readonly failures: readonly { id: number; title?: string | null; reason: string }[];
+}
+
 export interface Progress {
   readonly path: string;
   readonly locator: string | null;
@@ -183,12 +192,16 @@ export const FORMAT_LABEL: Record<string, string> = {
   mobi: "MOBI",
   txt: "テキスト",
   images: "画像フォルダ",
+  zip: "ZIP",
+  rar: "RAR",
+  "7z": "7Z",
+  tar: "TAR",
 };
 
 export const formatLabel = (f: string) => FORMAT_LABEL[f] ?? f.toUpperCase();
 
 /** Formats with an in-browser renderer. The rest open in a desktop app. */
-export const READABLE = new Set(["epub", "pdf", "cbz", "images", "txt"]);
+export const READABLE = new Set(["epub", "pdf", "cbz", "zip", "images", "txt"]);
 
 export function bytes(n: number | null | undefined): string {
   let size = Number(n || 0);

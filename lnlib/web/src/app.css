@@ -25,6 +25,10 @@
   --miss:      #8b6f2a;
   --shadow:    0 1px 2px rgba(28,27,24,.08), 0 3px 10px rgba(28,27,24,.05);
   --radius:    5px;
+  /* Every small control that can share a row is this tall, so a bar of them
+     lines up however they are mixed: a select, a button and a chip all sit on
+     the same two edges. */
+  --ctl-h:     28px;
   color-scheme: light;
 }
 
@@ -159,7 +163,10 @@ button:hover { background: var(--panel-2); color: var(--ink); }
 button.pri { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 button.pri:hover { background: var(--accent-2); border-color: var(--accent-2); }
 button[disabled] { opacity: .45; cursor: default; }
-button.sm { padding: 3px 8px; font-size: 11.5px; }
+button.sm {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: var(--ctl-h); padding: 0 10px; font-size: 11.5px; line-height: 1;
+}
 
 /* ------------------------------------------------------------- book grid */
 .grid {
@@ -207,6 +214,10 @@ button.sm { padding: 3px 8px; font-size: 11.5px; }
   overflow: hidden;
 }
 .cap .a { color: var(--ink-3); font-size: 11px; margin-top: 1px; }
+.cap .pct {
+  margin-top: 2px; font-size: 10.5px; color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
 
 /* -------------------------------------------------------------- detail */
 .detail-head { display: flex; gap: 20px; margin-bottom: 24px; flex-wrap: wrap; }
@@ -263,11 +274,32 @@ td.act { width: 1%; white-space: nowrap; text-align: right; }
 .actions { margin-top: 14px; display: flex; gap: 7px; flex-wrap: wrap; }
 .actions.center { justify-content: center; margin-top: 20px; }
 .dim { color: var(--ink-3); font-size: 11.5px; }
+/* One progress bar, used wherever something is part-way through: a book being
+   read, a file being fetched, a format's share of the shelf. A hairline groove
+   rather than a filled block, so it reads as a rule ruled on the page, and the
+   fill carries the accent across it. */
 .bar {
-  height: 3px; margin-top: 4px; border-radius: 99px; background: var(--panel-2);
+  position: relative; height: 4px; border-radius: 99px;
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line-2) 55%, transparent);
   overflow: hidden;
 }
-.bar i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+.bar i {
+  display: block; height: 100%; border-radius: inherit; min-width: 4px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width .25s ease;
+}
+
+/* The same bar laid along the bottom edge of a cover: how far into the book
+   you are, without a number taking up a line of the caption. */
+.thumb .progress {
+  position: absolute; inset-inline: 0; bottom: 0; height: 3px; z-index: 1;
+  background: rgba(0, 0, 0, .34);
+}
+.thumb .progress i {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
 
 /* --------------------------------------------------------------- reader */
 /* The reader is the whole window. The engine's own shell fills `.readerbody`
@@ -311,15 +343,24 @@ td.act { width: 1%; white-space: nowrap; text-align: right; }
   background: var(--panel); border-top: 1px solid var(--line);
 }
 .rfoot.rtl { flex-direction: row-reverse; }
-.rprog { flex: 1; height: 3px; background: var(--panel-2); border-radius: 99px; }
-.rprog i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.rprog {
+  flex: 1; position: relative; height: 4px; border-radius: 99px;
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line-2) 55%, transparent);
+  overflow: hidden;
+}
+.rprog i {
+  display: block; height: 100%; border-radius: inherit; min-width: 4px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width .25s ease;
+}
 .rpos {
   font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums;
   max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-.opening { display: grid; gap: 10px; justify-items: center; }
-.opening .bar { width: 220px; margin-top: 0; }
+.opening { display: grid; gap: 12px; justify-items: center; }
+.opening .bar { width: min(260px, 60vw); }
 
 /* --------------------------------------------------------------- states */
 .empty { padding: 50px 20px; text-align: center; color: var(--ink-3); }
@@ -354,10 +395,11 @@ td.act { width: 1%; white-space: nowrap; text-align: right; }
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   margin-inline-start: auto;
 }
-.chipbar { display: flex; gap: 5px; flex-wrap: wrap; }
+.chipbar { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .fchip {
-  display: inline-flex; align-items: baseline; gap: 5px;
-  padding: 3px 9px; border-radius: 99px; font-size: 11.5px;
+  display: inline-flex; align-items: center; gap: 5px;
+  height: var(--ctl-h); padding: 0 11px; border-radius: 99px;
+  font-size: 11.5px; line-height: 1;
   background: var(--panel); border: 1px solid var(--line-2); color: var(--ink-2);
 }
 .fchip .n { font-size: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
@@ -404,9 +446,14 @@ button.danger:hover {
   font-variant-numeric: tabular-nums; margin-top: 4px;
 }
 .fc-bar {
-  height: 3px; border-radius: 99px; background: var(--panel-2); margin: 7px 0 10px;
+  height: 4px; border-radius: 99px; background: var(--panel-2); margin: 7px 0 10px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line-2) 55%, transparent);
+  overflow: hidden;
 }
-.fc-bar i { display: block; height: 100%; border-radius: 99px; background: var(--accent); }
+.fc-bar i {
+  display: block; height: 100%; border-radius: inherit; min-width: 4px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
 .fc-facts { display: flex; gap: 14px; flex-wrap: wrap; margin: 0; }
 .fc-facts div { display: flex; flex-direction: column; gap: 1px; }
 .fc-facts dt { font-size: 9.5px; letter-spacing: .1em; color: var(--ink-3); }
@@ -429,6 +476,12 @@ td.num {
   padding: 11px 2px; border-bottom: 1px solid var(--line);
 }
 .trashmain { flex: 1 1 260px; min-width: 0; }
+/* The path is context, not the row: two lines of it is plenty, and on a narrow
+   screen the whole of one would push everything else out of sight. */
+.trashmain .path {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .trashacts { display: flex; gap: 6px; margin-inline-start: auto; }
 .chip.state-kept { background: var(--panel-2); color: var(--ink-2); }
 .chip.state-trashed {
@@ -439,16 +492,28 @@ td.num {
 }
 
 /* ------------------------------------------------------------------ dialogs */
+/* A dialog arrives over the page rather than replacing it, which is what the
+   short rise on the way in is saying. */
 .scrim {
   position: fixed; inset: 0; z-index: 200; display: grid; place-items: center;
   padding: 20px; background: rgba(10, 10, 8, .5); backdrop-filter: blur(2px);
+  animation: scrim-in .14s ease-out;
 }
 .dialog {
   /* The close button is positioned against this, not against the scrim. */
   position: relative;
   width: min(100%, 470px); max-height: calc(100dvh - 40px); overflow-y: auto;
-  padding: 20px 22px; background: var(--panel); color: var(--ink);
+  background: var(--panel); color: var(--ink);
   border: 1px solid var(--line-2); border-radius: 8px; box-shadow: var(--shadow);
+  animation: dialog-in .16s cubic-bezier(.2, .8, .3, 1);
+}
+@keyframes scrim-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scrim, .dialog { animation: none; }
 }
 .dialog h3 { margin: 0 0 10px; font-size: 16px; font-weight: 600; }
 .dialog-book { margin: 0 0 16px; display: flex; flex-direction: column; gap: 2px; }
@@ -470,9 +535,13 @@ td.num {
   padding: 0 3px; background: var(--panel-2); border-radius: 3px;
 }
 .dialog-actions {
-  display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;
-  flex-wrap: wrap;
+  display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;
+  margin-top: 4px; padding: 16px 22px 18px; border-top: 1px solid var(--line);
 }
+.dialog-actions.spread { align-items: center; }
+.dialog-actions .grow { flex: 1; }
+/* A batch dialog is padded as a whole, so its buttons sit inside that. */
+.batchdialog .dialog-actions { padding: 16px 0 0; }
 
 /* -------------------------------------------------------------- text reader */
 .textreader { display: grid; grid-template-rows: auto minmax(0, 1fr); width: 100%; }
@@ -520,6 +589,10 @@ td.num {
   .sel.order { width: 100%; }
   .detail-cover { width: 116px; }
   .detail-head { gap: 14px; }
+  /* Once the row wraps, its parts stack: the tick belongs beside the title
+     rather than floating halfway down a three-line block. */
+  .trashrow { align-items: flex-start; }
+  .rowcheck { margin-top: 3px; }
   .trashacts { width: 100%; margin-inline-start: 0; }
   .rbar { padding: 6px 8px; gap: 6px; }
   .rtitle b { font-size: 12px; }
@@ -547,10 +620,10 @@ td.num {
 .sel { position: relative; display: inline-flex; min-width: 0; }
 .sel select {
   appearance: none; -webkit-appearance: none;
-  width: 100%; padding: 6px 30px 6px 11px;
+  width: 100%; height: var(--ctl-h); padding: 0 30px 0 11px;
   background: var(--panel); color: var(--ink-2);
   border: 1px solid var(--line-2); border-radius: var(--radius);
-  font-size: 12.5px; line-height: 1.4; cursor: pointer;
+  font-size: 11.5px; line-height: 1; cursor: pointer;
   text-overflow: ellipsis;
   transition: border-color .13s, background .13s, color .13s;
 }
@@ -630,32 +703,14 @@ td.num {
 .bd-ask { margin: 0; padding: 22px 22px 10px; font-size: 16px; font-weight: 600; }
 .bookdialog .dialog-book,
 .bookdialog .choice,
-.bookdialog > .path { margin-inline: 22px; }
-.bookdialog > .path { margin-bottom: 4px; }
+.bookdialog > .path { margin-inline: 22px; margin-bottom: 4px; }
 
-.dialog-actions {
-  padding: 16px 22px 18px; margin-top: 4px;
-  border-top: 1px solid var(--line);
-}
-.dialog-actions.spread { align-items: center; }
-.dialog-actions .grow { flex: 1; }
 button.danger.solid {
   background: var(--accent); border-color: var(--accent); color: var(--on-accent);
 }
 
 /* The dialog arrives rather than appearing, which reads as "over the shelf"
    instead of "instead of the shelf". */
-.scrim { animation: scrim-in .14s ease-out; }
-.dialog { animation: dialog-in .16s cubic-bezier(.2, .8, .3, 1); }
-@keyframes scrim-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes dialog-in {
-  from { opacity: 0; transform: translateY(8px) scale(.985); }
-  to { opacity: 1; transform: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .scrim, .dialog { animation: none; }
-}
-
 @media (max-width: 560px) {
   .bd-head { flex-direction: column; gap: 14px; padding: 20px 16px 4px; }
   .bd-cover { width: 96px; }
@@ -667,4 +722,134 @@ button.danger.solid {
   .dialog-actions { padding: 14px 16px 16px; }
   .dialog-actions.spread .grow { display: none; }
   .dialog-actions.spread { justify-content: flex-start; }
+}
+
+/* ============================================================ virtual list */
+.vlist { position: relative; width: 100%; }
+.vrow { position: absolute; top: 0; left: 0; right: 0; will-change: transform; }
+
+/* The folder list: a table in appearance, rows positioned by script. */
+.flist-head,
+.frow {
+  display: grid; align-items: center; gap: 12px;
+  grid-template-columns: minmax(70px, 150px) minmax(0, 1fr) auto;
+  padding: 0 10px;
+}
+.flist-head {
+  padding-bottom: 6px; border-bottom: 1px solid var(--line);
+  font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 600;
+}
+.frow {
+  width: 100%; height: 100%; text-align: start;
+  background: transparent; border: 0; border-bottom: 1px solid var(--line);
+  border-radius: 0; color: var(--ink-2); font-size: 12.5px;
+}
+.frow:hover { background: var(--panel); color: var(--ink); }
+.f-shelf {
+  color: var(--ink-3); font-size: 11.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.f-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.f-name .n1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.f-name .n2 {
+  color: var(--ink-3); font-size: 10.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.f-count {
+  color: var(--ink-3); font-size: 12px; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.f-count em { font-style: normal; font-size: 11px; }
+
+@media (max-width: 560px) {
+  .flist-head, .frow { grid-template-columns: minmax(0, 1fr) auto; }
+  .flist-head span:first-child, .f-shelf { display: none; }
+}
+
+/* ========================================================= batch selection */
+/* A card in picking mode: the whole tile is the hit area, and the tick sits
+   over the cover rather than beside the title, where it would push the text
+   around every time the mode is turned on. */
+.vcard.picking { cursor: pointer; user-select: none; }
+.vcard .tick {
+  position: absolute; top: 9px; left: 9px; width: 20px; height: 20px;
+  border: 1.5px solid var(--line-2); border-radius: 50%;
+  background: var(--panel); box-shadow: var(--shadow);
+}
+.vcard.picked .tick {
+  border-color: var(--accent); background: var(--accent);
+}
+.vcard.picked .tick::after {
+  content: ""; position: absolute; left: 5px; top: 5px;
+  width: 8px; height: 4px;
+  border-left: 2px solid var(--on-accent); border-bottom: 2px solid var(--on-accent);
+  transform: rotate(-45deg);
+}
+.vcard.picked .thumb { border-color: var(--accent); }
+.vcard.picked .cap .t { color: var(--accent); }
+
+button.selbtn.on {
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+}
+
+/* The action bar. Sticky inside the scroller, so it stays in reach however far
+   down the shelf you are. */
+.selbar {
+  position: sticky; bottom: -20px; z-index: 30;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 16px -22px -60px; padding: 11px 22px;
+  background: var(--panel); border-top: 1px solid var(--line-2);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, .18);
+}
+.selbar .grow { flex: 1; }
+.sel-count { font-size: 12.5px; color: var(--ink-2); }
+.sel-count b {
+  font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.sel-count em { font-style: normal; color: var(--ink-3); font-size: 11.5px; }
+
+/* --------------------------------------------------------- batch dialog */
+/* The book dialog lays its sections out edge to edge, so the padding a plainer
+   dialog wants sits on this one rather than on every `.dialog`. */
+.batchdialog { width: min(100%, 520px); padding: 20px 22px; }
+.batchdialog h3 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
+.bd-count { margin: 0 0 14px; font-size: 13px; color: var(--ink-2); }
+.bd-count b {
+  font-size: 20px; color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.bd-result { margin: 0 0 12px; font-size: 13.5px; color: var(--ok); }
+.bd-result.partial { color: var(--warn); }
+.warn-text {
+  margin: 0 0 14px; padding: 9px 12px; border-radius: var(--radius);
+  background: var(--warn-bg); color: var(--warn); font-size: 12.5px;
+  line-height: 1.6;
+}
+.bd-failures {
+  list-style: none; margin: 0 0 4px; padding: 0;
+  max-height: 210px; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: var(--radius);
+}
+.bd-failures li {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 7px 11px; font-size: 12px;
+}
+.bd-failures li + li { border-top: 1px solid var(--line); }
+.bd-failures b { font-weight: 600; word-break: break-word; }
+.bd-failures span { color: var(--warn); }
+
+/* ------------------------------------------------------------ trash rows */
+.trashbar { align-items: center; }
+.checkall { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.shelfbar .grow { flex: 1; }
+input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+.rowcheck { flex-shrink: 0; margin-inline-end: 2px; }
+.trashrow.picked { background: var(--accent-bg); }
+
+@media (max-width: 720px) {
+  .selbar { margin-inline: -14px; padding-inline: 14px; }
+  .selbar .grow { display: none; }
+}
+@media (max-width: 420px) {
+  .selbar { margin-inline: -10px; padding-inline: 10px; }
 }

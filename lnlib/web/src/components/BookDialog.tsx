@@ -14,7 +14,6 @@ import { Cover } from "./Cover";
 import { Delayed } from "./Delayed";
 import { api, invalidate, isAbort } from "../lib/api";
 import { forgetBook } from "../lib/shelf";
-import { go } from "../lib/hooks";
 import { bytes, formatLabel, READABLE } from "../lib/types";
 import type { Book, BookCard } from "../lib/types";
 
@@ -74,9 +73,13 @@ export function BookDialog({ id, onClose, onChange }: BookDialogProps) {
   const remove = useCallback(async (file: "keep" | "trash") => {
     setBusy(true);
     try {
-      const res = await api.deleteBook(id, file);
+      // One book is a batch of one: the same route, so there is only ever one
+      // description of what removing a book does.
+      const res = await api.batchBooks({
+        action: file === "trash" ? "trash" : "forget", ids: [id], expect: 1,
+      });
       if (!res.ok) {
-        setError(res.reason || "削除できませんでした");
+        setError(res.failures[0]?.reason || "削除できませんでした");
         setBusy(false);
         setStep("book");
         return;
@@ -116,7 +119,6 @@ export function BookDialog({ id, onClose, onChange }: BookDialogProps) {
                 busy={busy}
                 onDelete={() => setStep("delete")}
                 onForgetProgress={forgetProgress}
-                onClose={onClose}
               />
             : <DeleteBody
                 book={data.book}
@@ -130,12 +132,11 @@ export function BookDialog({ id, onClose, onChange }: BookDialogProps) {
   );
 }
 
-function BookBody({ data, busy, onDelete, onForgetProgress, onClose }: {
+function BookBody({ data, busy, onDelete, onForgetProgress }: {
   readonly data: { book: Book; nearby: readonly BookCard[] };
   readonly busy: boolean;
   readonly onDelete: () => void;
   readonly onForgetProgress: () => void;
-  readonly onClose: () => void;
 }) {
   const { book, nearby } = data;
   const percent = Math.round((book.read_percent || 0) * 100);
@@ -192,7 +193,9 @@ function BookBody({ data, busy, onDelete, onForgetProgress, onClose }: {
               <li key={row.id}>
                 <button
                   className={row.present ? "" : "gone"}
-                  onClick={() => go(`#/book/${row.id}`)}
+                  // Replaced, not pushed: stepping through a folder should
+                  // not leave a trail the back button has to walk back out of.
+                  onClick={() => location.replace(`#/book/${row.id}`)}
                   title={row.title}
                 >
                   <span className="v">{row.volume ? `${row.volume}` : "—"}</span>
@@ -220,7 +223,14 @@ function BookBody({ data, busy, onDelete, onForgetProgress, onClose }: {
         {readable ? (
           <button
             className="pri"
-            onClick={() => { onClose(); go(`#/read/${book.id}`); }}
+            onClick={() => {
+              // Replace the dialog's history entry rather than closing it
+              // first: closing is `history.back()`, which lands *after* any
+              // navigation made in the same tick and would undo it -- the
+              // reader opened and was immediately backed out of. Replaced, the
+              // back button from the reader returns straight to the shelf.
+              location.replace(`#/read/${book.id}`);
+            }}
           >
             {percent > 0 && !book.read_finished ? "続きを読む" : "読む"}
           </button>

@@ -1,4 +1,20 @@
+# Local state: the index, the cover cache and any backups. All of it is
+# rebuilt by `scan` and `covers` except reading progress, which is personal.
 data/
+
+# This machine's library folders. config.example.json shows the shape;
+# `python -m lnlib config --add-root …` writes the real one.
+config.json
+*.tmp
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+
+# Logs, editors, operating systems
 *.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

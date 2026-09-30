@@ -24,6 +24,14 @@ import unicodedata
 RE_TAGS = re.compile(r"^\s*((?:\[[^\]]*\]\s*)+)(.*)$", re.S)
 RE_TAG = re.compile(r"\[([^\]]*)\]")
 RE_DATE6 = re.compile(r"^\d{6}$")
+# (一般コミック) [作者] 書名 -- the category a scan group files a book under,
+# written before the credits. It says what shelf it came from, not who made it,
+# so it is set aside and the tags after it are read as usual.
+RE_CATEGORY = re.compile(r"^\s*[(（][^()（）]{1,20}[)）]\s*(?=\[)")
+# A credit is a name, not a sentence. Some files open with the book's first line
+# in brackets ([ある朝妻とさしむかいで食事をしていると、…]); anything this long
+# is not a person and is left out of the credits.
+MAX_CREDIT = 40
 
 _ROMAN_VALUE = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
 
@@ -85,6 +93,7 @@ def iso_to_yymmdd(iso: str | None) -> str | None:
 
 def split_tags(stem: str) -> tuple[list[str], str]:
     """Leading [bracketed] tags and whatever follows them."""
+    stem = RE_CATEGORY.sub("", stem, count=1)
     m = RE_TAGS.match(stem)
     if not m:
         return [], stem.strip()
@@ -100,7 +109,8 @@ def read_tags(stem: str) -> dict:
     """
     tags, title = split_tags(stem)
     date = next((t for t in tags if RE_DATE6.match(t)), None)
-    named = [t.strip() for t in tags if not RE_DATE6.match(t) and t.strip()]
+    named = [t.strip() for t in tags
+             if not RE_DATE6.match(t) and t.strip() and len(t.strip()) <= MAX_CREDIT]
 
     imprint = author = illustrator = None
     if len(named) >= 3:
@@ -147,6 +157,36 @@ def parse_item(filename: str, in_folder: bool) -> dict:
         "date_raw": got["date"],
         "title": title.strip(),
     }
+
+
+def split_author_suffix(title: str, author: str | None) -> tuple[str, str | None]:
+    """'書名 - 作者' -> ('書名', '作者'), but only when the tail *is* this author.
+
+    That is how a Calibre export names its files, and inside an author folder
+    the folder already says who wrote them, so the tail is redundant. A title
+    that merely contains " - " is left alone: the tail has to be the name.
+
+    Calibre names the folder by the author's *sort* name and the file by the
+    *display* name -- `ヒスイ, 翡翠/…- 翡翠 ヒスイ.epub` -- so the inverted form
+    counts too, and when it is the one found, it is returned so the book can
+    carry the name as it is actually written rather than as it is filed.
+    """
+    if not author:
+        return title, None
+    names = [author]
+    if ", " in author:
+        last, first = author.split(", ", 1)
+        names.append(f"{first} {last}")
+    for name in names:
+        for sep in (" - ", " – ", "－"):
+            tail = sep + name
+            if title.endswith(tail) and len(title) > len(tail):
+                return title[: -len(tail)].rstrip(), name
+    # A name cut off by the filename length limit leaves only the separator.
+    trimmed = title.rstrip()
+    if trimmed.endswith(" -") and len(trimmed) > 2:
+        return trimmed[:-2].rstrip(), None
+    return title, None
 
 
 def volume_of(title: str) -> str | None:

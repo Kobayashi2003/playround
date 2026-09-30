@@ -35,7 +35,11 @@ PRAGMA journal_mode=WAL;
 
 -- ---------- derived cache (safe to drop and rebuild) ----------
 CREATE TABLE IF NOT EXISTS books (
-    id           INTEGER PRIMARY KEY,
+    -- AUTOINCREMENT, so an id is never handed out twice. Anything keyed by an
+    -- id -- the browser's thumbnail cache, a trash entry waiting to be put back
+    -- -- would otherwise find a different book behind it once the highest ids
+    -- had been deleted and the next scan reused them.
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
     root_label   TEXT NOT NULL,
     root_kind    TEXT NOT NULL,
     shelf        TEXT NOT NULL,
@@ -140,8 +144,46 @@ def connect() -> sqlite3.Connection:
 def init() -> None:
     with connect() as conn:
         _migrate(conn)
+        _never_reuse_ids(conn)
         conn.executescript(SCHEMA)
         _stamp_epoch(conn)
+
+
+def _never_reuse_ids(conn: sqlite3.Connection) -> None:
+    """Rebuild a books table that could hand an id out twice, keeping every row.
+
+    Without AUTOINCREMENT SQLite gives a new row the highest id plus one, so
+    deleting the newest books -- or a whole root -- and scanning again reissues
+    their ids to different books. SQLite cannot add AUTOINCREMENT in place, so
+    the table is copied into one that has it. Every row keeps its id, so covers
+    and thumbnails already made for it stay attached to the right book.
+    """
+    row = conn.execute("SELECT sql FROM sqlite_master "
+                       "WHERE type='table' AND name='books'").fetchone()
+    if not row or "AUTOINCREMENT" in (row["sql"] or "").upper():
+        return
+
+    start = SCHEMA.index("CREATE TABLE IF NOT EXISTS books (")
+    end = SCHEMA.index(");", start) + 2
+    ddl = SCHEMA[start:end].replace("IF NOT EXISTS books (", "books_new (", 1)
+    columns = [c["name"] for c in conn.execute("PRAGMA table_info(books)")]
+    listed = ",".join(columns)
+
+    conn.commit()
+    # Off for the copy: dropping the old table would otherwise cascade into the
+    # covers that refer to it, and every extracted cover would be forgotten.
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute(ddl)
+        conn.execute(f"INSERT INTO books_new({listed}) SELECT {listed} FROM books")
+        conn.execute("DROP TABLE books")
+        conn.execute("ALTER TABLE books_new RENAME TO books")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
 
 
 def _stamp_epoch(conn: sqlite3.Connection) -> None:

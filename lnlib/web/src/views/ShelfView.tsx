@@ -6,13 +6,20 @@
    book and coming back is instant and lands where it left off.
 
    The format filter is offered from the counts the server sent back for this
-   exact view, so a choice that would lead nowhere is never on screen. */
+   exact view, so a choice that would lead nowhere is never on screen.
+
+   選択 turns the grid into a picker: a click ticks a card instead of opening
+   it, Shift ticks a run of them, and すべて選択 means everything this view
+   matches -- resolved on the server, since the browser never holds it all. */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookGrid } from "../components/BookGrid";
+import { BookGrid, type GridSelection } from "../components/BookGrid";
+import { BatchDialog, type BatchKind } from "../components/BatchDialog";
 import { Select } from "../components/Select";
 import { Delayed } from "../components/Delayed";
-import { useShelf } from "../lib/shelf";
+import { api, invalidate } from "../lib/api";
+import { forgetBook, forgetShelves, useShelf } from "../lib/shelf";
+import { useSelection } from "../lib/selection";
 import { go, useDebounced, type Route } from "../lib/hooks";
 import { formatLabel } from "../lib/types";
 import type { BookCard, ShelfQuery, SortOrder } from "../lib/types";
@@ -26,13 +33,18 @@ const ORDER_LABELS: Record<SortOrder, string> = {
   format: "形式順",
 };
 
+// Below this many removed books the grid drops them in place; above it the
+// shelf reloads, which is cheaper than splicing thousands of rows one by one.
+const SPLICE_LIMIT = 300;
+
 interface ShelfViewProps {
   readonly route: Extract<Route, { view: "shelf" }>;
   readonly scrollParent: HTMLElement | null;
   readonly search: string;
+  readonly onChange: () => void;
 }
 
-export function ShelfView({ route, scrollParent, search }: ShelfViewProps) {
+export function ShelfView({ route, scrollParent, search, onChange }: ShelfViewProps) {
   const q = useDebounced(search.trim(), 240);
   const [order, setOrder] = useState<SortOrder>(() => {
     try {
@@ -53,20 +65,103 @@ export function ShelfView({ route, scrollParent, search }: ShelfViewProps) {
   }), [route.root, route.shelf, route.folder, route.only, fixedFormat, pick, q]);
 
   const shelf = useShelf(query, order);
-  const { ensure, rememberScroll, facets } = shelf;
+  const { ensure, rememberScroll, facets, loadRange } = shelf;
 
-  // A new filter starts at the top; a shelf that has been visited before keeps
-  // the offset it was left at, which `useShelf` has held on to.
+  const [selecting, setSelecting] = useState(false);
+  const picks = useSelection(Math.max(0, shelf.total));
+  const [batch, setBatch] = useState<BatchKind | null>(null);
+
+  // A new filter starts at the top, and a selection made under one filter
+  // means nothing under another.
   const scrolled = useRef<string | null>(null);
   const key = `${q}|${order}|${pick}`;
+  const { clear } = picks;
   useEffect(() => {
     if (scrolled.current === key) return;
     const first = scrolled.current === null;
     scrolled.current = key;
+    clear();
     if (!first && scrollParent) scrollParent.scrollTop = 0;
-  }, [key, scrollParent]);
+  }, [key, scrollParent, clear]);
+
+  const leaveSelecting = useCallback(() => {
+    setSelecting(false);
+    clear();
+  }, [clear]);
+
+  // Esc leaves selection mode; Ctrl+A selects everything in view. Neither
+  // fires while typing, or while a batch dialog has the keyboard.
+  useEffect(() => {
+    if (!selecting || batch) return;
+    const onKey = (e: KeyboardEvent) => {
+      const typing = (e.target as HTMLElement | null)?.closest("input, textarea, select");
+      if (typing) return;
+      // A book dialog can be open over a shelf that is still in selection mode
+      // (a pasted link lands that way). Escape belongs to the dialog then, not
+      // to the shelf behind it.
+      if (location.hash.startsWith("#/book/")) return;
+      if (e.key === "Escape") { e.preventDefault(); leaveSelecting(); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        picks.selectAll();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selecting, batch, leaveSelecting, picks]);
 
   const onOpen = useCallback((book: BookCard) => { go(`#/book/${book.id}`); }, []);
+
+  const gridSelection = useMemo<GridSelection | null>(() => {
+    if (!selecting) return null;
+    return {
+      isPicked: picks.isPicked,
+      toggle: (book, index, extend) => {
+        if (!extend || picks.anchor === null) {
+          picks.toggle(book.id, index);
+          return;
+        }
+        // Shift: the whole run takes the state the clicked card is about to
+        // take. Rows scrolled past too fast to load are fetched first.
+        const on = !picks.isPicked(book.id);
+        const from = Math.min(picks.anchor, index);
+        const to = Math.max(picks.anchor, index);
+        void loadRange(from, to).then((rows) => {
+          const ids: number[] = [];
+          for (let i = from; i <= to; i++) {
+            const row = rows[i];
+            if (row) ids.push(row.id);
+          }
+          picks.setMany(ids, on);
+          picks.setAnchor(index);
+        });
+      },
+    };
+  }, [selecting, picks, loadRange]);
+
+  /** Carry out one batch action on whatever is ticked. */
+  const runBatch = useCallback(async (kind: BatchKind, choice: "keep" | "trash") => {
+    const action = kind === "clear" ? "clear_progress" as const
+      : choice === "trash" ? "trash" as const : "forget" as const;
+    const body = picks.sel.all
+      ? { action, query, exclude: [...picks.sel.ids], expect: picks.count }
+      : { action, ids: [...picks.sel.ids], expect: picks.count };
+    const result = await api.batchBooks(body);
+
+    invalidate();
+    if (action !== "clear_progress" && !picks.sel.all && picks.sel.ids.size <= SPLICE_LIMIT) {
+      for (const id of picks.sel.ids) forgetBook(id);
+    } else {
+      forgetShelves();
+    }
+    onChange();
+    return result;
+  }, [picks, query, onChange]);
+
+  const closeBatch = useCallback((changed: boolean) => {
+    setBatch(null);
+    if (changed) clear();
+  }, [clear]);
 
   // The facet list is only meaningful while nothing has been picked; once one
   // is, the server stops counting the others, so the last full list is kept.
@@ -120,6 +215,15 @@ export function ShelfView({ route, scrollParent, search }: ShelfViewProps) {
               <option key={value} value={value}>{label}</option>
             ))}
           </Select>
+
+          <button
+            className={`sm selbtn${selecting ? " on" : ""}`}
+            onClick={() => (selecting ? leaveSelecting() : setSelecting(true))}
+            disabled={shelf.total <= 0}
+            title="まとめて選んで操作する（Esc で終了）"
+          >
+            {selecting ? "選択を終了" : "選択"}
+          </button>
         </div>
       </div>
 
@@ -136,8 +240,43 @@ export function ShelfView({ route, scrollParent, search }: ShelfViewProps) {
           onOpen={onOpen}
           initialScroll={shelf.scrollTop}
           onScroll={rememberScroll}
+          selection={gridSelection}
         />
       )}
+
+      {selecting ? (
+        <div className="selbar" role="toolbar" aria-label="選択した本の操作">
+          <span className="sel-count">
+            <b>{picks.count.toLocaleString()}</b> 冊選択
+            {picks.sel.all ? <em>（この一覧のすべて）</em> : null}
+          </span>
+          <button className="sm" onClick={picks.selectAll}
+                  disabled={picks.sel.all && picks.sel.ids.size === 0}>
+            すべて選択（{Math.max(0, shelf.total).toLocaleString()}）
+          </button>
+          <button className="sm" onClick={clear} disabled={picks.count === 0}>
+            選択解除
+          </button>
+          <span className="grow" />
+          <button className="sm" onClick={() => setBatch("clear")}
+                  disabled={picks.count === 0}>
+            読書記録を消す
+          </button>
+          <button className="sm danger" onClick={() => setBatch("remove")}
+                  disabled={picks.count === 0}>
+            棚から外す
+          </button>
+        </div>
+      ) : null}
+
+      {batch ? (
+        <BatchDialog
+          kind={batch}
+          count={picks.count}
+          run={(choice) => runBatch(batch, choice)}
+          onClose={closeBatch}
+        />
+      ) : null}
     </>
   );
 }

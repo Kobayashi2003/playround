@@ -5,7 +5,8 @@ Three shapes of book are readable, and the front end treats each differently:
   epub          handed over whole. The browser-side reader opens the container,
                 parses the package and paginates it, so there is exactly one
                 EPUB implementation in this project and it is not this file.
-  cbz / folder  an ordered list of images, shown one page at a time.
+  cbz / zip /   an ordered list of images, shown one page at a time.
+  folder
   pdf           handed to the built-in PDF viewer of the browser as-is.
   txt           decoded here and sent as text, because guessing the encoding
                 of a Japanese text file is not something a browser will do.
@@ -40,7 +41,7 @@ BINARY_MIME = {
     ".woff2": "font/woff2", ".pdf": "application/pdf",
     ".epub": "application/epub+zip",
 }
-READABLE_ZIP = {".epub", ".cbz"}
+READABLE_ZIP = {".epub", ".cbz", ".zip"}
 
 
 def mime_for(name: str) -> str:
@@ -131,7 +132,7 @@ def manifest(book_id: int) -> dict:
     try:
         if b["is_dir"]:
             pages = _folder_pages(path)
-        elif ext == ".cbz":
+        elif ext in (".cbz", ".zip"):
             pages = _cbz_pages(path)
         elif ext == ".epub":
             return {**out, "kind": "epub"}

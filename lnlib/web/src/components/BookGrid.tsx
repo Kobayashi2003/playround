@@ -19,6 +19,13 @@ import type { BookCard } from "../lib/types";
 
 const CELL = { min: 132, gapX: 14, gapY: 16, caption: 56, overscan: 2 };
 
+/** While present, a click picks a card instead of opening it. */
+export interface GridSelection {
+  readonly isPicked: (id: number) => boolean;
+  /** `extend` is Shift: everything from the last card clicked to this one. */
+  readonly toggle: (book: BookCard, index: number, extend: boolean) => void;
+}
+
 interface BookGridProps {
   readonly rows: readonly (BookCard | undefined)[];
   readonly total: number;
@@ -29,10 +36,12 @@ interface BookGridProps {
   /** Restored once on mount, then written back as the reader scrolls. */
   readonly initialScroll?: number;
   readonly onScroll?: (top: number) => void;
+  readonly selection?: GridSelection | null;
 }
 
 export function BookGrid({
   rows, total, scrollParent, onRange, onOpen, initialScroll = 0, onScroll,
+  selection = null,
 }: BookGridProps) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const width = useElementWidth(scrollParent);
@@ -123,19 +132,30 @@ export function BookGrid({
     const row = rows[i];
     const x = (i % geometry.cols) * (geometry.cellW + CELL.gapX);
     const y = Math.floor(i / geometry.cols) * (geometry.cellH + CELL.gapY);
+    const picked = !!(row && selection?.isPicked(row.id));
+    const act = (extend: boolean) => {
+      if (!row) return;
+      if (selection) selection.toggle(row, i, extend);
+      else onOpen(row);
+    };
     cards.push(
       <div
         key={i}
-        className={`card vcard${row ? "" : " skel"}`}
+        className={`card vcard${row ? "" : " skel"}${selection ? " picking" : ""}` +
+                   `${picked ? " picked" : ""}`}
         style={{ transform: `translate(${x}px, ${y}px)`, width: geometry.cellW }}
-        onClick={row ? () => onOpen(row) : undefined}
-        role={row ? "button" : undefined}
+        onClick={row ? (e) => act(e.shiftKey) : undefined}
+        // Shift-click would otherwise select the page's text as well.
+        onMouseDown={selection ? (e) => { if (e.shiftKey) e.preventDefault(); } : undefined}
+        role={row ? (selection ? "checkbox" : "button") : undefined}
+        aria-checked={row && selection ? picked : undefined}
         tabIndex={row ? 0 : undefined}
         onKeyDown={row ? (e) => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(row); }
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(e.shiftKey); }
         } : undefined}
       >
         {row ? <BookCardBody book={row} /> : <div className="thumb" />}
+        {row && selection ? <span className="tick" aria-hidden="true" /> : null}
       </div>,
     );
   }
@@ -146,19 +166,23 @@ export function BookGrid({
 function BookCardBody({ book }: { readonly book: BookCard }) {
   const percent = Math.round((book.read_percent || 0) * 100);
   // A book the last scan could not find still shows everything it knew; the
-  // badge says so rather than the card pretending it is not there.
+  // badge says so rather than the card pretending it is not there. The badge
+  // carries a state word only -- how far in is the bar along the bottom edge,
+  // which says the same thing without competing with the title for room.
   const absent = !book.present;
-  const badge = absent
-    ? "不明"
-    : book.read_finished
-      ? "読了"
-      : percent > 0 ? `${percent}%` : "";
+  const badge = absent ? "不明" : book.read_finished ? "読了" : "";
+  const reading = !absent && !book.read_finished && percent > 0;
   return (
     <>
       <div className={`thumb${absent ? " absent" : ""}`}>
         <Cover bookId={book.id} state={book.cover_state} alt="" />
         {badge ? (
-          <span className={`badge${absent ? " miss" : ""}`}>{badge}</span>
+          <span className={`badge${absent ? " miss" : " ok"}`}>{badge}</span>
+        ) : null}
+        {reading ? (
+          <span className="progress" title={`${percent}%`}>
+            <i style={{ width: `${percent}%` }} />
+          </span>
         ) : null}
       </div>
       <div className="cap">

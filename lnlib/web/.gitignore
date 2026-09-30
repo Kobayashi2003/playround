@@ -1,3 +1,7 @@
 node_modules/
+# The built bundle `serve` hands out; `npm run build` makes it.
 dist/
 *.tsbuildinfo
+# Vite's dependency cache when it lands outside node_modules
+.vite/
+*.local
