@@ -34,6 +34,17 @@ function verticalInlineMargin(plan: RenditionPlan): number {
   );
 }
 
+/**
+ * Top and bottom breathing room of a horizontal page, proportional to the
+ * page-margin preference so zero still means zero. Without it the first and
+ * last lines of every page touch the viewport edge.
+ */
+function blockMargin(plan: RenditionPlan, extent: number): number {
+  return Math.round(
+    Math.max(0, (extent * plan.preferences.pageMarginPercent * 0.6) / 100),
+  );
+}
+
 function verticalColumnInlineSize(plan: RenditionPlan): number {
   return Math.max(1, plan.viewport.height - verticalInlineMargin(plan) * 2);
 }
@@ -76,9 +87,7 @@ export function buildReflowableLayoutCss(
     //
     // The axes swap between the modes. In vertical writing the inline axis is
     // vertical, so column boxes stack down the page, each column is a whole
-    // page, and paging is an ordinary positive `scrollTop`. That stacking is
-    // correct; what an earlier revision got wrong was keeping a horizontal
-    // scroll transport underneath it and concluding multicol was unusable here.
+    // page, and paging is an ordinary positive `scrollTop`.
     if (writingMode !== 'horizontal-tb') {
       const inlineMargin = verticalInlineMargin(plan);
       return `
@@ -113,11 +122,19 @@ body {
   overflow: visible !important;
 }
 ${leadingBlank ? leadingBlankColumnCss() : ''}
-${policy.containReplacedElements ? replacedElementContainmentCss() : ''}
+${
+  policy.containReplacedElements
+    ? replacedElementContainmentCss(
+        cssPixels(verticalColumnInlineSize(plan)),
+        `calc(${width} - 2 * ${VERTICAL_BLOCK_SLACK})`,
+      )
+    : ''
+}
 `;
     }
 
     const gap = cssPixels(pageGap);
+    const topBottom = blockMargin(plan, plan.viewport.height);
     return `
 html {
   box-sizing: border-box !important;
@@ -142,6 +159,7 @@ body {
   min-height: ${height} !important;
   margin: 0 !important;
   padding: 0 !important;
+  padding-block: ${cssLength(topBottom)} !important;
   column-width: ${pageWidth} !important;
   column-gap: ${gap} !important;
   column-fill: auto !important;
@@ -149,7 +167,14 @@ body {
   overflow: visible !important;
 }
 ${leadingBlank ? leadingBlankColumnCss() : ''}
-${policy.containReplacedElements ? replacedElementContainmentCss() : ''}
+${
+  policy.containReplacedElements
+    ? replacedElementContainmentCss(
+        pageWidth,
+        cssPixels(plan.viewport.height - topBottom * 2),
+      )
+    : ''
+}
 `;
   }
 
@@ -203,7 +228,7 @@ body {
   column-fill: balance !important;
   overflow: visible !important;
 }
-${policy.containReplacedElements ? replacedElementContainmentCss() : ''}
+${policy.containReplacedElements ? replacedElementContainmentCss('100%', 'none') : ''}
 `;
 }
 
@@ -462,11 +487,20 @@ export function upsertReaderStyle(
   return style;
 }
 
-function replacedElementContainmentCss(): string {
+/**
+ * Keep replaced content inside one page. The limits are the page's own
+ * extents: a percentage `max-block-size` resolves against the auto-height
+ * wrapper publishers put around illustrations, which never constrains it, so
+ * a tall illustration would overflow its page and be cut off.
+ */
+function replacedElementContainmentCss(
+  maxInlineSize: string,
+  maxBlockSize: string,
+): string {
   return `
 img, svg, video, canvas, object, embed, iframe {
-  max-inline-size: 100% !important;
-  max-block-size: 100% !important;
+  max-inline-size: min(100%, ${maxInlineSize}) !important;
+  max-block-size: ${maxBlockSize} !important;
   object-fit: contain;
   break-inside: avoid;
 }

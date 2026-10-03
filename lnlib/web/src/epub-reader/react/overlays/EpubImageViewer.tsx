@@ -21,17 +21,10 @@ export function EpubImageViewerContent({
     const image = event.currentTarget;
     setDimensions({ width: image.naturalWidth, height: image.naturalHeight });
   };
+  // Fit is pure CSS: the image keeps its ratio inside the canvas box.
   const imageStyle =
     scale == null
-      ? dimensions.width > 0 && dimensions.height > 0
-        ? {
-            width: `${dimensions.width}px`,
-            height: `${dimensions.height}px`,
-            maxWidth: '100%',
-            maxHeight: '100%',
-            objectFit: 'contain' as const,
-          }
-        : undefined
+      ? undefined
       : dimensions.width > 0 && dimensions.height > 0
         ? {
             width: `${Math.round(dimensions.width * scale)}px`,
@@ -77,7 +70,9 @@ export function EpubImageViewerContent({
           alt={activation.alt}
           draggable="false"
           style={imageStyle}
+          title="Double-click to switch between fit and actual size"
           onLoad={onLoad}
+          onDoubleClick={() => setScale(scale == null ? 1 : null)}
         />
       </div>
       <footer

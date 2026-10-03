@@ -95,10 +95,7 @@ export function EpubMarksPanel({
     setConfirmBatchDelete(false);
   };
   return (
-    <section
-      className="epub-reader-panel epub-marks-panel"
-      aria-label="Marks"
-    >
+    <section className="epub-reader-panel epub-marks-panel" aria-label="Marks">
       {marks.length > 0 ? (
         <div className="epub-marks-panel__actions">
           <button

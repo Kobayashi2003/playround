@@ -376,6 +376,16 @@ export class SyntheticSpreadRenderer implements RendererInstance {
       transaction,
     );
     transaction.mutate(() => {
+      // A cover or closing page has no facing leaf. Collapse the blank slot so
+      // the page is centred instead of sitting beside an empty half of the
+      // viewport; blank slots elsewhere keep the authored facing-page side.
+      const loneEdge = loneEdgePage(assignment, this.environment.publication);
+      this.left!.container.style.display =
+        loneEdge && assignment.leftSpineIndex == null ? 'none' : '';
+      this.right!.container.style.display =
+        loneEdge && assignment.rightSpineIndex == null ? 'none' : '';
+      this.gap = loneEdge ? 0 : gap;
+      root.style.gap = `${this.gap}px`;
       const scrollableFixedLayout =
         plan.renderer === 'fixed-layout' &&
         plan.preferences.fixedLayoutFit !== 'contain';
@@ -711,6 +721,25 @@ export function resolveSpreadGap(
   return shouldSuppressSpreadGap(publication, plan, assignment)
     ? 0
     : defaultGap;
+}
+
+/** A first or last page with no facing leaf and no authored left/right side. */
+function loneEdgePage(
+  assignment: {
+    readonly leftSpineIndex: number | null;
+    readonly rightSpineIndex: number | null;
+  },
+  publication: Publication,
+): boolean {
+  const { leftSpineIndex: left, rightSpineIndex: right } = assignment;
+  if ((left == null) === (right == null)) return false;
+  const index = left ?? right!;
+  if (index !== 0 && index !== publication.spine.length - 1) return false;
+  const item = publication.spine[index];
+  const placement = item
+    ? resolveSpineRendition(publication, item).pageSpread
+    : null;
+  return placement !== 'left' && placement !== 'right';
 }
 
 export function resolveFixedLayoutSpreadAlignment(

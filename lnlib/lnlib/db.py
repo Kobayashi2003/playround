@@ -23,9 +23,11 @@ records what a thing is, not what it is instead of.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import time
+from collections.abc import Iterator
 from typing import Any
 
 from . import config
@@ -94,7 +96,10 @@ CREATE TABLE IF NOT EXISTS covers (
 -- only the record was dropped; `trashed` means it was moved to `trash_path`,
 -- which is inside the same root and so was a rename rather than a copy.
 CREATE TABLE IF NOT EXISTS trash (
-    id           INTEGER PRIMARY KEY,
+    -- AUTOINCREMENT for the same reason the books table has it: a restore or
+    -- a purge is asked for by id, and a screen left open while the trash was
+    -- emptied would otherwise name an entry that is now somebody else.
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
     path         TEXT NOT NULL,
     title        TEXT NOT NULL,
     author       TEXT,
@@ -127,18 +132,39 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 """
 
+# Tables whose ids are promised never to come round again, because something
+# outside the database is holding them: the browser's thumbnail cache keys on a
+# book id, and a trash entry is restored or purged by its own.
+AUTOINCREMENT_TABLES = ("books", "trash")
+
 # Tables the series-shaped index used. `scan` no longer writes them and every
 # query has moved to `books`, so an old database is brought forward by dropping
 # them; reading progress is keyed by path and is not touched.
 LEGACY_TABLES = ("items", "series")
 
 
-def connect() -> sqlite3.Connection:
+@contextlib.contextmanager
+def connect() -> Iterator[sqlite3.Connection]:
+    """A connection for the length of one `with`: committed, then closed.
+
+    `sqlite3`'s own context manager ends the transaction and leaves the
+    connection open, so every request and every command was handing its file
+    handle back to the garbage collector rather than closing it. The
+    transaction behaves exactly as before -- commit on the way out, rollback if
+    the block raised -- and the connection is closed either way.
+
+    Rows outlive it: `fetchone` and `fetchall` return tuples, not cursors into
+    a database that is about to be let go.
+    """
     config.ensure_dirs()
     conn = sqlite3.connect(config.DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def init() -> None:
@@ -150,40 +176,48 @@ def init() -> None:
 
 
 def _never_reuse_ids(conn: sqlite3.Connection) -> None:
-    """Rebuild a books table that could hand an id out twice, keeping every row.
+    """Rebuild any table that could hand an id out twice, keeping every row.
 
     Without AUTOINCREMENT SQLite gives a new row the highest id plus one, so
-    deleting the newest books -- or a whole root -- and scanning again reissues
-    their ids to different books. SQLite cannot add AUTOINCREMENT in place, so
-    the table is copied into one that has it. Every row keeps its id, so covers
-    and thumbnails already made for it stay attached to the right book.
+    deleting the newest rows -- a whole root, or everything in the trash -- and
+    inserting again reissues those ids to different things. SQLite cannot add
+    AUTOINCREMENT in place, so the table is copied into one that has it. Every
+    row keeps the id it had, so covers and thumbnails already made for a book
+    stay attached to that book, and an entry in the trash stays itself.
+
+    The indexes go with the dropped table and are written again by SCHEMA,
+    which `init` runs immediately after this.
     """
-    row = conn.execute("SELECT sql FROM sqlite_master "
-                       "WHERE type='table' AND name='books'").fetchone()
-    if not row or "AUTOINCREMENT" in (row["sql"] or "").upper():
-        return
+    for table in AUTOINCREMENT_TABLES:
+        row = conn.execute("SELECT sql FROM sqlite_master "
+                           "WHERE type='table' AND name=?", (table,)).fetchone()
+        if not row or "AUTOINCREMENT" in (row["sql"] or "").upper():
+            continue
 
-    start = SCHEMA.index("CREATE TABLE IF NOT EXISTS books (")
-    end = SCHEMA.index(");", start) + 2
-    ddl = SCHEMA[start:end].replace("IF NOT EXISTS books (", "books_new (", 1)
-    columns = [c["name"] for c in conn.execute("PRAGMA table_info(books)")]
-    listed = ",".join(columns)
+        head = f"CREATE TABLE IF NOT EXISTS {table} ("
+        start = SCHEMA.index(head)
+        end = SCHEMA.index(");", start) + 2
+        ddl = SCHEMA[start:end].replace(head, f"CREATE TABLE {table}_new (", 1)
+        columns = [c["name"] for c in conn.execute(f"PRAGMA table_info({table})")]
+        listed = ",".join(columns)
 
-    conn.commit()
-    # Off for the copy: dropping the old table would otherwise cascade into the
-    # covers that refer to it, and every extracted cover would be forgotten.
-    conn.execute("PRAGMA foreign_keys=OFF")
-    try:
-        conn.execute(ddl)
-        conn.execute(f"INSERT INTO books_new({listed}) SELECT {listed} FROM books")
-        conn.execute("DROP TABLE books")
-        conn.execute("ALTER TABLE books_new RENAME TO books")
         conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.execute("PRAGMA foreign_keys=ON")
+        # Off for the copy: dropping the books table would otherwise cascade
+        # into the covers that refer to it, and every extracted cover would be
+        # forgotten.
+        conn.execute("PRAGMA foreign_keys=OFF")
+        try:
+            conn.execute(ddl)
+            conn.execute(f"INSERT INTO {table}_new({listed}) "
+                         f"SELECT {listed} FROM {table}")
+            conn.execute(f"DROP TABLE {table}")
+            conn.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.execute("PRAGMA foreign_keys=ON")
 
 
 def _stamp_epoch(conn: sqlite3.Connection) -> None:

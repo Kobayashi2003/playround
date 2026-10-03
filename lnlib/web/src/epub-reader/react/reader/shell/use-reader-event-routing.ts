@@ -25,7 +25,7 @@ interface ReaderEventRoutingOptions {
   readonly showSurface: (surface: ReaderSurface) => void;
   readonly closeSurface: (
     restoreFocus?: boolean,
-    focusTarget?: HTMLElement | null,
+    focusTarget?: HTMLElement | SVGElement | null,
   ) => void;
   readonly activeElement: () => HTMLElement | null;
   readonly showFeedback: (feedback: ReaderFeedbackSpec) => void;

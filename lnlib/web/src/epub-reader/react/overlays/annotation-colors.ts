@@ -2,10 +2,8 @@ import type { AnnotationColor } from '../../core';
 
 /**
  * Every colour the engine can store, in the order the interface offers them.
- *
- * Typed as the engine's own union, so adding a colour there fails to compile
- * here until the interface is taught to show it — the two lists this replaces
- * were free to drift apart silently.
+ * Typed as the engine's own union, so a colour added there fails to compile
+ * here until the interface can show it.
  */
 export const ANNOTATION_COLORS: readonly AnnotationColor[] = [
   'yellow',

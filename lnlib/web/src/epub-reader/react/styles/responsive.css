@@ -118,6 +118,8 @@
 
 .epub-reader-shell[data-layout='compact'] .epub-reader-shell__panel-head {
   padding-top: 14px;
+  cursor: grab;
+  touch-action: none;
 }
 
 @container epub-reader (max-width: 430px) {

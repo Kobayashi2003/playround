@@ -1,18 +1,22 @@
 """Serving a book to the browser, standard library only.
 
-Three shapes of book are readable, and the front end treats each differently:
+Four shapes of book are readable, and the front end treats each differently:
 
-  epub          handed over whole. The browser-side reader opens the container,
+  ebook         handed over whole. The browser-side reader opens the container,
                 parses the package and paginates it, so there is exactly one
-                EPUB implementation in this project and it is not this file.
+                e-book implementation in this project and it is not this file.
+                EPUB and Kindle KF8 (.azw3, and the KF8 half of a combined
+                .mobi) all go this way; the reader sniffs which it was given.
   cbz / zip /   an ordered list of images, shown one page at a time.
   folder
   pdf           handed to the built-in PDF viewer of the browser as-is.
   txt           decoded here and sent as text, because guessing the encoding
                 of a Japanese text file is not something a browser will do.
 
-Anything else (.azw3, .mobi, .cbr) has no in-browser renderer here; the UI
-offers to open it in the desktop application instead.
+Anything else (.cbr, .rar, .7z) has no in-browser renderer here; the UI offers
+to open it in the desktop application instead. A DRM-protected or
+Mobipocket-only .mobi gets as far as the reader and is refused there, with its
+own diagnostic -- which is the only place that can tell.
 
 The inside of a zip is still served file by file for the image formats, and for
 anything that wants to resolve a link into a book without unpacking it.
@@ -40,7 +44,13 @@ BINARY_MIME = {
     ".otf": "font/otf", ".ttf": "font/ttf", ".woff": "font/woff",
     ".woff2": "font/woff2", ".pdf": "application/pdf",
     ".epub": "application/epub+zip",
+    ".azw3": "application/vnd.amazon.ebook",
+    ".mobi": "application/x-mobipocket-ebook",
 }
+# Handed to the reader in the browser whole, container and all.
+EBOOK_EXT = {".epub", ".azw3", ".mobi"}
+# Containers this side can look inside, to serve one entry at a time. A KF8
+# file is a Palm database rather than a zip, so it is not one of them.
 READABLE_ZIP = {".epub", ".cbz", ".zip"}
 
 
@@ -105,9 +115,9 @@ def read_text(path: str) -> tuple[str, str]:
 def manifest(book_id: int) -> dict:
     """Everything the front end needs in order to open one book.
 
-    For an epub that is deliberately almost nothing: the reader in the browser
-    fetches the file itself and reads it. For a pile of images it is the page
-    list, because only this side can see inside the zip.
+    For an e-book that is deliberately almost nothing: the reader in the
+    browser fetches the file itself and reads it. For a pile of images it is
+    the page list, because only this side can see inside the zip.
     """
     with db.connect() as conn:
         row = conn.execute("SELECT * FROM books WHERE id=?", (book_id,)).fetchone()
@@ -134,8 +144,8 @@ def manifest(book_id: int) -> dict:
             pages = _folder_pages(path)
         elif ext in (".cbz", ".zip"):
             pages = _cbz_pages(path)
-        elif ext == ".epub":
-            return {**out, "kind": "epub"}
+        elif ext in EBOOK_EXT:
+            return {**out, "kind": "ebook"}
         elif ext == ".pdf":
             return {**out, "kind": "pdf"}
         elif ext == ".txt":
@@ -164,8 +174,11 @@ def resource(book_id: int, rel: str) -> tuple[bytes, str]:
     rel = urllib.parse.unquote(rel).lstrip("/")
 
     if row["is_dir"]:
-        safe = posixpath.normpath(rel)
-        if safe.startswith("..") or ":" in safe or posixpath.isabs(safe):
+        # A backslash is a separator to `os.path.join` on Windows, so it is
+        # folded in before the check rather than being carried past it.
+        safe = posixpath.normpath(rel.replace("\\", "/"))
+        if (safe.startswith("..") or ".." in safe.split("/")
+                or ":" in safe or posixpath.isabs(safe)):
             raise KeyError("forbidden")
         full = os.path.join(path, safe.replace("/", os.sep))
         if not os.path.isfile(full):

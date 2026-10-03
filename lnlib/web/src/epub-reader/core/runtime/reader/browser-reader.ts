@@ -1,4 +1,4 @@
-import { OcfZipArchive } from '../../epub/archive';
+import { openPublicationArchive } from '../../epub/archive';
 import {
   createReaderCompatibilityProfile,
   runRenditionCompatibilityPolicies,
@@ -337,9 +337,8 @@ export class BrowserEpubReader {
 
     const inputController = new ReaderInputController({
       // Keys, taps and the wheel go through the reader's own navigation, not
-      // straight to the navigator. The reader is what records the new position
-      // and republishes the snapshot; reaching past it moved the page but left
-      // every position readout showing where the reader used to be.
+      // straight to the navigator: only the reader records the new position and
+      // republishes the snapshot that position readouts depend on.
       navigator: {
         next: () => this.next(),
         previous: () => this.previous(),
@@ -436,7 +435,7 @@ export class BrowserEpubReader {
       extensions.compatibilityModules,
     );
     reportOpenProgress(options, 'archive', 'Opening EPUB container', 1);
-    const opened = await OcfZipArchive.open(
+    const opened = await openPublicationArchive(
       source,
       options.archiveLimits,
       options.compatibilityMode ??
@@ -446,8 +445,14 @@ export class BrowserEpubReader {
     );
     throwIfAborted(options.signal);
     if (!opened.archive) {
+      // Kindle failures (DRM, legacy MOBI) explain themselves better than the
+      // generic container message.
+      const kindle = opened.diagnostics.find(
+        (diagnostic) =>
+          diagnostic.severity === 'fatal' && diagnostic.code.startsWith('KF8_'),
+      );
       throw new BrowserEpubReaderOpenError(
-        'The EPUB container could not be opened.',
+        kindle?.message ?? 'The EPUB container could not be opened.',
         opened.diagnostics,
       );
     }
@@ -1031,13 +1036,7 @@ export class BrowserEpubReader {
     this.inputRouter?.syncDocuments(documents);
     this.linkRouter?.syncDocuments(documents);
     this.selectionRouter?.syncDocuments(documents);
-    this.mediaRouter?.syncDocuments(
-      documents.filter(
-        (context) =>
-          this.buildPlanForSpine(context.spineIndex).renderer !==
-          'fixed-layout',
-      ),
-    );
+    this.mediaRouter?.syncDocuments(documents);
   }
 
   private async goToWithHistory(

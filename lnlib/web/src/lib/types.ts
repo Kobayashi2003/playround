@@ -151,7 +151,7 @@ export interface ReadingRow extends BookCard {
   readonly updated_at: number;
 }
 
-/** What the reader needs to open one book; an epub carries nothing extra. */
+/** What the reader needs to open one book; an e-book carries nothing extra. */
 export type Manifest =
   & {
     readonly book: Book;
@@ -159,7 +159,8 @@ export type Manifest =
     readonly detail?: string;
   }
   & (
-    | { readonly kind: "epub" }
+    // EPUB and Kindle KF8 alike: the bundled reader is handed the file.
+    | { readonly kind: "ebook" }
     | { readonly kind: "pdf" }
     | { readonly kind: "images"; readonly pages: readonly string[];
         readonly direction: "ltr" | "rtl" }
@@ -200,8 +201,14 @@ export const FORMAT_LABEL: Record<string, string> = {
 
 export const formatLabel = (f: string) => FORMAT_LABEL[f] ?? f.toUpperCase();
 
-/** Formats with an in-browser renderer. The rest open in a desktop app. */
-export const READABLE = new Set(["epub", "pdf", "cbz", "zip", "images", "txt"]);
+/** Formats with an in-browser renderer. The rest open in a desktop app.
+
+   A .mobi is offered because the reader opens the KF8 part of one; the older
+   Mobipocket-only and DRM-protected files are refused once opened, and the
+   reader's own bar still has 外部 for those. */
+export const READABLE = new Set([
+  "epub", "azw3", "mobi", "pdf", "cbz", "zip", "images", "txt",
+]);
 
 export function bytes(n: number | null | undefined): string {
   let size = Number(n || 0);

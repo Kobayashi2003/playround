@@ -39,7 +39,10 @@ dependencies explicit inside Core.
 abortable, staged pipeline:
 
 1. Normalize preferences and resolve one immutable compatibility profile.
-2. Open the OCF archive under path and resource limits.
+2. Detect the container format and open the archive under path and resource
+   limits (`openPublicationArchive`). OCF ZIP is read directly; a Kindle KF8
+   book is reassembled into an in-memory EPUB with a synthesized package and
+   navigation document, so every later stage is format-independent.
 3. Parse the container and package into a normalized `Publication`.
 4. Inspect the initial spine window for render-critical content hints.
 5. Create the publication resource session and content-document pipeline.

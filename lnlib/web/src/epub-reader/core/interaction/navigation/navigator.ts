@@ -79,7 +79,6 @@ export class ReaderNavigator {
       return this.pendingRelayout.promise;
     }
 
-    let request!: RelayoutRequest;
     const promise = this.enqueue(async () => {
       if (this.pendingRelayout === request) this.pendingRelayout = null;
       const current = this.host.state.plan;
@@ -87,7 +86,7 @@ export class ReaderNavigator {
       const plan = await this.plans.planForSpine(current.spineIndex);
       await this.host.present(plan, request.reason);
     });
-    request = { reason, promise };
+    const request: RelayoutRequest = { reason, promise };
     this.pendingRelayout = request;
     return promise;
   }

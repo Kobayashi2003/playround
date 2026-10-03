@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent, type DragEvent } from 'react';
 
 export interface EpubFilePickerProps {
-  /** Receives a local EPUB File. The picker never uploads it to a server. */
+  /** Receives a local EPUB or Kindle (AZW3) File. The picker never uploads it to a server. */
   readonly onFile: (file: File) => void;
   readonly currentFileName?: string | null;
   readonly disabled?: boolean;
@@ -11,7 +11,7 @@ export interface EpubFilePickerProps {
 }
 
 /**
- * Local EPUB file picker used by demos and host applications.
+ * Local EPUB and Kindle (AZW3/KF8) file picker used by demos and host applications.
  *
  * It is intentionally independent from EpubReader/useEpubReader: selecting a
  * file only returns a File (Blob). The host decides when and where to open it.
@@ -28,7 +28,7 @@ export function EpubFilePicker({
 
   const commit = (file: File | undefined) => {
     if (!file || disabled) return;
-    if (!looksLikeEpub(file)) {
+    if (!looksLikeBook(file)) {
       onRejected?.(file);
       return;
     }
@@ -75,7 +75,7 @@ export function EpubFilePicker({
       <input
         className="epub-file-picker__input"
         type="file"
-        accept=".epub,application/epub+zip"
+        accept={BOOK_ACCEPT}
         disabled={disabled}
         onChange={onChange}
       />
@@ -89,18 +89,26 @@ export function EpubFilePicker({
           {currentFileName
             ? compact
               ? 'Change book'
-              : 'Choose another EPUB'
-            : 'Open an EPUB'}
+              : 'Choose another book'
+            : 'Open a book'}
         </strong>
         {!compact ? (
-          <small>Drop a local .epub here or choose a file</small>
+          <small>Drop a local .epub or .azw3 here or choose a file</small>
         ) : null}
       </span>
     </label>
   );
 }
 
-function looksLikeEpub(file: File): boolean {
-  if (file.name.toLowerCase().endsWith('.epub')) return true;
-  return file.type === 'application/epub+zip';
+const BOOK_ACCEPT =
+  '.epub,application/epub+zip,.azw3,.azw,.mobi,application/vnd.amazon.ebook,application/x-mobipocket-ebook';
+
+/** EPUB, or a Kindle file whose KF8 section the reader can open. */
+function looksLikeBook(file: File): boolean {
+  if (/\.(?:epub|azw3|azw|mobi)$/iu.test(file.name)) return true;
+  return [
+    'application/epub+zip',
+    'application/vnd.amazon.ebook',
+    'application/x-mobipocket-ebook',
+  ].includes(file.type);
 }

@@ -68,9 +68,11 @@
   touch-action: pan-x pan-y pinch-zoom;
 }
 .epub-reader-image-viewer__canvas.is-fit {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 16px;
+  overflow: hidden;
 }
 .epub-reader-image-viewer__canvas img {
   display: block;
@@ -85,6 +87,10 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  cursor: zoom-in;
+}
+.epub-reader-image-viewer__canvas:not(.is-fit) img {
+  cursor: zoom-out;
 }
 
 .epub-reader-image-viewer > footer {

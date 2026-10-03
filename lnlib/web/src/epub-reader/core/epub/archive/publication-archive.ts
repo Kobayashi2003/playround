@@ -1,4 +1,7 @@
-import type { PublicationPath } from '../publication/model';
+import type {
+  PublicationDiagnostic,
+  PublicationPath,
+} from '../publication/model';
 import { validateArchiveEntryPath } from '../publication/path';
 
 export interface PublicationArchive {
@@ -6,6 +9,12 @@ export interface PublicationArchive {
   has(path: PublicationPath): boolean;
   read(path: PublicationPath): Promise<Uint8Array>;
   readText(path: PublicationPath, encoding?: string): Promise<string>;
+}
+
+/** An opened archive of any container format, or the reasons it failed. */
+export interface PublicationArchiveOpenResult {
+  readonly archive: PublicationArchive | null;
+  readonly diagnostics: readonly PublicationDiagnostic[];
 }
 
 export class MemoryPublicationArchive implements PublicationArchive {

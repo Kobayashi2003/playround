@@ -2,7 +2,8 @@
 
 A local bookshelf and reader for a Japanese light novel / manga collection.
 Point it at the folders your books live in; it indexes them, shows them as a
-shelf with covers, and reads EPUB, comics, PDF and text in the browser.
+shelf with covers, and reads EPUB, Kindle AZW3, comics, PDF and text in the
+browser.
 
 The server is Python standard library only. The interface is React and is
 built once.
@@ -42,11 +43,14 @@ Folders starting with `_` are skipped.
 
 | format | opened with |
 |---|---|
-| `.epub` | the built-in reader (vertical writing, search, bookmarks) |
+| `.epub` `.azw3` | the built-in reader (vertical writing, search, bookmarks) |
+| `.mobi` | the same, if it carries a KF8 part; otherwise 外部 |
 | `.cbz` `.zip`, image folders | the built-in comic reader |
 | `.txt` | the built-in text reader |
 | `.pdf` | the browser's PDF viewer |
-| `.azw3` `.mobi` `.cbr` `.rar` `.7z` `.tar` | your desktop app (外部) |
+| `.cbr` `.rar` `.7z` `.tar` | your desktop app (外部) |
+
+DRM-protected books are not opened here, in any format.
 
 ## Everyday use
 

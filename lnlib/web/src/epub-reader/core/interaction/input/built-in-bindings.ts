@@ -64,6 +64,16 @@ export const BUILT_IN_READER_INPUT_BINDINGS: readonly ReaderInputBinding[] =
               signal.edgeNavigation,
             )
           : null,
+      shortcuts: [
+        {
+          label: 'Images',
+          items: [
+            { keys: ['Double-click'], action: 'Enlarge an image' },
+            { keys: ['Long-press'], action: 'Enlarge an image on touch' },
+            { keys: ['Enter'], action: 'Enlarge the focused image' },
+          ],
+        },
+      ],
     },
     {
       id: 'reader.input.swipe-defaults',

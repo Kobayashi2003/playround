@@ -35,7 +35,8 @@ function clone<T>(value: T, seen: WeakMap<object, unknown>): T {
 
   const out: Record<string, unknown> = {};
   seen.set(value, out);
-  for (const [key, child] of Object.entries(value)) out[key] = clone(child, seen);
+  for (const [key, child] of Object.entries(value))
+    out[key] = clone(child, seen);
   const frozen = Object.freeze(out);
   trustedImmutableValues.add(frozen);
   return frozen as T;

@@ -31,16 +31,16 @@ export function EpubReaderBackground({
       {!file ? (
         <section
           className="epub-background__empty"
-          aria-label="Open a local EPUB"
+          aria-label="Open a local book"
         >
           <header className="epub-background__header">
             <div className="epub-background__eyebrow">
               Local reading workspace
             </div>
-            <h1>Read your EPUB</h1>
+            <h1>Read your book</h1>
             <p>
-              Open a publication from this device. Your book and reading
-              activity remain in this browser.
+              Open an EPUB or Kindle AZW3 book from this device. Your book and
+              reading activity remain in this browser.
             </p>
           </header>
           {rejectedMessage ? (

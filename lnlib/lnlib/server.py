@@ -12,6 +12,13 @@ Everything that changes the index is a POST under /api/, and the ones that
 remove a book take an explicit `file` field: the shelf never decides on its
 own whether deleting a record should also delete what it points at.
 
+Those POSTs are checked for where they came from. A browser will not let a
+page on another site *read* this one, but it will let it submit a form here,
+and a form can carry a body this server would read as JSON -- which would hand
+any page the user happens to be visiting a way to launch a local file or empty
+the library. A cross-site POST is refused; a request with no Origin at all
+(the CLI, curl) is not from a browser and is let through.
+
 Everything else is the front end, served out of `web/dist` -- a built React
 bundle. `npm run build` in `web/` produces it; when it is missing the server
 says so rather than 404ing every asset in silence.
@@ -103,6 +110,29 @@ class Handler(BaseHTTPRequestHandler):
 
     def _err(self, code: int, msg: str):
         self._json({"error": msg}, code)
+
+    # Loopback by whatever name: a dev server proxying to this one is a
+    # different origin, and still the same machine.
+    LOOPBACK = ("localhost", "127.0.0.1", "::1", "[::1]")
+
+    def _same_origin(self) -> bool:
+        """Whether a POST came from the shelf rather than from another site."""
+        site = (self.headers.get("Sec-Fetch-Site") or "").lower()
+        if site and site != "same-origin" and site != "none":
+            return False
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True             # not a browser request
+        try:
+            parsed = urllib.parse.urlparse(origin)
+        except ValueError:
+            return False
+        if parsed.netloc.lower() == (self.headers.get("Host") or "").lower():
+            return True
+        # `npm run dev` serves the interface from its own port and forwards the
+        # API here, so the origin differs -- but both ends are this machine.
+        return ((parsed.hostname or "") in self.LOOPBACK
+                and (self.client_address[0] or "") in self.LOOPBACK)
 
     def _body(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
@@ -216,6 +246,8 @@ class Handler(BaseHTTPRequestHandler):
         path = self._mount(parsed.path)
         if path is None:
             return
+        if not self._same_origin():
+            return self._err(403, "cross-site request refused")
         body = self._body()
         try:
             if path == "/api/scan":
@@ -410,8 +442,12 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.isdir(WEB_DIR):
             return self._send(200, NO_BUILD_PAGE, "text/html; charset=utf-8",
                               {"Cache-Control": "no-store"})
-        rel = posixpath.normpath(path).lstrip("/")
-        if rel.startswith("..") or os.path.isabs(rel):
+        # Unquoted and with backslashes folded in before the check: on Windows
+        # `os.path.join` walks a backslash like any other separator, so one
+        # left in here would step straight out of `web/dist`.
+        rel = urllib.parse.unquote(path).replace("\\", "/")
+        rel = posixpath.normpath(rel).lstrip("/")
+        if rel.startswith("..") or ".." in rel.split("/") or os.path.isabs(rel):
             return self._err(403, "forbidden")
         full = os.path.join(WEB_DIR, rel.replace("/", os.sep))
         hashed = rel.startswith("assets/")

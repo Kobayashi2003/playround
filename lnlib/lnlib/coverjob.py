@@ -15,7 +15,9 @@ def build(limit: int = 0, redo: bool = False, workers: int = 6,
         sql = ("SELECT b.id,b.path,b.ext,b.is_dir FROM books b "
                "LEFT JOIN covers c ON c.book_id=b.id "
                "WHERE b.format<>'txt' ")
-        sql += "" if redo else "AND (c.book_id IS NULL OR c.state='pending') "
+        # Only books nothing has been tried for. One that came back `none`
+        # or `error` is not asked again until `--redo` says to.
+        sql += "" if redo else "AND c.book_id IS NULL "
         sql += "ORDER BY b.is_extra, b.sort_date"
         if limit:
             sql += f" LIMIT {int(limit)}"

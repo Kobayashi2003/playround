@@ -62,10 +62,11 @@ function openDB(): Promise<IDBDatabase | null> {
   return dbPromise;
 }
 
-/* `scan` rebuilds the books table from scratch, so ids are not stable across
-   scans -- thumbnail 42 could become a different book entirely. The cache is
-   therefore stamped with the scan it was built from and thrown away whenever
-   that changes, including scans run from the command line. */
+/* Thumbnails are keyed by book id, so the cache is only valid for as long as
+   those ids mean what they meant. A scan updates rows in place and ids survive
+   it, so the stamp is the *incarnation* of the index -- bumped when the table
+   is built again from nothing, or when a root is dropped -- and not the time
+   of the last scan. */
 let generation: number | null = null;
 let checked: Promise<void> | null = null;
 
@@ -229,14 +230,19 @@ export function get(id: number, wanted?: () => boolean): Promise<string> {
   const already = pending.get(id);
   if (already) return already;
 
+  let settle!: { resolve: (url: string) => void; reject: (e: Error) => void };
   const promise = new Promise<string>((resolve, reject) => {
-    queue.push({ id, wanted, resolve, reject });
-    pump();
+    settle = { resolve, reject };
   });
   // Only a cover that genuinely is not there is remembered as failed; a
   // network hiccup must not blank the tile for the rest of the session.
   promise.catch((e: Error) => { if (e.message === "no cover") failed.add(id); });
+  // Recorded before the queue is pumped, never after: `pump` can find the job
+  // already unwanted and clear its entry on the spot, and an entry written
+  // after that would leave a rejected promise under this id for good.
   pending.set(id, promise);
+  queue.push({ id, wanted, resolve: settle.resolve, reject: settle.reject });
+  pump();
   return promise;
 }
 

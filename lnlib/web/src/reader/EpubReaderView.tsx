@@ -1,10 +1,12 @@
-/* The EPUB reader.
+/* The e-book reader.
 
    The whole engine lives in `src/epub-reader`, copied from component-atlas: it
    opens the container, reads the package, paginates and renders, and there is
-   no second EPUB implementation anywhere in this project. What this file does
-   is the part that is ours -- getting the bytes off the shelf and telling the
-   shelf where the reading got to.
+   no second e-book implementation anywhere in this project. It takes EPUB and
+   Kindle KF8 (.azw3, and the KF8 part of a .mobi) alike, deciding which it was
+   given from the first bytes, so nothing here has to tell it. What this file
+   does is the part that is ours -- getting the bytes off the shelf and telling
+   the shelf where the reading got to.
 
    This module is the lazy chunk. Nothing in it is fetched, parsed or evaluated
    until a book is actually opened, which is why the shelf itself stays small. */
@@ -19,7 +21,7 @@ import { createShelfSession } from "./session";
 import type { Book, Progress } from "../lib/types";
 
 /* Bytes already fetched, kept for as long as the shelf is likely to want them
-   back. An epub is ten megabytes and the local server is fast, but re-reading
+   back. A book is ten megabytes and the local server is fast, but re-reading
    one still costs a second of blank screen, and leaving a book to check the
    shelf and coming straight back is the most ordinary thing a reader does. */
 const BLOBS = new Map<number, Blob>();
@@ -34,8 +36,15 @@ function keep(id: number, blob: Blob): void {
   }
 }
 
+const MIME: Record<string, string> = {
+  ".epub": "application/epub+zip",
+  ".azw3": "application/vnd.amazon.ebook",
+  ".mobi": "application/x-mobipocket-ebook",
+};
+
 async function fetchBook(
   id: number,
+  ext: string,
   signal: AbortSignal,
   onProgress: (fraction: number) => void,
 ): Promise<Blob> {
@@ -69,7 +78,10 @@ async function fetchBook(
     received += value.byteLength;
     onProgress(Math.min(1, received / total));
   }
-  const blob = new Blob(chunks as BlobPart[], { type: "application/epub+zip" });
+  // The engine reads the bytes rather than the label, but a blob that says
+  // what it holds is easier to pass around.
+  const type = MIME[ext.toLowerCase()] ?? "application/octet-stream";
+  const blob = new Blob(chunks as BlobPart[], { type });
   keep(id, blob);
   return blob;
 }
@@ -107,7 +119,8 @@ export default function EpubReaderView({ book, progress }: EpubReaderViewProps) 
     if (source) return;
     const controller = new AbortController();
     let alive = true;
-    fetchBook(book.id, controller.signal, (f) => { if (alive) setFraction(f); })
+    fetchBook(book.id, book.ext, controller.signal,
+              (f) => { if (alive) setFraction(f); })
       .then((blob) => { if (alive) setSource(blob); })
       .catch((e: unknown) => {
         if (!alive || (e as Error).name === "AbortError") return;

@@ -158,7 +158,7 @@ def cmd_book(a):
             print(f"  {d['detail']}")
         if d["kind"] == "images":
             print(f"  {len(d['pages'])} pages, {d['direction']}")
-        elif d["kind"] == "epub":
+        elif d["kind"] == "ebook":
             print(f"  {b['size']:,} bytes -- opened and paginated in the browser")
         elif d["kind"] == "text":
             print(f"  {len(d['text']):,} characters, decoded as {d['encoding']}")
@@ -237,43 +237,46 @@ def cmd_config(a):
     """
     cfg = config.Config.load()
     changed = False
+    # Said out loud only when the output is for a person; with --json the
+    # roots themselves are the answer and nothing else belongs on stdout.
+    say = (lambda *_: None) if a.json else print
 
     for raw in a.remove_root or []:
         target = os.path.normcase(os.path.abspath(raw))
         keep = [r for r in cfg.roots
                 if os.path.normcase(os.path.abspath(r.path)) != target]
         if len(keep) == len(cfg.roots):
-            print(f"not a root: {raw}")
+            say(f"not a root: {raw}")
             continue
         gone = [r for r in cfg.roots if r not in keep]
         cfg.roots = keep
         changed = True
         for r in gone:
             res = library.drop_root(r.path)
-            print(f"removed root {r.path}  ({res['removed']} books off the shelf)")
+            say(f"removed root {r.path}  ({res['removed']} books off the shelf)")
 
     for raw in a.add_root or []:
         path = os.path.abspath(raw)
         if not os.path.isdir(path):
-            print(f"not a folder: {path}")
+            say(f"not a folder: {path}")
             continue
         if any(os.path.normcase(r.path) == os.path.normcase(path) for r in cfg.roots):
-            print(f"already a root: {path}")
+            say(f"already a root: {path}")
             continue
         layout = a.layout or "shelves"
         cfg.roots.append(config.Root(
             path=path, label=a.label or os.path.basename(path.rstrip("\\/")),
             kind=a.kind or "novel", layout=layout))
         changed = True
-        print(f"added root {path}  (layout: {layout})")
+        say(f"added root {path}  (layout: {layout})")
 
     if changed:
         cfg.save()
     else:
         for r in cfg.roots:
             mark = "" if os.path.isdir(r.path) else "   [MISSING]"
-            print(f"  {'on ' if r.enabled else 'off'} {r.layout:<8} {r.kind:<8} "
-                  f"{r.label:<18} {r.path}{mark}")
+            say(f"  {'on ' if r.enabled else 'off'} {r.layout:<8} {r.kind:<8} "
+                f"{r.label:<18} {r.path}{mark}")
     return _out([r.__dict__ for r in config.Config.load().roots], a.json)
 
 

@@ -48,10 +48,10 @@ def _write_cache(data: bytes, path: str, ext: str) -> str:
 def _cached(path: str) -> tuple[str, str] | None:
     """An extraction done earlier and still valid.
 
-    `scan` renumbers every item, which drops the covers table with it, but the
-    cached images are named after the file they came from and survive. Reusing
-    them turns a rescan from a walk through several thousand epubs into a few
-    thousand stat calls.
+    The cached images are named after the file they came from rather than after
+    a row, so they outlive the covers table however it is rebuilt -- including
+    a root removed and added back. Reusing them turns a rescan from a walk
+    through several thousand epubs into a few thousand stat calls.
     """
     h = hashlib.sha1(path.encode("utf-8", "surrogatepass")).hexdigest()
     try:

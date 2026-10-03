@@ -74,41 +74,41 @@ export function EpubMarkGroups({
                     type="button"
                     onClick={() => void reader.marks.goTo(mark.id)}
                   >
-                      <span className="epub-marks-panel__meta">
-                        <small>{kindLabel(mark.kind)}</small>
-                        <span className="epub-marks-panel__status">
-                          {mark.kind !== 'bookmark' ? (
-                            <i
-                              className={`is-${mark.color}`}
-                              aria-label={`${mark.color} ${mark.highlight}`}
-                            />
-                          ) : null}
-                          <span>
-                            {Math.round(
-                              (locator.locations.progression ?? 0) * 100,
-                            )}
-                            %
-                          </span>
+                    <span className="epub-marks-panel__meta">
+                      <small>{kindLabel(mark.kind)}</small>
+                      <span className="epub-marks-panel__status">
+                        {mark.kind !== 'bookmark' ? (
+                          <i
+                            className={`is-${mark.color}`}
+                            aria-label={`${mark.color} ${mark.highlight}`}
+                          />
+                        ) : null}
+                        <span>
+                          {Math.round(
+                            (locator.locations.progression ?? 0) * 100,
+                          )}
+                          %
                         </span>
                       </span>
-                      <strong>{markPreview(mark)}</strong>
-                      {mark.kind === 'bookmark' && mark.label ? (
-                        <span className="epub-marks-panel__note">
-                          {mark.label}
-                        </span>
-                      ) : null}
-                      {mark.kind === 'annotation' ? (
-                        <span className="epub-marks-panel__note">
-                          {mark.body}
-                        </span>
-                      ) : null}
-                      {mark.tags?.length ? (
-                        <span className="epub-marks-panel__tags">
-                          {mark.tags.map((tag) => (
-                            <em key={tag}>{tag}</em>
-                          ))}
-                        </span>
-                      ) : null}
+                    </span>
+                    <strong>{markPreview(mark)}</strong>
+                    {mark.kind === 'bookmark' && mark.label ? (
+                      <span className="epub-marks-panel__note">
+                        {mark.label}
+                      </span>
+                    ) : null}
+                    {mark.kind === 'annotation' ? (
+                      <span className="epub-marks-panel__note">
+                        {mark.body}
+                      </span>
+                    ) : null}
+                    {mark.tags?.length ? (
+                      <span className="epub-marks-panel__tags">
+                        {mark.tags.map((tag) => (
+                          <em key={tag}>{tag}</em>
+                        ))}
+                      </span>
+                    ) : null}
                   </button>
                   {!selecting ? (
                     <button

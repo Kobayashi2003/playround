@@ -15,7 +15,7 @@ expanding the public barrel only to shorten an internal import.
 
 | Area                      | Responsibility                                              | Typical entry            |
 | ------------------------- | ----------------------------------------------------------- | ------------------------ |
-| `epub/archive`            | ZIP/OCF safety, archive access, container bytes             | `archive/index.ts`       |
+| `epub/archive`            | format detection, ZIP/OCF safety, KF8 adapter, file access  | `archive/index.ts`       |
 | `epub/publication`        | package parsing, metadata, reading order, navigation        | `publication/index.ts`   |
 | `epub/compatibility`      | bounded authored-book recovery and diagnostics              | `compatibility/index.ts` |
 | `epub/content`            | content parsing, preflight, materialization, document cache | `content/index.ts`       |
@@ -59,6 +59,8 @@ package-parser/
 Current examples:
 
 - `epub/publication/package-parser.ts` orchestrates OPF parsing.
+- `epub/archive/kf8-archive.ts` reassembles a Kindle KF8 book (Palm database,
+  decompression, index tables, resources) into an in-memory EPUB archive.
 - `epub/content/xhtml-materializer.ts` orchestrates document hardening and
   reference rewriting.
 - `epub/content/preflight.ts` orchestrates presentation and image inspection.

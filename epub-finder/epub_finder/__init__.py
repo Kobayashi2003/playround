@@ -1,0 +1,1 @@
+"""Local EPUB search application."""

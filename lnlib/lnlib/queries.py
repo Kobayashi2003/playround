@@ -92,8 +92,13 @@ def _filter(root, shelf, folder, q, only, fmt) -> tuple[str, list]:
     elif only == "present":
         where.append("b.present=1")
     if q:
-        where.append("(b.norm_title LIKE ? OR b.norm_author LIKE ?)")
-        like = f"%{norm(q)}%"
+        # `%` and `_` are wildcards to LIKE, and they are ordinary characters
+        # to someone typing a title into the search box.
+        needle = (norm(q).replace("\\", "\\\\")
+                  .replace("%", "\\%").replace("_", "\\_"))
+        where.append("(b.norm_title LIKE ? ESCAPE '\\' "
+                     "OR b.norm_author LIKE ? ESCAPE '\\')")
+        like = f"%{needle}%"
         args += [like, like]
     return (" WHERE " + " AND ".join(where)) if where else "", args
 

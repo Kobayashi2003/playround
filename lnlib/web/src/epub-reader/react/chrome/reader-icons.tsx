@@ -25,7 +25,12 @@ export function ReaderToolIcon({
         <circle cx="8.5" cy="16" r="1.5" />
       </>
     ) : id === 'marks' ? (
-      <path d="M7 4.5h10v15l-5-3-5 3z" />
+      // A stack of ribbons: the collection, distinct from the single
+      // add-bookmark toggle beside it.
+      <>
+        <path d="M9.5 4.5h9v14l-4.5-2.8-4.5 2.8z" />
+        <path d="M6.5 7.5v13l4-2.5" />
+      </>
     ) : id === 'compatibility' ? (
       <>
         <path d="M12 3.8 20 7v5.2c0 4.1-3.2 7-8 8.2-4.8-1.2-8-4.1-8-8.2V7z" />
@@ -144,6 +149,7 @@ export function BookmarkIcon({ active }: { readonly active: boolean }) {
         d="M7 4.5h10v15l-5-3-5 3z"
         fill={active ? 'currentColor' : 'none'}
       />
+      {active ? null : <path d="M12 8.2v5M9.5 10.7h5" />}
     </svg>
   );
 }

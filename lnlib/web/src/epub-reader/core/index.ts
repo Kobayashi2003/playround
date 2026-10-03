@@ -4,6 +4,10 @@ export type {
   OcfZipLimits,
 } from './epub/archive/ocf-zip';
 export { DEFAULT_OCF_ZIP_LIMITS } from './epub/archive/ocf-zip';
+export {
+  detectPublicationFormat,
+  type PublicationContainerFormat,
+} from './epub/archive/publication-format';
 export type { ResourceResolverOptions } from './epub/resources/model';
 export type { PublicationContentDocumentCachePolicy } from './epub/content/document-cache';
 export { DEFAULT_PUBLICATION_CONTENT_DOCUMENT_CACHE_POLICY } from './epub/content/document-cache';

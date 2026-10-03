@@ -19,7 +19,7 @@ export interface ReaderSurfaceController {
   readonly show: (surface: ReaderSurface) => void;
   readonly close: (
     restoreFocus?: boolean,
-    focusTarget?: HTMLElement | null,
+    focusTarget?: HTMLElement | SVGElement | null,
   ) => void;
   readonly togglePanel: (
     panel: ReaderToolId,
@@ -41,7 +41,7 @@ export function useReaderSurfaceController(
 
   /** Focus whatever raised the surface, or the page itself if it is gone. */
   const restoreFocus = useCallback(
-    (target: HTMLElement | null) => {
+    (target: HTMLElement | SVGElement | null) => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           const fallback = document.getElementById(viewportId);
@@ -74,7 +74,7 @@ export function useReaderSurfaceController(
   );
 
   const close = useCallback(
-    (withFocus = true, focusTarget?: HTMLElement | null) => {
+    (withFocus = true, focusTarget?: HTMLElement | SVGElement | null) => {
       if (closeTimerRef.current != null) return;
       const target = focusTarget ?? surfaceReturnFocus(surfaces.surface);
       const finish = () => {

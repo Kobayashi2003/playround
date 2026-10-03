@@ -86,16 +86,13 @@ function ResolvedEpubReaderControls({
         : messages.sectionPosition(visibleSections[0]! + 1, spineCount)
       : null;
   const [seekDraft, setSeekDraft] = useState<number | null>(null);
+  // A page turn can reach the draft before the debounce fires. Discard it in
+  // this render so a later page turn cannot turn the old draft into a new seek.
+  if (seekDraft === progress) setSeekDraft(null);
   const seekValue = seekDraft ?? progress;
   useEffect(() => {
     const locator = snapshot?.locator;
     if (seekDraft == null) return;
-    if (seekDraft === progress) {
-      // Returning the thumb to the current position cancels the pending seek.
-      // Do not let this draft become a new navigation after an ordinary page turn.
-      setSeekDraft((current) => (current === seekDraft ? null : current));
-      return;
-    }
     if (!locator || !interactive) return;
     const timer = setTimeout(() => {
       // The scrubber has to seek in whatever unit it is displaying, so a

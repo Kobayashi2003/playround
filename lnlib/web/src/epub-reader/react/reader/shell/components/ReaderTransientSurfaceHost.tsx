@@ -1,9 +1,4 @@
-import {
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-} from 'react';
+import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { CloseIcon } from '../../../chrome/reader-icons';
 import type { ReaderSurface } from '../../../chrome/reader-surface-model';
 import { useReaderUiConfiguration } from '../../../configuration/context';

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type {
   ReaderFootnote,
   ExternalLinkTarget,
@@ -53,10 +53,11 @@ export interface ReaderSurfaces {
  */
 export function useReaderSurfaces(source: EpubSource): ReaderSurfaces {
   const [surface, setSurface] = useState<ReaderSurface>(NONE);
-
-  useEffect(() => {
+  const [previousSource, setPreviousSource] = useState(source);
+  if (previousSource !== source) {
+    setPreviousSource(source);
     setSurface((current) => readerSurfaceForSource(current, source));
-  }, [source]);
+  }
 
   const show = useCallback((next: ReaderSurface) => setSurface(next), []);
   const close = useCallback(() => setSurface(NONE), []);

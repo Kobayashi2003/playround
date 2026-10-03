@@ -28,6 +28,8 @@ interface Store {
   error: string | null;
   listeners: Set<() => void>;
   version: number;
+  /** Bumped whenever the rows move under the pages already asked for. */
+  epoch: number;
 }
 
 const stores = new Map<string, Store>();
@@ -48,7 +50,7 @@ function storeFor(query: ShelfQuery): Store {
   const fresh: Store = {
     query, rows: [], total: -1, facets: [], loaded: new Set(),
     inflight: new Map(), scrollTop: 0, error: null,
-    listeners: new Set(), version: 0,
+    listeners: new Set(), version: 0, epoch: 0,
   };
   stores.set(key, fresh);
   while (stores.size > MAX_STORES) {
@@ -68,6 +70,7 @@ export function forgetShelves(): void {
     store.total = -1;
     store.loaded.clear();
     store.inflight.clear();
+    store.epoch += 1;
     store.version += 1;
     for (const listener of store.listeners) listener();
   }
@@ -85,7 +88,11 @@ export function forgetBook(bookId: number): void {
     store.rows.splice(at, 1);
     if (store.total > 0) store.total -= 1;
     // The rows after it have all shifted by one, so the pages they were
-    // fetched as no longer line up. Only the tail has to be re-fetched.
+    // fetched as no longer line up. Only the tail has to be re-fetched --
+    // and a page still in flight is now answering a question about where the
+    // rows used to be, so its answer is dropped rather than filed one out.
+    store.epoch += 1;
+    store.inflight.clear();
     for (const page of [...store.loaded]) {
       if ((page + 1) * PAGE > at) store.loaded.delete(page);
     }
@@ -103,9 +110,12 @@ function loadPage(store: Store, page: number): Promise<void> {
   const running = store.inflight.get(page);
   if (running) return running;
 
-  const request = api.books(store.query, page * PAGE, PAGE)
+  // What the rows meant when this was asked for; see `forgetBook`.
+  const asked = store.epoch;
+  const request: Promise<void> = api.books(store.query, page * PAGE, PAGE)
     .then((data) => {
-      store.inflight.delete(page);
+      if (store.inflight.get(page) === request) store.inflight.delete(page);
+      if (store.epoch !== asked) return;
       store.loaded.add(page);
       store.error = null;
       if (page === 0) store.facets = data.facets;
@@ -117,8 +127,8 @@ function loadPage(store: Store, page: number): Promise<void> {
       announce(store);
     })
     .catch((error: unknown) => {
-      store.inflight.delete(page);
-      if (isAbort(error)) return;
+      if (store.inflight.get(page) === request) store.inflight.delete(page);
+      if (store.epoch !== asked || isAbort(error)) return;
       store.error = (error as Error).message || String(error);
       announce(store);
     });

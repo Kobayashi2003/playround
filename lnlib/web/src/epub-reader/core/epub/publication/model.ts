@@ -330,7 +330,7 @@ export const DEFAULT_READER_PREFERENCES: ReaderPreferences = Object.freeze({
   fontSizePercent: 100,
   fontFamily: null,
   lineHeight: null,
-  pageMarginPercent: 0,
+  pageMarginPercent: 6,
   fixedLayoutFit: 'contain',
   fixedLayoutGutter: 'none',
   touchNavigation: 'both',

@@ -59,11 +59,9 @@
   background: var(--epub-color-reader);
 }
 
-/* Theme palettes are publication-scoped. They previously required a "text"
-   reading mode, which meant a mixed-layout book dropped back to the base tokens
-   the moment it reached an illustration page; immersive mode rules then supplied
-   a second, divergent palette on top. Keying both on `data-chrome` gives each publication
-   exactly one palette for its whole length. */
+/* Theme palettes are publication-scoped: keying them on `data-chrome` rather
+   than on the active page's reading mode gives a mixed-layout book exactly one
+   palette for its whole length, illustration pages included. */
 .epub-reader-shell[data-chrome='standard'][data-theme='light'] {
   --epub-color-reader: #e5e5e2;
 }

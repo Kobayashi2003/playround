@@ -33,7 +33,10 @@ export function placeMarkPopover(
   const fitsAbove = above >= margin;
   const side = fitsBelow || !fitsAbove ? 'below' : 'above';
   const preferredTop = side === 'below' ? below : above;
-  const maximumTop = Math.max(margin, viewport.height - margin - renderedHeight);
+  const maximumTop = Math.max(
+    margin,
+    viewport.height - margin - renderedHeight,
+  );
 
   return {
     left,

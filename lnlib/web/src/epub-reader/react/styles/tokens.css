@@ -165,7 +165,12 @@
 }
 
 .epub-background
-  :is(button, input[type='checkbox'], input[type='radio'], input[type='range']):focus-visible,
+  :is(
+    button,
+    input[type='checkbox'],
+    input[type='radio'],
+    input[type='range']
+  ):focus-visible,
 .epub-reader-shell
   :is(
     button,

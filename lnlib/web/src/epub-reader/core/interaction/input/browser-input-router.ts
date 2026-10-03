@@ -17,7 +17,29 @@ interface PointerStart {
   readonly y: number;
   readonly target: EventTarget | null;
   readonly nativeScrollbar: boolean;
+  /** Scroll positions of the overflow regions under the pointer at press time. */
+  readonly scrollOwners: readonly ScrollMark[];
 }
+
+interface ScrollMark {
+  readonly element: Element;
+  readonly left: number;
+  readonly top: number;
+}
+
+/**
+ * Overlay scrollbars (Windows 11 Fluent, macOS, mobile) take no layout space,
+ * so `clientHeight` cannot reveal them. Treat this band along the scrolling
+ * edges of a scrollable region as its scrollbar.
+ */
+const OVERLAY_SCROLLBAR_BAND_PX = 16;
+
+/**
+ * A mouse click on an enlargeable image waits this long before acting as page
+ * input, because a double-click on the same image opens the image viewer.
+ */
+const IMAGE_DOUBLE_CLICK_MS = 280;
+const IMAGE_VIEWER_SELECTOR = '[data-epub-image-viewer]';
 
 /**
  * DOM adapter only. It produces semantic commands and never calls a renderer
@@ -30,6 +52,7 @@ export class BrowserReaderInputRouter {
   private lastWheelAt = -Infinity;
   private pointer: PointerStart | null = null;
   private suppressClickUntil = -Infinity;
+  private pendingImageClick: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
 
   constructor(
@@ -144,10 +167,16 @@ export class BrowserReaderInputRouter {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.cancelPendingImageClick();
     for (const cleanup of this.cleanups.splice(0)) cleanup();
     for (const cleanup of this.documentCleanups.values()) cleanup();
     this.documentCleanups.clear();
     this.pointer = null;
+  }
+
+  private cancelPendingImageClick(): void {
+    if (this.pendingImageClick != null) clearTimeout(this.pendingImageClick);
+    this.pendingImageClick = null;
   }
 
   private attachTarget(
@@ -268,8 +297,18 @@ export class BrowserReaderInputRouter {
       if (!command) return;
       if (command.type === 'navigate' && click.cancelable)
         click.preventDefault();
+      if (isMouseClickOnViewableImage(click)) {
+        this.cancelPendingImageClick();
+        if (click.detail > 1) return;
+        this.pendingImageClick = setTimeout(() => {
+          this.pendingImageClick = null;
+          if (!this.disposed) this.send(command);
+        }, IMAGE_DOUBLE_CLICK_MS);
+        return;
+      }
       this.send(command);
     };
+    const onDoubleClick = () => this.cancelPendingImageClick();
 
     const onPointerDown = (event: Event) => {
       const state = this.state();
@@ -285,6 +324,7 @@ export class BrowserReaderInputRouter {
           y: pointer.clientY,
           target: pointer.target,
           nativeScrollbar: true,
+          scrollOwners: [],
         };
         this.suppressClickUntil = Date.now() + 450;
         return;
@@ -307,6 +347,11 @@ export class BrowserReaderInputRouter {
         y: pointer.clientY,
         target: pointer.target,
         nativeScrollbar: false,
+        scrollOwners: markScrollOwners(
+          pointer.target,
+          surfaceElement,
+          this.hostElement,
+        ),
       };
     };
 
@@ -336,6 +381,12 @@ export class BrowserReaderInputRouter {
       this.pointer = null;
       if (hasMeaningfulSelection(pointer.target)) return;
       if (isNativeScrollbarTarget(pointer)) return;
+      // A drag that moved an overflow region was a scroll (a scrollbar drag or
+      // a pan across an oversized comic page), never a page-turn swipe.
+      if (scrollOwnersMoved(start.scrollOwners)) {
+        this.suppressClickUntil = Date.now() + 450;
+        return;
+      }
       const dx = pointer.clientX - start.x;
       const dy = pointer.clientY - start.y;
       if (Math.abs(dx) <= Math.abs(dy) * 1.15) return;
@@ -404,6 +455,7 @@ export class BrowserReaderInputRouter {
     target.addEventListener('click', onClick as EventListener, {
       passive: false,
     });
+    target.addEventListener('dblclick', onDoubleClick, { passive: true });
     target.addEventListener('pointerdown', onPointerDown as EventListener, {
       passive: true,
     });
@@ -424,6 +476,7 @@ export class BrowserReaderInputRouter {
       target.removeEventListener('keydown', onKeyDown as EventListener);
       target.removeEventListener('wheel', onWheel as EventListener);
       target.removeEventListener('click', onClick as EventListener);
+      target.removeEventListener('dblclick', onDoubleClick);
       target.removeEventListener('pointerdown', onPointerDown as EventListener);
       target.removeEventListener('pointermove', onPointerMove as EventListener);
       target.removeEventListener('pointerup', onPointerUp as EventListener);
@@ -506,9 +559,16 @@ export function isInteractivePublicationTarget(
   if (!element) return false;
   return (
     element.closest(
-      'a, button, input, textarea, select, option, label, summary, audio, video, object, embed, iframe, [controls], [contenteditable], [role="button"], [role="link"], [data-epub-image-viewer]',
+      'a, button, input, textarea, select, option, label, summary, audio, video, object, embed, iframe, [controls], [contenteditable], [role="button"]:not([data-epub-image-viewer]), [role="link"]',
     ) != null
   );
+}
+
+/** Enlargeable images stay ordinary page input; only mouse clicks wait for a double-click. */
+function isMouseClickOnViewableImage(click: MouseEvent): boolean {
+  const pointerType = (click as Partial<PointerEvent>).pointerType;
+  if (pointerType && pointerType !== 'mouse') return false;
+  return asElement(click.target)?.closest(IMAGE_VIEWER_SELECTOR) != null;
 }
 
 function hasMeaningfulSelection(target: EventTarget | null): boolean {
@@ -587,19 +647,90 @@ export function isNativeScrollbarTarget(
         y >= borderTop &&
         y < element.offsetHeight - borderBottom;
       if (inside) {
+        const scrollsX = /^(auto|scroll|overlay)$/.test(style.overflowX);
+        const scrollsY = /^(auto|scroll|overlay)$/.test(style.overflowY);
         const horizontal =
-          /^(auto|scroll|overlay)$/.test(style.overflowX) &&
-          y >= element.clientTop + element.clientHeight;
+          scrollsX && y >= element.clientTop + element.clientHeight;
         const vertical =
-          /^(auto|scroll|overlay)$/.test(style.overflowY) &&
+          scrollsY &&
           (x < element.clientLeft ||
             x >= element.clientLeft + element.clientWidth);
         if (horizontal || vertical) return true;
+        if (
+          style.scrollbarWidth !== 'none' &&
+          ((scrollsX &&
+            element.scrollWidth > element.clientWidth + 1 &&
+            element.offsetHeight - borderTop - borderBottom <=
+              element.clientHeight &&
+            y >=
+              element.offsetHeight -
+                borderBottom -
+                OVERLAY_SCROLLBAR_BAND_PX) ||
+            (scrollsY &&
+              element.scrollHeight > element.clientHeight + 1 &&
+              element.offsetWidth - borderLeft - borderRight <=
+                element.clientWidth &&
+              (style.direction === 'rtl'
+                ? x < borderLeft + OVERLAY_SCROLLBAR_BAND_PX
+                : x >=
+                  element.offsetWidth -
+                    borderRight -
+                    OVERLAY_SCROLLBAR_BAND_PX)))
+        )
+          return true;
       }
     }
     element = element.parentElement;
   }
   return false;
+}
+
+/**
+ * Record nested overflow regions under a pointer: its own ancestors, plus the
+ * host-realm containers around the surface for a press inside a content
+ * document. A document's scrolling element is excluded because paginated
+ * renderers use it as their private page transport.
+ */
+function markScrollOwners(
+  target: EventTarget | null,
+  surfaceElement: HTMLElement | undefined,
+  hostElement: HTMLElement,
+): ScrollMark[] {
+  const marks: ScrollMark[] = [];
+  const visit = (start: Element | null, stop: Element | null) => {
+    const scrollingElement = start?.ownerDocument.scrollingElement ?? null;
+    for (
+      let element = start;
+      element && element !== scrollingElement;
+      element = element.parentElement
+    ) {
+      if (
+        element.scrollWidth > element.clientWidth + 1 ||
+        element.scrollHeight > element.clientHeight + 1
+      )
+        marks.push({
+          element,
+          left: element.scrollLeft,
+          top: element.scrollTop,
+        });
+      if (element === stop) break;
+    }
+  };
+  visit(asElement(target), null);
+  if (
+    surfaceElement &&
+    asElement(target)?.ownerDocument !== hostElement.ownerDocument
+  )
+    visit(surfaceElement, hostElement);
+  return marks;
+}
+
+function scrollOwnersMoved(marks: readonly ScrollMark[]): boolean {
+  return marks.some(
+    ({ element, left, top }) =>
+      Math.abs(element.scrollLeft - left) >= 1 ||
+      Math.abs(element.scrollTop - top) >= 1,
+  );
 }
 
 function viewportWidthForTarget(

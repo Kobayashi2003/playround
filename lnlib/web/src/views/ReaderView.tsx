@@ -1,6 +1,6 @@
 /* Opening a book.
 
-   The frame is the same whatever the format; what fills it is not. The EPUB
+   The frame is the same whatever the format; what fills it is not. The e-book
    engine and the image reader are both loaded on demand, so a session that
    only browses the shelf never downloads either of them.
 
@@ -82,7 +82,7 @@ export function ReaderView({ id, onChange }: {
   }
 
   const { book } = data;
-  const plain = data.kind !== "epub" && data.kind !== "pdf";
+  const plain = data.kind !== "ebook" && data.kind !== "pdf";
 
   return (
     <div className="readerframe" data-kind={data.kind}>
@@ -95,7 +95,7 @@ export function ReaderView({ id, onChange }: {
       />
       <div className={`readerbody${plain ? " plain" : ""}`}>
         <Suspense fallback={<Delayed active after={120}>準備しています…</Delayed>}>
-          {data.kind === "epub" ? (
+          {data.kind === "ebook" ? (
             <EpubReaderView book={book} progress={data.progress} />
           ) : data.kind === "images" ? (
             <ImageReaderView

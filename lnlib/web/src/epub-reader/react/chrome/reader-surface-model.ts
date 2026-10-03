@@ -47,7 +47,9 @@ export type ReaderSurface =
     };
 
 /** Where focus belongs once this surface closes. */
-export function surfaceReturnFocus(surface: ReaderSurface): HTMLElement | null {
+export function surfaceReturnFocus(
+  surface: ReaderSurface,
+): HTMLElement | SVGElement | null {
   switch (surface.kind) {
     case 'panel':
     case 'footnote':

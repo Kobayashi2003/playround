@@ -82,20 +82,24 @@ function EpubContentsView({
     updateCollapsed(next);
   };
 
+  // Page lists and landmarks are optional publication structures; an empty one
+  // is a dead end, so its tab is omitted. History stays because it fills up.
   const tabs: readonly {
     readonly id: NavigationView;
     readonly label: string;
     readonly count: number;
   }[] = [
-    { id: 'contents', label: 'Contents', count: tocItemCount(toc) },
-    { id: 'pages', label: 'Pages', count: pageList.length },
-    { id: 'landmarks', label: 'Landmarks', count: landmarks.length },
+    { id: 'contents' as const, label: 'Contents', count: tocItemCount(toc) },
+    { id: 'pages' as const, label: 'Pages', count: pageList.length },
+    { id: 'landmarks' as const, label: 'Landmarks', count: landmarks.length },
     {
-      id: 'history',
+      id: 'history' as const,
       label: 'History',
       count: history.backCount + history.forwardCount,
     },
-  ];
+  ].filter(
+    (tab) => (tab.id !== 'pages' && tab.id !== 'landmarks') || tab.count > 0,
+  );
 
   return (
     <nav

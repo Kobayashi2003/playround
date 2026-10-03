@@ -192,10 +192,9 @@ export class ReactEpubReaderStore {
    * Runs a command against the open reader and reports a failure instead of
    * leaving it as an unhandled rejection.
    *
-   * The shell fires these and ignores the result — `void reader.next()` — so a
-   * renderer that threw mid-page-turn used to fail entirely silently: no toast,
-   * no status, nothing but a console warning the person reading never sees.
-   * `null` means the command failed and has already been reported.
+   * The shell fires these and ignores the result (`void reader.next()`), so a
+   * failure must be surfaced here or the reader would never see it. `null`
+   * means the command failed and has already been reported.
    */
   private async run<T>(
     operation: (reader: BrowserEpubReader) => Promise<T>,

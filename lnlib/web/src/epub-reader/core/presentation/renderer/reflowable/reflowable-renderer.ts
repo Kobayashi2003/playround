@@ -318,11 +318,8 @@ export class ReflowableRenderer implements RendererInstance {
     const report = await surface.waitForLayoutStable(transaction.signal);
     transaction.throwIfSuperseded();
 
-    // Vertical writing used to need a second pass here: the reader measured the
-    // authored extent itself, padded the body out to a whole spread and waited
-    // for the browser again. CSS fragmentation makes both unnecessary — the
-    // column boxes are the pages, and their count is read straight back off the
-    // scrolling box like it already was for horizontal writing.
+    // No second layout pass is needed in either writing mode: CSS column boxes
+    // are the pages, and their count is read straight off the scrolling box.
     transaction.mutate(() => {
       if (!this.document || !this.plan) return;
       this.presentation = inspectComputedPresentation(this.document, this.plan);
@@ -567,9 +564,8 @@ export class ReflowableRenderer implements RendererInstance {
 function prepareReflowableContainer(container: HTMLElement): void {
   if (!container.style.position) container.style.position = 'relative';
   container.style.overflow = 'hidden';
-  // The container outlives any one renderer. A fixed-layout renderer that ran
-  // before this one leaves its own scroll settings behind, so every property it
-  // writes has to be restated here rather than only the ones that differ.
+  // The container outlives any one renderer, so restate every property a
+  // previous renderer may have set instead of only the ones that differ.
   container.style.overscrollBehavior = 'contain';
 }
 

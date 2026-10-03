@@ -76,6 +76,28 @@ export function resolveSpread(
     };
   }
 
+  // A landscape page in a pre-paginated book is a pre-composed double-page
+  // spread, common in manga. Pairing it with a neighbour would halve it, so it
+  // stands alone unless the author placed it explicitly.
+  if (
+    rendition.layout === 'pre-paginated' &&
+    placement === 'auto' &&
+    isLandscapePage(contentHints)
+  ) {
+    return {
+      spread: {
+        mode: 'single',
+        execution: 'single',
+        synthetic: false,
+        source: 'content',
+        placement,
+        trueSpread,
+        gap: 'renderer-default',
+      },
+      diagnostics: [],
+    };
+  }
+
   // rendition:spread=none is normative: do not incorporate this item in a
   // synthetic spread, even when the user globally prefers double-page mode.
   if (rendition.spread === 'none') {
@@ -220,6 +242,18 @@ export function resolveSpread(
     ),
     diagnostics: [],
   };
+}
+
+const LANDSCAPE_PAGE_ASPECT = 1.18;
+
+function isLandscapePage(contentHints?: ContentPresentationHints): boolean {
+  const viewport =
+    contentHints?.viewport ?? contentHints?.page?.intrinsicViewport;
+  return (
+    viewport != null &&
+    viewport.height > 0 &&
+    viewport.width / viewport.height >= LANDSCAPE_PAGE_ASPECT
+  );
 }
 
 function makeDoubleAwarePlan(

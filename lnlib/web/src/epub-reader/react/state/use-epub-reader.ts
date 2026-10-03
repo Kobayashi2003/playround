@@ -19,12 +19,9 @@ export function useEpubReader(
 ): EpubReaderHandle {
   const store = useMemo(() => new ReactEpubReaderStore(), []);
 
-  // Two separate concerns that used to share one effect. Hosts pass an inline
-  // options object, so its identity changes every render; listing it beside
-  // `source` made the effect claim it re-opened the publication on any render,
-  // which it never did. Callbacks are refreshed every render because the store
-  // invokes them through the stored object; the source effect runs only when
-  // the publication actually changes.
+  // Options and source are separate effects. Hosts pass an inline options
+  // object, so callbacks are refreshed on every render, while the source effect
+  // runs only when the publication actually changes.
   useEffect(() => {
     store.setOptions(options);
   });

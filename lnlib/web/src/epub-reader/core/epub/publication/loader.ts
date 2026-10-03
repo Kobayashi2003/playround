@@ -1,5 +1,6 @@
 import type { PublicationArchive } from '../archive/publication-archive';
-import { OcfZipArchive, type OcfZipLimits } from '../archive/ocf-zip';
+import type { OcfZipLimits } from '../archive/ocf-zip';
+import { openPublicationArchive } from '../archive/publication-format';
 import { createBuiltInCompatibilityProfile } from '../compatibility/built-in-rules';
 import type { CompatibilityProfile } from '../compatibility/profile';
 import {
@@ -45,7 +46,7 @@ export async function loadEpub(
   source: Uint8Array | ArrayBuffer,
   options: LoadEpubOptions = {},
 ): Promise<PublicationLoadResult> {
-  const opened = await OcfZipArchive.open(source, options.archiveLimits);
+  const opened = await openPublicationArchive(source, options.archiveLimits);
   if (!opened.archive)
     return { publication: null, diagnostics: opened.diagnostics };
   return loadPublicationFromArchive(opened.archive, opened.diagnostics, {

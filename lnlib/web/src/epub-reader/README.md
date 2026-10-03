@@ -1,6 +1,6 @@
 # EPUB Reader
 
-A local-first EPUB reader with a framework-independent browser core and an optional React interface.
+A local-first EPUB reader with a framework-independent browser core and an optional React interface. Kindle AZW3 (KF8) books, including the KF8 part of combined MOBI files, open through the same pipeline; DRM-protected and legacy Mobipocket-only files are refused with a diagnostic.
 
 ## Usage
 
@@ -22,7 +22,7 @@ const [file, setFile] = useState<File | null>(null)
 - `BrowserEpubReader` is the framework-independent browser composition root.
 - `configureReaderUi` adds validated themes, input bindings, tools, surface renderers, and EPUB compatibility modules.
 
-EPUB bytes and reading data remain local by default. The React source may be a `Blob`, `File`, `ArrayBuffer`, or `Uint8Array`; the lower-level Core reader accepts byte arrays.
+Book bytes and reading data remain local by default. The React source may be a `Blob`, `File`, `ArrayBuffer`, or `Uint8Array`; the lower-level Core reader accepts byte arrays.
 
 See the [documentation](./docs/README.md), the
 [Core maintainer guide](./core/README.md), the
