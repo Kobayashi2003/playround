@@ -34,7 +34,7 @@ import os
 import time
 
 from . import config, db
-from .naming import (is_extra, norm, parse_folder, parse_item,
+from .naming import (is_extra, natural, norm, parse_folder, parse_item,
                      split_author_suffix, volume_of)
 from .config import BOOK_EXT, IMAGE_EXT, format_of
 
@@ -288,8 +288,9 @@ def _insert(conn, root, shelf, folder, credit, book, stats) -> None:
         "INSERT INTO books("
         "root_label,root_kind,shelf,folder,path,filename,title,author,imprint,"
         "illustrator,ext,format,date,volume,is_extra,is_dir,size,mtime,"
-        "sort_date,sort_vol,norm_title,norm_author,present,first_seen,last_seen) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?) "
+        "sort_date,sort_vol,norm_title,norm_author,nat_title,"
+        "present,first_seen,last_seen) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?) "
         "ON CONFLICT(path) DO UPDATE SET "
         "root_label=excluded.root_label, root_kind=excluded.root_kind, "
         "shelf=excluded.shelf, folder=excluded.folder, "
@@ -301,12 +302,13 @@ def _insert(conn, root, shelf, folder, credit, book, stats) -> None:
         "size=excluded.size, mtime=excluded.mtime, "
         "sort_date=excluded.sort_date, sort_vol=excluded.sort_vol, "
         "norm_title=excluded.norm_title, norm_author=excluded.norm_author, "
+        "nat_title=excluded.nat_title, "
         "present=1, last_seen=excluded.last_seen",
         (root.label, root.kind, shelf, folder, book["path"], book["filename"],
          title, author, imprint, illustrator, book["ext"], fmt, book["date"],
          volume, int(is_extra(title)), book["is_dir"], book["size"],
          book["mtime"], book["date"] or "9999-99-99", sort_vol,
-         norm(title), norm(author or ""), now, now),
+         norm(title), norm(author or ""), natural(title), now, now),
     )
 
     stats["books"] += 1

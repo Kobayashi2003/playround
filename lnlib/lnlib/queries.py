@@ -12,13 +12,15 @@ from .naming import norm
 # What the shelf can be sorted by. Each is (SQL, label); the tie-breakers are
 # fixed so paging is stable -- a row must never appear on two pages because two
 # books share a date.
+# Titles order by `nat_title`, where a run of digits is padded to its numeric
+# order: volume 9 comes before volume 10, which is how the shelf reads.
 ORDERS = {
-    "date": "b.sort_date DESC, b.sort_vol, b.norm_title, b.id",
-    "date_asc": "b.sort_date, b.sort_vol, b.norm_title, b.id",
-    "title": "b.norm_title, b.sort_date, b.id",
-    "author": "b.norm_author='', b.norm_author, b.norm_title, b.sort_vol, b.id",
+    "date": "b.sort_date DESC, b.sort_vol, b.nat_title, b.id",
+    "date_asc": "b.sort_date, b.sort_vol, b.nat_title, b.id",
+    "title": "b.nat_title, b.sort_date, b.id",
+    "author": "b.norm_author='', b.norm_author, b.nat_title, b.sort_vol, b.id",
     "added": "b.mtime DESC, b.id",
-    "format": "b.format, b.norm_author, b.norm_title, b.id",
+    "format": "b.format, b.norm_author, b.nat_title, b.id",
 }
 DEFAULT_ORDER = "author"
 
@@ -173,7 +175,7 @@ def book(book_id: int) -> dict | None:
             f"SELECT {CARD_COLUMNS}, c.state cover_state "
             "FROM books b LEFT JOIN covers c ON c.book_id=b.id "
             "WHERE b.root_label=? AND b.shelf=? AND b.folder=? "
-            "ORDER BY b.sort_date, b.sort_vol, b.norm_title, b.id LIMIT 200",
+            "ORDER BY b.sort_date, b.sort_vol, b.nat_title, b.id LIMIT 200",
             (d["root_label"], d["shelf"], d["folder"])).fetchall()
     return {"book": d, "nearby": [dict(r) for r in near]}
 

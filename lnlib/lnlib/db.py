@@ -31,6 +31,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from . import config
+from .naming import natural
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -72,7 +73,11 @@ CREATE TABLE IF NOT EXISTS books (
     -- Folded once here rather than in every query: the search box matches the
     -- same way `naming.norm` does, which SQL's own lower()/replace() cannot.
     norm_title   TEXT NOT NULL DEFAULT '',
-    norm_author  TEXT NOT NULL DEFAULT ''
+    norm_author  TEXT NOT NULL DEFAULT '',
+    -- The title again, with every run of digits padded, so that volume 2
+    -- comes before volume 10. Ordering reads this; searching reads
+    -- `norm_title`, which still has the number as it was written.
+    nat_title    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS ix_books_shelf   ON books(root_label, shelf);
 CREATE INDEX IF NOT EXISTS ix_books_format  ON books(format);
@@ -258,6 +263,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
             # Ids start again from 1, so everything keyed by one is stale.
             # Clearing the stamp is what tells the browser to drop its cache.
             conn.execute("DELETE FROM meta WHERE key='index_epoch'")
+        elif "nat_title" not in cols:
+            # Purely additive, and derived from the title already in the row,
+            # so it is filled in here rather than waiting for a rescan: the
+            # shelf would otherwise be ordered by an empty key until one ran.
+            conn.execute("ALTER TABLE books "
+                         "ADD COLUMN nat_title TEXT NOT NULL DEFAULT ''")
+            rows = conn.execute("SELECT id, title FROM books").fetchall()
+            conn.executemany("UPDATE books SET nat_title=? WHERE id=?",
+                             [(natural(r["title"]), r["id"]) for r in rows])
     if "covers" in have:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(covers)")}
         if "book_id" not in cols:

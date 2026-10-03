@@ -72,6 +72,28 @@ def norm(s: str) -> str:
     return re.sub(r"[!！?？。、,，.．・…~〜'\"'\"「」『』（）()\[\]【】〈〉《》:：;；/／\\+\-–—]", "", s)
 
 
+# How wide a run of digits is padded to in a sort key. Twelve covers a
+# volume number, a year and an ISBN-10; a longer run than this sorts by its
+# digits, which is still an order, just not a numeric one.
+NUMBER_WIDTH = 12
+RE_DIGIT_RUN = re.compile(r"\d+")
+
+
+def natural(s: str) -> str:
+    """A sort key in which a run of digits counts as the number it spells.
+
+    `巨人 2` belongs before `巨人 10`, which is the order the volumes are
+    actually in and not the order their names are in. Padding each run of
+    digits to a fixed width is all SQLite needs to put them that way, and
+    leading zeros are dropped first so `02` and `2` land together.
+
+    This is for ordering only. Searching still matches against `norm`, where
+    the number reads the way it was typed.
+    """
+    return RE_DIGIT_RUN.sub(
+        lambda m: m.group().lstrip("0").zfill(NUMBER_WIDTH), norm(s))
+
+
 def is_extra(title: str) -> bool:
     low = nfkc(title).lower()
     return any(h in low for h in EXTRA_HINTS)

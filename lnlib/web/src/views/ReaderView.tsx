@@ -17,6 +17,13 @@ import { bookRaw } from "../lib/mount";
 import { go } from "../lib/hooks";
 import type { Manifest } from "../lib/types";
 
+/* Everything this build knows how to be handed. A manifest that says anything
+   else is not a book that cannot be opened -- it is a server still running the
+   code it was started with, from before the interface was rebuilt, and saying
+   so is the difference between a one-line fix and an evening. */
+const KINDS = new Set(["ebook", "pdf", "images", "text", "gone", "external",
+                       "error"]);
+
 const EpubReaderView = lazy(() => import("../reader/EpubReaderView"));
 const ImageReaderView = lazy(() => import("../reader/ImageReaderView"));
 const TextReaderView = lazy(() => import("../reader/TextReaderView"));
@@ -113,7 +120,12 @@ export function ReaderView({ id, onChange }: {
             <iframe className="pdfframe" src={bookRaw(book.id)} title={book.title} />
           ) : (
             <div className="empty">
-              <p>{data.detail || "この本は開けません"}</p>
+              <p>
+                {data.detail || (KINDS.has(data.kind)
+                  ? "この本は開けません"
+                  : "サーバーが古いままです。`python -m lnlib serve` を" +
+                    "起動し直してください")}
+              </p>
               <p className="dim">{book.filename}</p>
               <div className="actions center">
                 {data.kind === "gone" ? (
