@@ -16,7 +16,7 @@
     }
   ],
   "host": "127.0.0.1",
-  "port": 8770,
+  "port": 16020,
   "base_path": "",
   "theme": "auto"
 }

@@ -8,7 +8,7 @@
   "root": "${paths.playround}/chatlog-viewer",
   "basePath": "/chatlog",
   "ports": {
-    "http": 8777
+    "http": 16010
   },
   "routes": {
     "proxy": [

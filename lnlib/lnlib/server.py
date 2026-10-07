@@ -40,7 +40,7 @@ WEB_SRC = os.path.join(config.PROJECT_DIR, "web")
 _cover_lock = threading.Lock()
 
 # Public path prefix the shelf answers under, "" at the origin root. Set by
-# `serve --base-path`, because a shared edge (app-gateway) fronts several apps on
+# `serve --base-path`, because a shared edge may front several apps on
 # one port and the root is not this one's to own there. Stripped once at the door,
 # so all three route families below still see their own path shape either way.
 BASE_PATH = ""

@@ -10,8 +10,8 @@ English: [README.md](README.md)
 ## 运行
 
 ```bash
-python server.py              # 启动并打开浏览器（默认 http://127.0.0.1:8777）
-python server.py --port 9000  # 使用其他端口
+python server.py              # 启动并打开浏览器（默认 http://127.0.0.1:16010）
+python server.py --port 16011  # 使用其他端口
 python server.py --no-open    # 不打开浏览器
 python server.py --reindex    # 丢弃缓存，重新解析全部日志
 python server.py --base-path /chatlog   # 挂载到某个路径前缀下

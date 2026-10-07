@@ -204,6 +204,9 @@ function Resolve-GatewayApps {
                 $ports[$p.Name] = [int]$p.Value
             }
         }
+        # What the file says, before -Port: the slot these fall in is the app's own,
+        # and an override has to stay inside it.
+        $declaredPorts = $ports.Clone()
         if ($PortOverride.ContainsKey($id)) {
             foreach ($o in $PortOverride[$id].GetEnumerator()) {
                 if (-not $ports.ContainsKey($o.Key)) {
@@ -254,6 +257,7 @@ function Resolve-GatewayApps {
             BasePath    = $basePath
             Probe       = Expand-GatewayString ([string](Get-JsonProperty $entry 'probe' $basePath)) $vars "$where probe"
             Ports       = $ports
+            DeclaredPorts = $declaredPorts
             Env         = $appEnv
             Routes      = Resolve-AppRoute -Entry $entry -Vars $vars -Where $where -BasePath $basePath
             Launch      = $launch
@@ -317,15 +321,35 @@ function Assert-GatewayApps {
     <# Checks that only matter for apps about to run *together*. Kept out of
        Resolve-GatewayApps so -List still prints a registry that has a collision in
        it — which is exactly the moment you want to look at the registry. #>
-    param([hashtable[]] $Apps, [string] $Bind)
+    param(
+        [hashtable[]] $Apps,
+        [string]      $Bind,
+        # ${paths.NAME} -> absolute directory, and NAME -> @{ From; To } from
+        # gateway.json's portRanges. Together they say which range an app's ports
+        # must come from: the one named after the directory its root lives in.
+        [hashtable]   $Paths = @{},
+        [hashtable]   $PortRanges = @{},
+        [int]         $PortSlot = 10
+    )
 
     $bindPort = [int]($Bind -split ':')[-1]
     $seenPort = @{}
+    $seenSlot = @{}
     $prefixes = @{}
 
     foreach ($app in $Apps) {
         if (-not (Test-Path -LiteralPath $app.Root)) {
             throw "App '$($app.Id)': root does not exist: $($app.Root)"
+        }
+
+        # A slot belongs to one app even where the numbers inside it do not meet:
+        # the spare ports in it are that app's room to grow.
+        $slot = Assert-AppPortRange -App $app -Paths $Paths -PortRanges $PortRanges -PortSlot $PortSlot
+        if ($slot) {
+            if ($seenSlot.ContainsKey($slot.Key)) {
+                throw "Apps '$($seenSlot[$slot.Key])' and '$($app.Id)' both take the slot $($slot.From)-$($slot.To). One app, one slot. See PORTS.md."
+            }
+            $seenSlot[$slot.Key] = $app.Id
         }
 
         if ($app.Routes.Kind -eq 'snippet') {
@@ -362,6 +386,65 @@ function Assert-GatewayApps {
             $prefixes[$app.BasePath] = $app.Id
         }
     }
+}
+
+function Assert-AppPortRange {
+    <# The port convention (PORTS.md): every directory of apps owns a range, and
+       every app one slot of $PortSlot ports inside it. Checked here because this
+       registry is where an app's ports are written down next to where it lives —
+       a number from another directory's range, or one straddling two slots, is a
+       collision waiting for the app that owns it to start.
+
+       The slot is the one the app's own file puts it in; a -Port override has to
+       land inside it too, so trying a port for one run never borrows another
+       app's. Returns @{ Key; From; To } for that slot, or nothing for an app whose
+       root is under no ranged directory, which is not checked. #>
+    param([hashtable] $App, [hashtable] $Paths, [hashtable] $PortRanges, [int] $PortSlot)
+
+    if (-not $App.Ports.Count -or -not $PortRanges.Count) { return }
+
+    # The longest directory containing the root wins, so a ranged subdirectory
+    # can sit inside a ranged parent.
+    $owner = $null; $ownerDir = ''
+    foreach ($p in $Paths.GetEnumerator()) {
+        $name = $p.Key -replace '^paths\.', ''
+        if (-not $PortRanges.ContainsKey($name)) { continue }
+        $dir = ([string]$p.Value).TrimEnd('\', '/')
+        $inside = $App.Root -eq $dir -or
+                  $App.Root.StartsWith("$dir\", [StringComparison]::OrdinalIgnoreCase) -or
+                  $App.Root.StartsWith("$dir/", [StringComparison]::OrdinalIgnoreCase)
+        if ($inside -and $dir.Length -gt $ownerDir.Length) { $owner = $name; $ownerDir = $dir }
+    }
+    if (-not $owner) { return }
+
+    $range = $PortRanges[$owner]
+    # Slot index within the range. [double] then [int]: an exact quotient would
+    # otherwise come back as an Int32, send Floor to its decimal overload, and
+    # land in a hashtable as a key distinct from the double an inexact one gives.
+    $slotOf = { param([int]$Port) [int][Math]::Floor([double]($Port - $range.From) / $PortSlot) }
+
+    foreach ($p in $App.Ports.GetEnumerator()) {
+        if ($p.Value -lt $range.From -or $p.Value -gt $range.To) {
+            throw "App '$($App.Id)' port '$($p.Key)' is $($p.Value), outside $($range.From)-$($range.To), the range of '$owner' where it lives. See PORTS.md."
+        }
+    }
+
+    $declared = @{}
+    foreach ($p in $App.DeclaredPorts.GetEnumerator()) { $declared[(& $slotOf $p.Value)] = $true }
+    if ($declared.Count -gt 1) {
+        $list = ($App.DeclaredPorts.GetEnumerator() | Sort-Object Value | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', '
+        throw "App '$($App.Id)' spreads its ports over $($declared.Count) slots of $PortSlot ($list). One app, one slot. See PORTS.md."
+    }
+
+    $index = @($declared.Keys)[0]
+    $from  = $range.From + $index * $PortSlot
+    $to    = $from + $PortSlot - 1
+    foreach ($p in $App.Ports.GetEnumerator()) {
+        if ((& $slotOf $p.Value) -ne $index) {
+            throw "App '$($App.Id)' port '$($p.Key)' is $($p.Value), outside its own slot $from-$to. See PORTS.md."
+        }
+    }
+    return @{ Key = "${owner}:$index"; From = $from; To = $to }
 }
 
 function Get-MergedRouteEnv {

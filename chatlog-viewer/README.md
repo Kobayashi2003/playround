@@ -12,8 +12,8 @@ never modified.
 ## Running
 
 ```bash
-python server.py              # start and open a browser (default http://127.0.0.1:8777)
-python server.py --port 9000  # use a different port
+python server.py              # start and open a browser (default http://127.0.0.1:16010)
+python server.py --port 16011  # use a different port
 python server.py --no-open    # do not open a browser
 python server.py --reindex    # discard the cache and re-parse every log
 python server.py --base-path /chatlog   # serve under a path prefix

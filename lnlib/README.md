@@ -16,7 +16,7 @@ cd web && npm install && npm run build && cd ..
 python -m lnlib config --add-root "D:\Books\Novels"                    # shelves layout
 python -m lnlib config --add-root "D:\Books\Calibre" --layout authors  # Calibre layout
 python -m lnlib scan
-python -m lnlib serve          # http://127.0.0.1:8770
+python -m lnlib serve          # http://127.0.0.1:16020
 ```
 
 `蔵書棚.cmd` starts the server and opens the browser.
@@ -83,5 +83,5 @@ index, the cover cache and reading progress — back up `data/library.db` if you
 care about your progress. Both are git-ignored.
 
 `serve` also takes `--host`, `--port` and `--base-path /prefix` for running
-behind a reverse proxy. `npm run dev` in `web/` gives a hot-reloading interface
-that talks to a running `serve`.
+behind a reverse proxy. `npm run dev` in `web/` gives a hot-reloading interface on
+http://127.0.0.1:16021 that talks to a running `serve`.

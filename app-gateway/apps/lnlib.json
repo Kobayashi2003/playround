@@ -8,7 +8,7 @@
   "root": "${paths.playround}/lnlib",
   "basePath": "/lnlib",
   "ports": {
-    "http": 8770
+    "http": 16020
   },
   "routes": {
     "proxy": [

@@ -1,0 +1,31 @@
+{
+  "$schema": "../schema/app.schema.json",
+  "order": 60,
+  "name": "NeoVNDB",
+  "description": "Visual novel database mirror, behind its own edge.",
+  "icon": "🗂",
+  "enabled": false,
+  "root": "${paths.project}/NeoVNDB",
+  "ports": {
+    "edge": 17030,
+    "api": 17031,
+    "img": 17032,
+    "users": 17033,
+    "web": 17034
+  },
+  "env": {
+    "NEOVNDB_EDGE_PORT": "${ports.edge}",
+    "NEOVNDB_PORT": "${ports.api}",
+    "NEOVNDB_IMAGE_PORT": "${ports.img}",
+    "NEOVNDB_USERS_PORT": "${ports.users}",
+    "NEOVNDB_WEB_PORT": "${ports.web}"
+  },
+  "launch": {
+    "file": "pwsh",
+    "args": [
+      "-NoProfile",
+      "-File",
+      "${root}/start.ps1"
+    ]
+  }
+}

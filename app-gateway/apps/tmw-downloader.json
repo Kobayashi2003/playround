@@ -1,0 +1,21 @@
+{
+  "$schema": "../schema/app.schema.json",
+  "order": 80,
+  "name": "TMW Downloader",
+  "description": "The reading club's recommendation channels as a local page.",
+  "icon": "📮",
+  "enabled": false,
+  "root": "${paths.crawler}/tmw-downloader-v2",
+  "ports": {
+    "http": 18040
+  },
+  "launch": {
+    "file": "python",
+    "args": [
+      "main.py",
+      "--port",
+      "${ports.http}",
+      "--no-open"
+    ]
+  }
+}

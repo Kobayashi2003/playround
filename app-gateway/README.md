@@ -10,11 +10,18 @@ every app beside it.
 ```
 tunnel (one HTTPS port) ──▶ :30709 Caddy ─┬─ /                    landing page
                                           ├─ /hearth              Hearth
-                                          ├─ /simple-file-server  Simple File Server
                                           ├─ /vndb                Visual Novel Database
                                           ├─ /chatlog             Chat Log Viewer
                                           └─ /lnlib               蔵書棚
+
+launched, not routed (each listens on its own loopback port):
+  NeoVNDB · Novelia Downloader · TMW Downloader
 ```
+
+No app knows the gateway is there. Each one is configured and started exactly as
+it would be on its own; the gateway only reads what it already offers — a start
+script, a port setting, a `Caddyfile.snippet` — and nothing in any app's
+repository names the gateway.
 
 ## An app is a file
 
@@ -24,10 +31,12 @@ its id.
 ```
 apps/
   hearth.json
-  simple-file-server.json
   visual-novel-database.json
   chatlog-viewer.json
   lnlib.json
+  neovndb.json               (off by default)
+  novelia-downloader.json    (off by default)
+  tmw-downloader.json        (off by default)
 ```
 
 Copy a file in and that app is registered. Delete it and it is gone. There is no
@@ -43,7 +52,7 @@ plugin file completes and validates itself.
   "icon": "🗯",
   "root": "${paths.playround}/chatlog-viewer",
   "basePath": "/chatlog",
-  "ports": { "http": 8777 },
+  "ports": { "http": 16010 },
   "routes": { "proxy": [ { "upstream": "127.0.0.1:${ports.http}" } ] },
   "launch": {
     "file": "python",
@@ -59,20 +68,21 @@ Caddy accepts and nothing ever answers.
 
 `gateway.json` holds only what belongs to the gateway itself: the bind address,
 the landing page's chrome, the named `paths` app files resolve their roots
-against, and which directory to scan. No app is described there.
+against, the port range each of those directories owns, and which directory to
+scan. No app is described there.
 
 ## Usage
 
 ```powershell
-.\gateway.ps1                            # every enabled app
-.\gateway.ps1 -App hearth,lnlib          # just these, enabled or not
-.\gateway.ps1 -List                      # the registry, and what is on
-.\gateway.ps1 -ConfigOnly                # generate and validate config, launch nothing
-.\gateway.ps1 -Bind :8080                # move the public port, this run
-.\gateway.ps1 -Port hearth:backend=5200  # move an app's port, this run
-.\gateway.ps1 -Enable lnlib              # turn an app on, written back to apps/lnlib.json
-.\gateway.ps1 -Disable lnlib             # turn it off again
-.\gateway.ps1 -Config other.json         # different settings, and its own appsDir
+.\gateway.ps1                              # every enabled app
+.\gateway.ps1 -App hearth,lnlib            # just these, enabled or not
+.\gateway.ps1 -List                        # the registry, and what is on
+.\gateway.ps1 -ConfigOnly                  # generate and validate config, launch nothing
+.\gateway.ps1 -Bind :8080                  # move the public port, this run
+.\gateway.ps1 -Port hearth:backend=17019   # move an app's port, this run
+.\gateway.ps1 -Enable lnlib                # turn an app on, written back to apps/lnlib.json
+.\gateway.ps1 -Disable lnlib               # turn it off again
+.\gateway.ps1 -Config other.json           # different settings, and its own appsDir
 ```
 
 Ctrl+C stops everything: Windows fans the signal out to the whole console
@@ -86,7 +96,7 @@ catches the case where the gateway was killed externally.
 | Unregister an app entirely | delete (or move) its file |
 | Keep it registered but dormant | `-Disable <id>`, or `"enabled": false` |
 | Run one app on its own, just this once | `-App <id>` |
-| Change where an app listens | edit its `ports`, or `-Port <id>:<name>=<n>` |
+| Change where an app listens | within its slot: edit the app's own config and its `ports` here; or `-Port <id>:<name>=<n>` for one run |
 | Reorder the landing page | edit `order` |
 | Change the public port | edit `bind` in `gateway.json`, or `-Bind` |
 | Move a checkout | edit `paths` in `gateway.json` |
@@ -102,17 +112,26 @@ A number is written once and reaches two places from there: the app itself (as a
 launch argument, or through `env`) and the route that proxies to it. They cannot
 drift apart, because there is only one of them.
 
-That also makes collisions visible. Hearth and Simple File Server both default
-to `5111` standalone, which never mattered while only one of them ran at a time;
-together they would have raced for the port and one would have died with a
-message in its own log. The gateway refuses to start instead, naming both:
+The numbers themselves come from one convention, [PORTS.md](PORTS.md): every
+directory of apps owns a range (`portRanges` in `gateway.json`), every app one
+slot of ten inside it, and the app's own configuration already defaults to the
+numbers its slot gives it. So `ports` here repeats what the app would pick
+anyway — the gateway passing it on changes nothing, and running the app without
+the gateway lands it on the same ports.
+
+The gateway holds the registry to that convention before it launches anything,
+naming the app and the rule it broke:
 
 ```
-Port 5111 is claimed by both 'hearth/backend' and 'simple-file-server/backend'.
+App 'lnlib' port 'http' is 17025, outside 16000-16999, the range of 'playround' where it lives. See PORTS.md.
+App 'hearth' port 'backend' is 17020, outside its own slot 17010-17019. See PORTS.md.
+Apps 'hearth' and 'other' both take the slot 17010-17019. One app, one slot. See PORTS.md.
+Port 17010 is claimed by both 'hearth/backend' and 'other/backend'.
 ```
 
-The same check covers an app that claims the gateway's own bind, and overlapping
-`basePath` prefixes.
+The same checks cover an app that claims the gateway's own bind, and overlapping
+`basePath` prefixes. A slot is the app's own file's: `-Port` can move a port for
+one run, but only within it.
 
 For an app the gateway launches directly, the port goes on the command line. For
 one with a launcher of its own, it goes through `env`, and the project's
@@ -136,9 +155,17 @@ edges or snippets.
 
 ## Adding an app
 
-An app has to be reachable under a **path prefix**, because the origin root
-belongs to the landing page here. That is the one thing it must know about
-itself; everything else is a file in `apps/`.
+First give it a slot: the next free one in its directory's range, recorded in
+[PORTS.md](PORTS.md), and make the app's own configuration default to it.
+
+An app that only needs starting — it has its own edge, or is a local tool used on
+this machine — stops there: drop `apps/<id>.json` in with `ports`, `env` or
+arguments that hand them over, and `launch`, and leave out `basePath` and
+`routes`. NeoVNDB and the crawler pages are registered that way.
+
+An app fronted on the public port has to be reachable under a **path prefix**,
+because the origin root belongs to the landing page here. That is the one thing
+it must know about itself; everything else is a file in `apps/`.
 
 1. Give it a prefix it can serve under — a build-time `basePath` for Next.js, a
    runtime flag for anything else. Assets referenced relatively, API calls
@@ -163,18 +190,21 @@ Nothing else. The Caddyfile and the landing page are both generated.
 ## Two launch modes
 
 Each project still runs **standalone** — its own `start*.ps1` boots its own Caddy
-on `:30709`. The gateway runs them **together** behind one shared Caddy instead,
-passing `-NoCaddy` to each launcher so only one process owns the port.
+in its own slot (Hearth `:17012`, Visual Novel Database `:17049`). The gateway
+runs them **together** behind one shared Caddy on `:30709` instead, passing
+`-NoCaddy` to each launcher so their edges stay down.
 
-The two modes cannot run at once, because they want the same port. That is the
-point: the tunnel always targets `:30709` and never needs reconfiguring. The
-gateway says so plainly when the port is taken, rather than letting Caddy fail to
-bind and bury the reason in its JSON log.
+`:30709` is the tunnel's port and belongs to the gateway alone. To put a single
+project on the tunnel without the gateway, start it with `-Bind :30709`; the
+gateway then says plainly that the port is taken, rather than letting Caddy fail
+to bind and bury the reason in its JSON log. The two modes still cannot run the
+same app at once — its backend ports are the same either way.
 
 ## Layout
 
 | Path | Purpose |
 |------|---------|
+| `PORTS.md` | The port convention and the slot table, for every app in the three directories. |
 | `apps/*.json` | The registry. One file per app; the file name is the id. |
 | `gateway.json` | The gateway's own settings. No app appears here. |
 | `schema/app.schema.json` | What a plugin's fields mean. JSON has no comments; this is where they went. |

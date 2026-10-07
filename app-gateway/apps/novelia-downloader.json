@@ -1,0 +1,22 @@
+{
+  "$schema": "../schema/app.schema.json",
+  "order": 70,
+  "name": "Novelia Downloader",
+  "description": "Novel download and translation queue, with its own web page.",
+  "icon": "📥",
+  "enabled": false,
+  "root": "${paths.crawler}/novelia-downloader-v2",
+  "ports": {
+    "http": 18030
+  },
+  "launch": {
+    "file": "pwsh",
+    "args": [
+      "-NoProfile",
+      "-File",
+      "${root}/start.ps1",
+      "-Port",
+      "${ports.http}"
+    ]
+  }
+}

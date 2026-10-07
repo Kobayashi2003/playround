@@ -3,7 +3,7 @@
 
 Usage:
     python server.py            # start and open a browser
-    python server.py --port 8777 --no-open
+    python server.py --port 16010 --no-open
     python server.py --reindex  # drop the cache and re-parse everything
 """
 from __future__ import annotations
@@ -47,7 +47,7 @@ TRASH_DIR = ROOT / ".trash"
 SEARCH_BUDGET = 30000  # chars of user text kept per session for search
 
 # Public path prefix the viewer answers under, "" at the origin root. Set by
-# --base-path, because a shared edge (app-gateway) fronts several apps on one
+# --base-path, because a shared edge may front several apps on one
 # port and the root is not this one's to own there. Stripped once at the door, so
 # every route below still sees its own path shape either way.
 BASE_PATH = ""
@@ -409,7 +409,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=8777)
+    ap.add_argument("--port", type=int, default=16010)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--no-open", action="store_true")
     ap.add_argument("--base-path", default="", metavar="/prefix",

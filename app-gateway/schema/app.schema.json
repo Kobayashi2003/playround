@@ -51,7 +51,7 @@
 
     "ports": {
       "type": "object",
-      "description": "Ports this app listens on, named by role. This is where the gateway places an app rather than discovering it: a number written here is handed to the app (through env or a launch argument) and to the route that proxies to it, so the two cannot drift. Two enabled apps claiming the same number is a load error, which is the collision separate projects could not see.",
+      "description": "Ports this app listens on, named by role. This is where the gateway places an app rather than discovering it: a number written here is handed to the app (through env or a launch argument) and to the route that proxies to it, so the two cannot drift. Two enabled apps claiming the same number is a load error, which is the collision separate projects could not see. The numbers follow PORTS.md: inside the portRanges entry of the directory the root lives in, all within one slot — the same numbers the app's own configuration already defaults to.",
       "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 65535 }
     },
 

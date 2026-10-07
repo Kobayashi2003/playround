@@ -74,7 +74,7 @@ class Root:
 class Config:
     roots: list[Root] = field(default_factory=list)
     host: str = "127.0.0.1"
-    port: int = 8770
+    port: int = 16020
     # Path prefix to serve under, "" for the origin root. Only needed behind a
     # shared edge, where one public port fronts several apps and the root belongs
     # to none of them. `serve --base-path` overrides it for one run.
@@ -93,7 +93,7 @@ class Config:
         return Config(
             roots=roots,
             host=raw.get("host", "127.0.0.1"),
-            port=int(raw.get("port", 8770)),
+            port=int(raw.get("port", 16020)),
             base_path=raw.get("base_path", ""),
             theme=raw.get("theme", "auto"),
         )

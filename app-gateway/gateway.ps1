@@ -10,14 +10,14 @@
 # it binds and how it is started. Dropping a file in registers an app; deleting it
 # unregisters one. See schema/app.schema.json for the fields, README.md for why.
 #
-#   .\gateway.ps1                            every enabled app
-#   .\gateway.ps1 -App hearth,lnlib          just these, enabled or not
-#   .\gateway.ps1 -List                      the registry, and what is on
-#   .\gateway.ps1 -ConfigOnly                generate and validate config, launch nothing
-#   .\gateway.ps1 -Bind :8080                move the public port, this run
-#   .\gateway.ps1 -Port hearth:backend=5200  move an app's port, this run
-#   .\gateway.ps1 -Enable lnlib              turn an app on, written back to its own file
-#   .\gateway.ps1 -Disable lnlib             turn it off again
+#   .\gateway.ps1                              every enabled app
+#   .\gateway.ps1 -App hearth,lnlib            just these, enabled or not
+#   .\gateway.ps1 -List                        the registry, and what is on
+#   .\gateway.ps1 -ConfigOnly                  generate and validate config, launch nothing
+#   .\gateway.ps1 -Bind :8080                  move the public port, this run
+#   .\gateway.ps1 -Port hearth:backend=17019   move an app's port, this run
+#   .\gateway.ps1 -Enable lnlib                turn an app on, written back to its own file
+#   .\gateway.ps1 -Disable lnlib               turn it off again
 
 [CmdletBinding(DefaultParameterSetName = 'Run')]
 param(
@@ -30,7 +30,7 @@ param(
     # the tunnel points at the configured one, which is why it lives in the file.
     [string]   $Bind,
 
-    # Move a declared port for this run: -Port hearth:backend=5200, repeatable.
+    # Move a declared port for this run: -Port hearth:backend=17019, repeatable.
     # The number reaches the app and its route together, so nothing drifts.
     [Parameter(ParameterSetName = 'Run')]
     [string[]] $Port,
@@ -102,11 +102,28 @@ if ($pathsNode) {
     }
 }
 
-# -Port hearth:backend=5200 -> @{ hearth = @{ backend = 5200 } }
+# portRanges: { "project": "17000-17999" } -> @{ project = @{ From; To } }, keyed
+# by the same names as paths. The convention itself is in PORTS.md.
+$portRanges = @{}
+$rangesNode = Get-JsonProperty $settings 'portRanges'
+if ($rangesNode) {
+    foreach ($r in $rangesNode.PSObject.Properties) {
+        if ([string]$r.Value -notmatch '^(\d+)-(\d+)$' -or [int]$Matches[1] -gt [int]$Matches[2]) {
+            throw "gateway.json portRanges.$($r.Name) must be 'from-to', got '$($r.Value)'."
+        }
+        if (-not $paths.ContainsKey("paths.$($r.Name)")) {
+            throw "gateway.json portRanges.$($r.Name) names no entry in paths."
+        }
+        $portRanges[$r.Name] = @{ From = [int]$Matches[1]; To = [int]$Matches[2] }
+    }
+}
+$portSlot = [int](Get-JsonProperty $settings 'portSlot' 10)
+
+# -Port hearth:backend=17019 -> @{ hearth = @{ backend = 17019 } }
 $portOverride = @{}
 foreach ($spec in $Port) {
     if ($spec -notmatch '^([^:=\s]+):([^:=\s]+)=(\d+)$') {
-        throw "Bad -Port '$spec'. Expected <app>:<port-name>=<number>, e.g. hearth:backend=5200."
+        throw "Bad -Port '$spec'. Expected <app>:<port-name>=<number>, e.g. hearth:backend=17019."
     }
     $appId = $Matches[1]
     if (-not $portOverride.ContainsKey($appId)) { $portOverride[$appId] = @{} }
@@ -155,7 +172,7 @@ if (-not $selected.Count) {
     throw "Nothing to run: every app in $appsDir is disabled. Turn one on with -Enable <id>, or name one with -App."
 }
 
-Assert-GatewayApps -Apps $selected -Bind $bind
+Assert-GatewayApps -Apps $selected -Bind $bind -Paths $paths -PortRanges $portRanges -PortSlot $portSlot
 
 # --------------------------------------------------------------------- config
 # Regenerated every launch — the plugin files are the source of truth, and a stale
@@ -205,10 +222,10 @@ if ($ConfigOnly) {
     return
 }
 
-# The gateway and each project's own edge want the same port, by design — the two
-# modes are mutually exclusive so the tunnel never needs reconfiguring. Say so
-# plainly: otherwise Caddy fails to bind, exits 1, and the reason is buried in its
-# JSON log while the apps are already starting up.
+# The public port is the tunnel's, and only one process can hold it: an earlier
+# gateway, or a project started standalone with -Bind onto it. Say so plainly:
+# otherwise Caddy fails to bind, exits 1, and the reason is buried in its JSON log
+# while the apps are already starting up.
 $bindPort = [int]($bind -split ':')[-1]
 if (Get-NetTCPConnection -LocalPort $bindPort -State Listen -ErrorAction SilentlyContinue) {
     throw "Port $bindPort is already in use — something else owns the public port. " +

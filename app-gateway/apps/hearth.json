@@ -8,7 +8,7 @@
   "root": "${paths.project}/Hearth",
   "basePath": "/hearth",
   "ports": {
-    "backend": 5111
+    "backend": 17010
   },
   "env": {
     "HEARTH_PORT": "${ports.backend}"

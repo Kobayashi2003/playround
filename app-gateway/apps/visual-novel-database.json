@@ -8,12 +8,13 @@
   "root": "${paths.project}/VisualNovelDatabase",
   "basePath": "/vndb",
   "ports": {
-    "frontend": 5010,
-    "vndbserve": 5000,
-    "imgserve": 5001,
-    "userserve": 5002,
-    "transserve": 5003,
-    "musicserve": 5004
+    "frontend": 17040,
+    "vndbserve": 17041,
+    "imgserve": 17042,
+    "userserve": 17043,
+    "transserve": 17044,
+    "musicserve": 17045,
+    "logserve": 17046
   },
   "env": {
     "NEXT_PORT": "${ports.frontend}",
@@ -21,7 +22,8 @@
     "IMGSERVE_PORT": "${ports.imgserve}",
     "USERSERVE_PORT": "${ports.userserve}",
     "TRANSSERVE_PORT": "${ports.transserve}",
-    "MUSICSERVE_PORT": "${ports.musicserve}"
+    "MUSICSERVE_PORT": "${ports.musicserve}",
+    "LOGSERVE_PORT": "${ports.logserve}"
   },
   "routes": {
     "snippet": "${root}/Caddyfile.snippet",

@@ -9,6 +9,13 @@
   },
   "paths": {
     "project": "../../project",
-    "playround": ".."
-  }
+    "playround": "..",
+    "crawler": "../../tools/Crawler"
+  },
+  "portRanges": {
+    "playround": "16000-16999",
+    "project": "17000-17999",
+    "crawler": "18000-18999"
+  },
+  "portSlot": 10
 }

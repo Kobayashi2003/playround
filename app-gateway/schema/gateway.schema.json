@@ -36,6 +36,20 @@
       "type": "object",
       "description": "Named directories, referenced as ${paths.NAME} in an app's root. Relative values resolve against this file's directory. They exist so relocating a checkout is one edit here rather than one per app.",
       "additionalProperties": { "type": "string" }
+    },
+
+    "portRanges": {
+      "type": "object",
+      "description": "The port convention (PORTS.md), keyed by the same names as paths: every app whose root lies under paths.NAME must declare its ports inside portRanges.NAME, all of them within one slot of portSlot ports. Checked at launch, after -Port, so an override cannot leave the app's own slot either. An app under no ranged directory is not checked.",
+      "additionalProperties": { "type": "string", "pattern": "^\\d+-\\d+$" },
+      "examples": [{ "project": "17000-17999" }]
+    },
+
+    "portSlot": {
+      "type": "integer",
+      "default": 10,
+      "minimum": 1,
+      "description": "Ports per app slot. Slots are counted from the start of their range, so with 10 an app in 17000-17999 owns 17010-17019, 17020-17029, and so on."
     }
   }
 }
