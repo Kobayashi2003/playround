@@ -41,11 +41,15 @@ const inflight = new Map<string, Promise<unknown>>();
 /** Throw away everything remembered. Called after a scan, and by the reader
     when it has written progress the shelf would otherwise show stale. */
 export function invalidate(prefix?: string): void {
+  // A request already on the wire is answering the question as it was before
+  // whatever made this necessary; nothing asked from now on may join it.
   if (!prefix) {
     cache.clear();
+    inflight.clear();
     return;
   }
   for (const key of cache.keys()) if (key.includes(prefix)) cache.delete(key);
+  for (const key of inflight.keys()) if (key.includes(prefix)) inflight.delete(key);
 }
 
 function remember(key: string, value: unknown): void {
@@ -82,18 +86,23 @@ export function get<T>(href: string, signal?: AbortSignal): Promise<T> {
 
   let shared = inflight.get(href) as Promise<T> | undefined;
   if (!shared) {
-    shared = request<T>(href).then(
+    // Only the request still registered may file its answer: one dropped by
+    // `invalidate` is stale, and must not evict or cache over its successor.
+    const own: Promise<T> = request<T>(href).then(
       (value) => {
-        inflight.delete(href);
-        remember(href, value);
+        if (inflight.get(href) === own) {
+          inflight.delete(href);
+          remember(href, value);
+        }
         return value;
       },
       (error) => {
-        inflight.delete(href);
+        if (inflight.get(href) === own) inflight.delete(href);
         throw error;
       },
     );
-    inflight.set(href, shared as Promise<unknown>);
+    shared = own;
+    inflight.set(href, own as Promise<unknown>);
   }
 
   if (!signal) return shared;

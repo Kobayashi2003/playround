@@ -63,18 +63,28 @@ function storeFor(query: ShelfQuery): Store {
   return fresh;
 }
 
-/** Everything remembered, thrown away. Called after a scan changes the index. */
+/** Everything remembered, thrown away. Called after a scan changes the index.
+
+    A store still on screen is emptied in place rather than dropped: the grid
+    holding it only asks for its first page when the store changes, and the
+    query -- so the store -- has not. It has to be refilled from here, or the
+    view sits on its loading line until the page is reloaded. */
 export function forgetShelves(): void {
-  for (const store of stores.values()) {
+  for (const [key, store] of [...stores]) {
     store.rows = [];
     store.total = -1;
+    store.facets = [];
+    store.error = null;
     store.loaded.clear();
     store.inflight.clear();
     store.epoch += 1;
-    store.version += 1;
-    for (const listener of store.listeners) listener();
+    if (store.listeners.size) {
+      void loadPage(store, 0);
+      announce(store);
+    } else {
+      stores.delete(key);
+    }
   }
-  stores.clear();
 }
 
 /** One book is gone from the index; drop it from every view holding it.

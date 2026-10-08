@@ -243,41 +243,83 @@ export function snapPaginatedToPage(
 const PAGE_EXTENT_MARKER_ID = 'epub-reader-page-extent';
 
 /**
- * Paginated vertical text ends one page margin short of a whole page: the
- * padding below the last column is not scrollable overflow, so a chapter's last
- * page cannot be reached and lands cropped. A 1px marker on the root (outside
- * the body, where search and locators never look) pads the extent to whole pages.
+ * Paginated text ends short of a whole page in both writing modes: the margin
+ * after the last column (the body's inline padding in vertical writing, the
+ * page inset in horizontal writing) is not scrollable overflow. The last page
+ * then cannot be reached, so it lands shifted by that margin — and in a
+ * two-page spread a chapter with an odd page count could not reach its last
+ * spread at all, so its final page was skipped. A 1px marker on the root
+ * (outside the body, where search and locators never look) pads the extent so
+ * the last page's offset is scrollable.
  */
-function ensureWholeVerticalPages(document: Document): void {
+function ensureWholePages(document: Document): void {
   const root = document.documentElement;
   const body = document.body;
   const view = document.defaultView;
   if (!root || !body || !view) return;
-  if (view.getComputedStyle(root).writingMode === 'horizontal-tb') return;
-  if (view.getComputedStyle(body).columnWidth === 'auto') return;
-  const page = root.clientHeight;
-  if (page <= 0) return;
+  // The body is the multicol container, so its writing mode decides the paging
+  // axis. Publishers often set `vertical-rl` on the body alone and leave the
+  // root `horizontal-tb`, so the root's writing mode is not a substitute.
+  const bodyStyle = view.getComputedStyle(body);
+  if (bodyStyle.columnWidth === 'auto') {
+    document.getElementById(PAGE_EXTENT_MARKER_ID)?.remove();
+    return;
+  }
+  const vertical = bodyStyle.writingMode !== 'horizontal-tb';
+  const viewport = vertical ? root.clientHeight : root.clientWidth;
+  if (viewport <= 0) return;
+  // Pages advance by column plus gap, which the plan sizes from a floored
+  // viewport measurement. The root's client box is rounded instead, so on a
+  // fractional viewport it is a pixel larger than the advance; padding to whole
+  // client boxes left the last page a pixel per page short of reachable.
+  const measured =
+    parseFloat(bodyStyle.columnWidth) + parseFloat(bodyStyle.columnGap);
+  const advance =
+    Number.isFinite(measured) && measured > 0 ? measured : viewport;
+  // A horizontal spread shows two columns per viewport; vertical never does.
+  const visible = vertical ? 1 : Math.max(1, Math.round(viewport / advance));
 
   // The body's extent never includes the root's marker, so the marker is moved,
   // not removed: removing it would clamp the scroll and re-trigger measuring.
-  const extent = body.scrollHeight;
+  const extent = vertical ? body.scrollHeight : body.scrollWidth;
   // A pixel of tolerance: an extent a rounding error past a page is that page.
-  const whole = Math.ceil((extent - 1) / page) * page;
+  const pages = Math.max(1, Math.ceil((extent - 1) / advance));
+  // Page turns step by whole spreads from wherever reading currently is, so the
+  // last spread starts on the same parity as the current one.
+  const offset = Math.abs(vertical ? root.scrollTop : root.scrollLeft);
+  const parity = Math.round(offset / advance) % visible;
+  const lastStart =
+    pages - 1 < parity
+      ? 0
+      : Math.floor((pages - 1 - parity) / visible) * visible + parity;
+  // The last spread's offset plus one viewport must be scrollable.
+  const whole = Math.ceil(lastStart * advance + Math.max(advance, viewport));
+
   let marker = document.getElementById(PAGE_EXTENT_MARKER_ID);
   if (!marker) {
     marker = document.createElement('div');
     marker.id = PAGE_EXTENT_MARKER_ID;
     marker.setAttribute('aria-hidden', 'true');
     marker.style.cssText =
-      'position:absolute;left:0;width:1px;height:1px;visibility:hidden;pointer-events:none;';
+      'position:absolute;width:1px;height:1px;visibility:hidden;pointer-events:none;';
     root.append(marker);
   }
-  const top = `${Math.max(0, whole - 1)}px`;
-  if (marker.style.top !== top) marker.style.top = top;
+  const position = `${Math.max(0, whole - 1)}px`;
+  // Right-to-left roots scroll into negative x, so the marker extends leftward.
+  const rtl = !vertical && view.getComputedStyle(root).direction === 'rtl';
+  const placement = {
+    top: vertical ? position : '0px',
+    left: vertical ? '0px' : rtl ? '' : position,
+    right: rtl ? position : '',
+  };
+  for (const side of ['top', 'left', 'right'] as const) {
+    if (marker.style[side] !== placement[side])
+      marker.style[side] = placement[side];
+  }
 }
 
 export function measureDocument(document: Document): DocumentMeasurement {
-  ensureWholeVerticalPages(document);
+  ensureWholePages(document);
   const root = document.documentElement;
   const body = document.body;
   return {
