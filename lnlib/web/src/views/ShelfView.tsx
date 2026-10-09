@@ -12,25 +12,25 @@
    it, Shift ticks a run of them, and すべて選択 means everything this view
    matches -- resolved on the server, since the browser never holds it all. */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookGrid, type GridSelection } from "../components/BookGrid";
-import { BatchDialog, type BatchKind } from "../components/BatchDialog";
-import { Select } from "../components/Select";
-import { Delayed } from "../components/Delayed";
-import { api, invalidate } from "../lib/api";
-import { forgetBook, forgetShelves, useShelf } from "../lib/shelf";
-import { useSelection } from "../lib/selection";
-import { go, useDebounced, type Route } from "../lib/hooks";
-import { formatLabel } from "../lib/types";
-import type { BookCard, ShelfQuery, SortOrder } from "../lib/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BookGrid, type GridSelection } from '../components/BookGrid';
+import { BatchDialog, type BatchKind } from '../components/BatchDialog';
+import { Select } from '../components/Select';
+import { Delayed } from '../components/Delayed';
+import { api, invalidate } from '../lib/api';
+import { forgetBook, forgetShelves, useShelf } from '../lib/shelf';
+import { useSelection } from '../lib/selection';
+import { go, useDebounced, type Route } from '../lib/hooks';
+import { formatLabel } from '../lib/types';
+import type { BookCard, ShelfQuery, SortOrder } from '../lib/types';
 
 const ORDER_LABELS: Record<SortOrder, string> = {
-  author: "作者順",
-  date: "発売日（新しい順）",
-  date_asc: "発売日（古い順）",
-  title: "タイトル順",
-  added: "更新順",
-  format: "形式順",
+  author: '作者順',
+  date: '発売日（新しい順）',
+  date_asc: '発売日（古い順）',
+  title: 'タイトル順',
+  added: '更新順',
+  format: '形式順',
 };
 
 // Below this many removed books the grid drops them in place; above it the
@@ -38,7 +38,7 @@ const ORDER_LABELS: Record<SortOrder, string> = {
 const SPLICE_LIMIT = 300;
 
 interface ShelfViewProps {
-  readonly route: Extract<Route, { view: "shelf" }>;
+  readonly route: Extract<Route, { view: 'shelf' }>;
   readonly scrollParent: HTMLElement | null;
   readonly search: string;
   readonly onChange: () => void;
@@ -48,21 +48,29 @@ export function ShelfView({ route, scrollParent, search, onChange }: ShelfViewPr
   const q = useDebounced(search.trim(), 240);
   const [order, setOrder] = useState<SortOrder>(() => {
     try {
-      const saved = localStorage.getItem("lnlib.order");
+      const saved = localStorage.getItem('lnlib.order');
       if (saved && saved in ORDER_LABELS) return saved as SortOrder;
-    } catch { /* private mode */ }
-    return "author";
+    } catch {
+      /* private mode */
+    }
+    return 'author';
   });
   // A format chosen here narrows whatever the route already is; a format that
   // *is* the route (#/format/epub) is fixed and not offered as a control.
-  const [pick, setPick] = useState("");
-  const fixedFormat = route.format ?? "";
+  const [pick, setPick] = useState('');
+  const fixedFormat = route.format ?? '';
 
-  const query = useMemo<ShelfQuery>(() => ({
-    root: route.root, shelf: route.shelf, folder: route.folder,
-    only: route.only, format: fixedFormat || pick || undefined,
-    q: q || undefined,
-  }), [route.root, route.shelf, route.folder, route.only, fixedFormat, pick, q]);
+  const query = useMemo<ShelfQuery>(
+    () => ({
+      root: route.root,
+      shelf: route.shelf,
+      folder: route.folder,
+      only: route.only,
+      format: fixedFormat || pick || undefined,
+      q: q || undefined,
+    }),
+    [route.root, route.shelf, route.folder, route.only, fixedFormat, pick, q],
+  );
 
   const shelf = useShelf(query, order);
   const { ensure, rememberScroll, facets, loadRange } = shelf;
@@ -94,23 +102,28 @@ export function ShelfView({ route, scrollParent, search, onChange }: ShelfViewPr
   useEffect(() => {
     if (!selecting || batch) return;
     const onKey = (e: KeyboardEvent) => {
-      const typing = (e.target as HTMLElement | null)?.closest("input, textarea, select");
+      const typing = (e.target as HTMLElement | null)?.closest('input, textarea, select');
       if (typing) return;
       // A book dialog can be open over a shelf that is still in selection mode
       // (a pasted link lands that way). Escape belongs to the dialog then, not
       // to the shelf behind it.
-      if (location.hash.startsWith("#/book/")) return;
-      if (e.key === "Escape") { e.preventDefault(); leaveSelecting(); }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+      if (location.hash.startsWith('#/book/')) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        leaveSelecting();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         picks.selectAll();
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [selecting, batch, leaveSelecting, picks]);
 
-  const onOpen = useCallback((book: BookCard) => { go(`#/book/${book.id}`); }, []);
+  const onOpen = useCallback((book: BookCard) => {
+    go(`#/book/${book.id}`);
+  }, []);
 
   const gridSelection = useMemo<GridSelection | null>(() => {
     if (!selecting) return null;
@@ -126,7 +139,7 @@ export function ShelfView({ route, scrollParent, search, onChange }: ShelfViewPr
         const on = !picks.isPicked(book.id);
         const from = Math.min(picks.anchor, index);
         const to = Math.max(picks.anchor, index);
-        void loadRange(from, to).then((rows) => {
+        void loadRange(from, to).then(rows => {
           const ids: number[] = [];
           for (let i = from; i <= to; i++) {
             const row = rows[i];
@@ -140,28 +153,38 @@ export function ShelfView({ route, scrollParent, search, onChange }: ShelfViewPr
   }, [selecting, picks, loadRange]);
 
   /** Carry out one batch action on whatever is ticked. */
-  const runBatch = useCallback(async (kind: BatchKind, choice: "keep" | "trash") => {
-    const action = kind === "clear" ? "clear_progress" as const
-      : choice === "trash" ? "trash" as const : "forget" as const;
-    const body = picks.sel.all
-      ? { action, query, exclude: [...picks.sel.ids], expect: picks.count }
-      : { action, ids: [...picks.sel.ids], expect: picks.count };
-    const result = await api.batchBooks(body);
+  const runBatch = useCallback(
+    async (kind: BatchKind, choice: 'keep' | 'trash') => {
+      const action =
+        kind === 'clear'
+          ? ('clear_progress' as const)
+          : choice === 'trash'
+            ? ('trash' as const)
+            : ('forget' as const);
+      const body = picks.sel.all
+        ? { action, query, exclude: [...picks.sel.ids], expect: picks.count }
+        : { action, ids: [...picks.sel.ids], expect: picks.count };
+      const result = await api.batchBooks(body);
 
-    invalidate();
-    if (action !== "clear_progress" && !picks.sel.all && picks.sel.ids.size <= SPLICE_LIMIT) {
-      for (const id of picks.sel.ids) forgetBook(id);
-    } else {
-      forgetShelves();
-    }
-    onChange();
-    return result;
-  }, [picks, query, onChange]);
+      invalidate();
+      if (action !== 'clear_progress' && !picks.sel.all && picks.sel.ids.size <= SPLICE_LIMIT) {
+        for (const id of picks.sel.ids) forgetBook(id);
+      } else {
+        forgetShelves();
+      }
+      onChange();
+      return result;
+    },
+    [picks, query, onChange],
+  );
 
-  const closeBatch = useCallback((changed: boolean) => {
-    setBatch(null);
-    if (changed) clear();
-  }, [clear]);
+  const closeBatch = useCallback(
+    (changed: boolean) => {
+      setBatch(null);
+      if (changed) clear();
+    },
+    [clear],
+  );
 
   // The facet list is only meaningful while nothing has been picked; once one
   // is, the server stops counting the others, so the last full list is kept.
@@ -175,24 +198,21 @@ export function ShelfView({ route, scrollParent, search, onChange }: ShelfViewPr
     <>
       <div className="shelfbar">
         <span className="sub">
-          {shelf.total < 0 ? "" : `${shelf.total.toLocaleString()} 冊`}
-          {q ? `　「${q}」` : ""}
+          {shelf.total < 0 ? '' : `${shelf.total.toLocaleString()} 冊`}
+          {q ? `　「${q}」` : ''}
         </span>
 
         <div className="controls">
           {!fixedFormat && choices.length > 1 ? (
             <div className="chipbar" role="group" aria-label="形式で絞り込む">
-              <button
-                className={`fchip${pick === "" ? " on" : ""}`}
-                onClick={() => setPick("")}
-              >
+              <button className={`fchip${pick === '' ? ' on' : ''}`} onClick={() => setPick('')}>
                 すべて
               </button>
-              {choices.map((f) => (
+              {choices.map(f => (
                 <button
                   key={f.format}
-                  className={`fchip${pick === f.format ? " on" : ""}`}
-                  onClick={() => setPick(pick === f.format ? "" : f.format)}
+                  className={`fchip${pick === f.format ? ' on' : ''}`}
+                  onClick={() => setPick(pick === f.format ? '' : f.format)}
                 >
                   {formatLabel(f.format)}
                   <span className="n">{f.n}</span>
@@ -205,24 +225,30 @@ export function ShelfView({ route, scrollParent, search, onChange }: ShelfViewPr
             className="order"
             value={order}
             label="並び順"
-            onChange={(next) => {
+            onChange={next => {
               setOrder(next as SortOrder);
-              try { localStorage.setItem("lnlib.order", next); } catch { /* private */ }
+              try {
+                localStorage.setItem('lnlib.order', next);
+              } catch {
+                /* private */
+              }
               if (scrollParent) scrollParent.scrollTop = 0;
             }}
           >
             {Object.entries(ORDER_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
+              <option key={value} value={value}>
+                {label}
+              </option>
             ))}
           </Select>
 
           <button
-            className={`sm selbtn${selecting ? " on" : ""}`}
+            className={`sm selbtn${selecting ? ' on' : ''}`}
             onClick={() => (selecting ? leaveSelecting() : setSelecting(true))}
             disabled={shelf.total <= 0}
             title="まとめて選んで操作する（Esc で終了）"
           >
-            {selecting ? "選択を終了" : "選択"}
+            {selecting ? '選択を終了' : '選択'}
           </button>
         </div>
       </div>
@@ -250,20 +276,25 @@ export function ShelfView({ route, scrollParent, search, onChange }: ShelfViewPr
             <b>{picks.count.toLocaleString()}</b> 冊選択
             {picks.sel.all ? <em>（この一覧のすべて）</em> : null}
           </span>
-          <button className="sm" onClick={picks.selectAll}
-                  disabled={picks.sel.all && picks.sel.ids.size === 0}>
+          <button
+            className="sm"
+            onClick={picks.selectAll}
+            disabled={picks.sel.all && picks.sel.ids.size === 0}
+          >
             すべて選択（{Math.max(0, shelf.total).toLocaleString()}）
           </button>
           <button className="sm" onClick={clear} disabled={picks.count === 0}>
             選択解除
           </button>
           <span className="grow" />
-          <button className="sm" onClick={() => setBatch("clear")}
-                  disabled={picks.count === 0}>
+          <button className="sm" onClick={() => setBatch('clear')} disabled={picks.count === 0}>
             読書記録を消す
           </button>
-          <button className="sm danger" onClick={() => setBatch("remove")}
-                  disabled={picks.count === 0}>
+          <button
+            className="sm danger"
+            onClick={() => setBatch('remove')}
+            disabled={picks.count === 0}
+          >
             棚から外す
           </button>
         </div>
@@ -273,7 +304,7 @@ export function ShelfView({ route, scrollParent, search, onChange }: ShelfViewPr
         <BatchDialog
           kind={batch}
           count={picks.count}
-          run={(choice) => runBatch(batch, choice)}
+          run={choice => runBatch(batch, choice)}
           onClose={closeBatch}
         />
       ) : null}

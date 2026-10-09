@@ -106,13 +106,13 @@ stable locator.
 Run at least:
 
 ```sh
-npm run boundaries:check
-npm run typecheck:core
-npm run test:unit
-npm run test:integration
+pnpm boundaries:check
+pnpm typecheck:core
+pnpm test:unit
+pnpm test:integration
 ```
 
-Use `npm run check` before handing off a Core change. Renderer, browser-event,
+Use `pnpm check` before handing off a Core change. Renderer, browser-event,
 archive, or compatibility changes may also require the browser, corpus,
 conformance, stress, or hardening commands described in the
 [test guide](../../tests/README.md).

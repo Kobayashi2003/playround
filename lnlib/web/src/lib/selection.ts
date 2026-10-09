@@ -12,7 +12,7 @@
    card after "select all" adds it to the exceptions rather than building a
    list of the other twenty-nine thousand. */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from 'react';
 
 export interface Selection {
   readonly all: boolean;
@@ -27,13 +27,15 @@ export function useSelection(total: number) {
   const [anchor, setAnchor] = useState<number | null>(null);
 
   const isPicked = useCallback(
-    (id: number) => (sel.all ? !sel.ids.has(id) : sel.ids.has(id)), [sel]);
+    (id: number) => (sel.all ? !sel.ids.has(id) : sel.ids.has(id)),
+    [sel],
+  );
 
   const count = sel.all ? Math.max(0, total - sel.ids.size) : sel.ids.size;
 
   /** Tick or untick several at once, whichever kind of selection this is. */
   const setMany = useCallback((ids: readonly number[], on: boolean) => {
-    setSel((current) => {
+    setSel(current => {
       const next = new Set(current.ids);
       // In "picked" mode the set holds what is ticked; in "all" mode it holds
       // what is not. Ticking means adding to the first and removing from the
@@ -47,10 +49,13 @@ export function useSelection(total: number) {
     });
   }, []);
 
-  const toggle = useCallback((id: number, index: number) => {
-    setMany([id], !isPicked(id));
-    setAnchor(index);
-  }, [isPicked, setMany]);
+  const toggle = useCallback(
+    (id: number, index: number) => {
+      setMany([id], !isPicked(id));
+      setAnchor(index);
+    },
+    [isPicked, setMany],
+  );
 
   const selectAll = useCallback(() => {
     setSel({ all: true, ids: new Set() });
@@ -62,9 +67,20 @@ export function useSelection(total: number) {
     setAnchor(null);
   }, []);
 
-  return useMemo(() => ({
-    sel, count, anchor, isPicked, setMany, toggle, selectAll, clear, setAnchor,
-  }), [sel, count, anchor, isPicked, setMany, toggle, selectAll, clear]);
+  return useMemo(
+    () => ({
+      sel,
+      count,
+      anchor,
+      isPicked,
+      setMany,
+      toggle,
+      selectAll,
+      clear,
+      setAnchor,
+    }),
+    [sel, count, anchor, isPicked, setMany, toggle, selectAll, clear],
+  );
 }
 
 export type SelectionHandle = ReturnType<typeof useSelection>;

@@ -11,11 +11,11 @@
    scrolling has to know where row N is before row N is rendered. The CSS still
    describes the look; this only decides positions. */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Cover } from "./Cover";
-import { useElementWidth, useRafThrottle } from "../lib/hooks";
-import * as Thumbs from "../lib/thumbs";
-import type { BookCard } from "../lib/types";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Cover } from './Cover';
+import { useElementWidth, useRafThrottle } from '../lib/hooks';
+import * as Thumbs from '../lib/thumbs';
+import type { BookCard } from '../lib/types';
 
 const CELL = { min: 132, gapX: 14, gapY: 16, caption: 56, overscan: 2 };
 
@@ -40,7 +40,13 @@ interface BookGridProps {
 }
 
 export function BookGrid({
-  rows, total, scrollParent, onRange, onOpen, initialScroll = 0, onScroll,
+  rows,
+  total,
+  scrollParent,
+  onRange,
+  onOpen,
+  initialScroll = 0,
+  onScroll,
   selection = null,
 }: BookGridProps) {
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -51,7 +57,7 @@ export function BookGrid({
     const usable = Math.max(width, CELL.min);
     const cols = Math.max(1, Math.floor((usable + CELL.gapX) / (CELL.min + CELL.gapX)));
     const cellW = Math.floor((usable - CELL.gapX * (cols - 1)) / cols);
-    const cellH = Math.round(cellW * 7 / 5) + 6 + CELL.caption;  // .thumb is 5:7
+    const cellH = Math.round((cellW * 7) / 5) + 6 + CELL.caption; // .thumb is 5:7
     return { cols, cellW, cellH };
   }, [width]);
 
@@ -75,11 +81,14 @@ export function BookGrid({
     const lastLine = Math.floor((top + scroller.clientHeight) / rowH) + CELL.overscan;
     const first = Math.max(0, firstLine * geometry.cols);
     const last = Math.min(total - 1, (lastLine + 1) * geometry.cols - 1);
-    setRange((current) =>
-      current.first === first && current.last === last ? current : { first, last });
+    setRange(current =>
+      current.first === first && current.last === last ? current : { first, last },
+    );
   });
 
-  useLayoutEffect(() => { measure(); }, [measure, geometry, total, width]);
+  useLayoutEffect(() => {
+    measure();
+  }, [measure, geometry, total, width]);
 
   // Only a real scroll writes the offset down, and only after the saved one
   // has been put back, so returning to a shelf twice lands in the same place.
@@ -92,8 +101,8 @@ export function BookGrid({
   useEffect(() => {
     if (!scrollParent) return;
     const scroller = scrollParent;
-    scroller.addEventListener("scroll", onUserScroll, { passive: true });
-    return () => scroller.removeEventListener("scroll", onUserScroll);
+    scroller.addEventListener('scroll', onUserScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onUserScroll);
   }, [scrollParent, onUserScroll]);
 
   // Restoring the scroll offset waits for the box to have its full height,
@@ -103,7 +112,10 @@ export function BookGrid({
   useLayoutEffect(() => {
     const scroller = scrollParent;
     if (restored.current || !scroller) return;
-    if (!initialScroll) { restored.current = true; return; }
+    if (!initialScroll) {
+      restored.current = true;
+      return;
+    }
     if (!height || height < initialScroll) return;
     restored.current = true;
     scroller.scrollTop = initialScroll;
@@ -120,7 +132,7 @@ export function BookGrid({
     const hot = new Set<number>();
     for (let i = range.first; i <= range.last; i++) {
       const row = rows[i];
-      if (row && row.cover_state !== "none" && row.cover_state !== "error") {
+      if (row && row.cover_state !== 'none' && row.cover_state !== 'error') {
         hot.add(row.id);
       }
     }
@@ -141,18 +153,33 @@ export function BookGrid({
     cards.push(
       <div
         key={i}
-        className={`card vcard${row ? "" : " skel"}${selection ? " picking" : ""}` +
-                   `${picked ? " picked" : ""}`}
+        className={
+          `card vcard${row ? '' : ' skel'}${selection ? ' picking' : ''}` +
+          `${picked ? ' picked' : ''}`
+        }
         style={{ transform: `translate(${x}px, ${y}px)`, width: geometry.cellW }}
-        onClick={row ? (e) => act(e.shiftKey) : undefined}
+        onClick={row ? e => act(e.shiftKey) : undefined}
         // Shift-click would otherwise select the page's text as well.
-        onMouseDown={selection ? (e) => { if (e.shiftKey) e.preventDefault(); } : undefined}
-        role={row ? (selection ? "checkbox" : "button") : undefined}
+        onMouseDown={
+          selection
+            ? e => {
+                if (e.shiftKey) e.preventDefault();
+              }
+            : undefined
+        }
+        role={row ? (selection ? 'checkbox' : 'button') : undefined}
         aria-checked={row && selection ? picked : undefined}
         tabIndex={row ? 0 : undefined}
-        onKeyDown={row ? (e) => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(e.shiftKey); }
-        } : undefined}
+        onKeyDown={
+          row
+            ? e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  act(e.shiftKey);
+                }
+              }
+            : undefined
+        }
       >
         {row ? <BookCardBody book={row} /> : <div className="thumb" />}
         {row && selection ? <span className="tick" aria-hidden="true" /> : null}
@@ -160,7 +187,11 @@ export function BookGrid({
     );
   }
 
-  return <div className="vgrid" ref={boxRef} style={{ height }}>{cards}</div>;
+  return (
+    <div className="vgrid" ref={boxRef} style={{ height }}>
+      {cards}
+    </div>
+  );
 }
 
 function BookCardBody({ book }: { readonly book: BookCard }) {
@@ -170,15 +201,13 @@ function BookCardBody({ book }: { readonly book: BookCard }) {
   // carries a state word only -- how far in is the bar along the bottom edge,
   // which says the same thing without competing with the title for room.
   const absent = !book.present;
-  const badge = absent ? "不明" : book.read_finished ? "読了" : "";
+  const badge = absent ? '不明' : book.read_finished ? '読了' : '';
   const reading = !absent && !book.read_finished && percent > 0;
   return (
     <>
-      <div className={`thumb${absent ? " absent" : ""}`}>
+      <div className={`thumb${absent ? ' absent' : ''}`}>
         <Cover bookId={book.id} state={book.cover_state} alt="" />
-        {badge ? (
-          <span className={`badge${absent ? " miss" : " ok"}`}>{badge}</span>
-        ) : null}
+        {badge ? <span className={`badge${absent ? ' miss' : ' ok'}`}>{badge}</span> : null}
         {reading ? (
           <span className="progress" title={`${percent}%`}>
             <i style={{ width: `${percent}%` }} />
@@ -188,8 +217,8 @@ function BookCardBody({ book }: { readonly book: BookCard }) {
       <div className="cap">
         <div className="t">{book.title}</div>
         <div className="a">
-          {book.author || "作者不明"}
-          {book.date ? ` · ${book.date.slice(0, 7)}` : ""}
+          {book.author || '作者不明'}
+          {book.date ? ` · ${book.date.slice(0, 7)}` : ''}
         </div>
       </div>
     </>

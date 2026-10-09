@@ -1,11 +1,11 @@
 /* What is open at the moment: everything with saved progress, newest first. */
 
-import { useEffect, useState } from "react";
-import { Cover } from "../components/Cover";
-import { Delayed } from "../components/Delayed";
-import { api, isAbort } from "../lib/api";
-import { go } from "../lib/hooks";
-import type { ReadingRow } from "../lib/types";
+import { useEffect, useState } from 'react';
+import { Cover } from '../components/Cover';
+import { Delayed } from '../components/Delayed';
+import { api, isAbort } from '../lib/api';
+import { go } from '../lib/hooks';
+import type { ReadingRow } from '../lib/types';
 
 export function ReadingView({ onCount }: { readonly onCount: (n: number) => void }) {
   const [rows, setRows] = useState<readonly ReadingRow[] | null>(null);
@@ -13,12 +13,15 @@ export function ReadingView({ onCount }: { readonly onCount: (n: number) => void
 
   useEffect(() => {
     const controller = new AbortController();
-    api.reading(120, controller.signal)
-      .then((data) => {
+    api
+      .reading(120, controller.signal)
+      .then(data => {
         setRows(data.books);
-        onCount(data.books.filter((row) => !row.finished).length);
+        onCount(data.books.filter(row => !row.finished).length);
       })
-      .catch((e: unknown) => { if (!isAbort(e)) setError((e as Error).message); });
+      .catch((e: unknown) => {
+        if (!isAbort(e)) setError((e as Error).message);
+      });
     return () => controller.abort();
   }, [onCount]);
 
@@ -30,7 +33,7 @@ export function ReadingView({ onCount }: { readonly onCount: (n: number) => void
 
   return (
     <div className="grid">
-      {rows.map((row) => {
+      {rows.map(row => {
         const percent = Math.round((row.percent || 0) * 100);
         return (
           <div key={row.id} className="card" onClick={() => go(`#/read/${row.id}`)}>
@@ -45,10 +48,10 @@ export function ReadingView({ onCount }: { readonly onCount: (n: number) => void
             </div>
             <div className="cap">
               <div className="t">{row.title}</div>
-              <div className="a">{row.author || "作者不明"}</div>
+              <div className="a">{row.author || '作者不明'}</div>
               {/* This is the view about how far in you are, so here the number
                   is worth a line of its own. */}
-              <div className="pct">{row.finished ? "読了" : `${percent}%`}</div>
+              <div className="pct">{row.finished ? '読了' : `${percent}%`}</div>
             </div>
           </div>
         );

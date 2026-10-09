@@ -11,7 +11,7 @@ built once.
 ## Setup
 
 ```bash
-cd web && npm install && npm run build && cd ..
+cd web && pnpm install && pnpm build && cd ..
 
 python -m lnlib config --add-root "D:\Books\Novels"                    # shelves layout
 python -m lnlib config --add-root "D:\Books\Calibre" --layout authors  # Calibre layout
@@ -83,5 +83,5 @@ index, the cover cache and reading progress — back up `data/library.db` if you
 care about your progress. Both are git-ignored.
 
 `serve` also takes `--host`, `--port` and `--base-path /prefix` for running
-behind a reverse proxy. `npm run dev` in `web/` gives a hot-reloading interface on
+behind a reverse proxy. `pnpm dev` in `web/` gives a hot-reloading interface on
 http://127.0.0.1:16021 that talks to a running `serve`.

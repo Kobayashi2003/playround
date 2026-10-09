@@ -11,14 +11,14 @@
    This module is the lazy chunk. Nothing in it is fetched, parsed or evaluated
    until a book is actually opened, which is why the shelf itself stays small. */
 
-import { useEffect, useState } from "react";
-import { EpubReader } from "../epub-reader/react";
-import type { BrowserEpubReaderSnapshot } from "../epub-reader/core";
-import "../epub-reader/styles.css";
-import { bookRaw } from "../lib/mount";
-import { Delayed } from "../components/Delayed";
-import { createShelfSession } from "./session";
-import type { Book, Progress } from "../lib/types";
+import { useEffect, useState } from 'react';
+import { EpubReader } from '../epub-reader/react';
+import type { BrowserEpubReaderSnapshot } from '../epub-reader/core';
+import '../epub-reader/styles.css';
+import { bookRaw } from '../lib/mount';
+import { Delayed } from '../components/Delayed';
+import { createShelfSession } from './session';
+import type { Book, Progress } from '../lib/types';
 
 /* Bytes already fetched, kept for as long as the shelf is likely to want them
    back. A book is ten megabytes and the local server is fast, but re-reading
@@ -37,9 +37,9 @@ function keep(id: number, blob: Blob): void {
 }
 
 const MIME: Record<string, string> = {
-  ".epub": "application/epub+zip",
-  ".azw3": "application/vnd.amazon.ebook",
-  ".mobi": "application/x-mobipocket-ebook",
+  '.epub': 'application/epub+zip',
+  '.azw3': 'application/vnd.amazon.ebook',
+  '.mobi': 'application/x-mobipocket-ebook',
 };
 
 async function fetchBook(
@@ -59,7 +59,7 @@ async function fetchBook(
   const res = await fetch(bookRaw(id), { signal });
   if (!res.ok) throw new Error(`本を読み込めません (HTTP ${res.status})`);
 
-  const total = Number(res.headers.get("content-length") || 0);
+  const total = Number(res.headers.get('content-length') || 0);
   if (!res.body || !total) {
     const whole = await res.blob();
     keep(id, whole);
@@ -80,7 +80,7 @@ async function fetchBook(
   }
   // The engine reads the bytes rather than the label, but a blob that says
   // what it holds is easier to pass around.
-  const type = MIME[ext.toLowerCase()] ?? "application/octet-stream";
+  const type = MIME[ext.toLowerCase()] ?? 'application/octet-stream';
   const blob = new Blob(chunks as BlobPart[], { type });
   keep(id, blob);
   return blob;
@@ -104,13 +104,13 @@ export default function EpubReaderView({ book, progress }: EpubReaderViewProps) 
   useEffect(() => {
     const flush = () => session.flush();
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") flush();
+      if (document.visibilityState === 'hidden') flush();
     };
-    window.addEventListener("pagehide", flush);
-    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      window.removeEventListener("pagehide", flush);
-      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onVisibility);
       flush();
     };
   }, [session]);
@@ -119,14 +119,20 @@ export default function EpubReaderView({ book, progress }: EpubReaderViewProps) 
     if (source) return;
     const controller = new AbortController();
     let alive = true;
-    fetchBook(book.id, book.ext, controller.signal,
-              (f) => { if (alive) setFraction(f); })
-      .then((blob) => { if (alive) setSource(blob); })
+    fetchBook(book.id, book.ext, controller.signal, f => {
+      if (alive) setFraction(f);
+    })
+      .then(blob => {
+        if (alive) setSource(blob);
+      })
       .catch((e: unknown) => {
-        if (!alive || (e as Error).name === "AbortError") return;
+        if (!alive || (e as Error).name === 'AbortError') return;
         setError((e as Error).message);
       });
-    return () => { alive = false; controller.abort(); };
+    return () => {
+      alive = false;
+      controller.abort();
+    };
   }, [book.id, source]);
 
   if (error) return <div className="err">{error}</div>;
@@ -137,7 +143,9 @@ export default function EpubReaderView({ book, progress }: EpubReaderViewProps) 
         <div className="opening">
           <div>本を開いています…</div>
           {fraction > 0 ? (
-            <div className="bar"><i style={{ width: `${Math.round(fraction * 100)}%` }} /></div>
+            <div className="bar">
+              <i style={{ width: `${Math.round(fraction * 100)}%` }} />
+            </div>
           ) : null}
         </div>
       </Delayed>

@@ -16,16 +16,16 @@
    not decode -- the grid falls back to /cover/<id> and is simply as slow as it
    would have been anyway. */
 
-import { coverUrl } from "./mount";
+import { coverUrl } from './mount';
 
-const DB_NAME = "lnlib-thumbs";
+const DB_NAME = 'lnlib-thumbs';
 const DB_VERSION = 1;
-const STORE = "thumbs";
-const WIDTH = 264;            // 132 px tile at 2x, enough for HiDPI
+const STORE = 'thumbs';
+const WIDTH = 264; // 132 px tile at 2x, enough for HiDPI
 const QUALITY = 0.82;
-const MAX_PARALLEL = 2;       // covers reach tens of MB; two at a time is plenty
-const MAX_URLS = 600;         // object URLs kept alive at once
-const GEN_KEY = "__generation";
+const MAX_PARALLEL = 2; // covers reach tens of MB; two at a time is plenty
+const MAX_URLS = 600; // object URLs kept alive at once
+const GEN_KEY = '__generation';
 
 interface Job {
   readonly id: number;
@@ -34,7 +34,7 @@ interface Job {
   readonly reject: (error: Error) => void;
 }
 
-const urls = new Map<number, string>();   // insertion order doubles as LRU
+const urls = new Map<number, string>(); // insertion order doubles as LRU
 const pending = new Map<number, Promise<string>>();
 const failed = new Set<number>();
 let queue: Job[] = [];
@@ -44,7 +44,7 @@ let dbPromise: Promise<IDBDatabase | null> | null = null;
 /* --------------------------------------------------------------- store */
 function openDB(): Promise<IDBDatabase | null> {
   if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve) => {
+  dbPromise = new Promise(resolve => {
     let request: IDBOpenDBRequest;
     try {
       request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -77,22 +77,26 @@ export function checkGeneration(gen: number | null | undefined): Promise<void> {
   checked = (async () => {
     const db = await openDB();
     if (!db) return;
-    const stored = await new Promise<unknown>((resolve) => {
+    const stored = await new Promise<unknown>(resolve => {
       try {
-        const request = db.transaction(STORE, "readonly").objectStore(STORE).get(GEN_KEY);
+        const request = db.transaction(STORE, 'readonly').objectStore(STORE).get(GEN_KEY);
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => resolve(undefined);
-      } catch { resolve(undefined); }
+      } catch {
+        resolve(undefined);
+      }
     });
     if (stored !== gen) {
       for (const objectUrl of urls.values()) URL.revokeObjectURL(objectUrl);
       urls.clear();
       failed.clear();
       try {
-        const tx = db.transaction(STORE, "readwrite");
+        const tx = db.transaction(STORE, 'readwrite');
         tx.objectStore(STORE).clear();
         tx.objectStore(STORE).put(gen, GEN_KEY);
-      } catch { /* nothing cached is better than something wrong */ }
+      } catch {
+        /* nothing cached is better than something wrong */
+      }
     }
   })();
   return checked;
@@ -102,9 +106,13 @@ async function idbGet(id: number): Promise<Blob | null> {
   await checked;
   const db = await openDB();
   if (!db) return null;
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     let tx: IDBTransaction;
-    try { tx = db.transaction(STORE, "readonly"); } catch { return resolve(null); }
+    try {
+      tx = db.transaction(STORE, 'readonly');
+    } catch {
+      return resolve(null);
+    }
     const request = tx.objectStore(STORE).get(id);
     request.onsuccess = () => resolve((request.result as Blob) || null);
     request.onerror = () => resolve(null);
@@ -115,9 +123,11 @@ async function idbPut(id: number, blob: Blob): Promise<void> {
   const db = await openDB();
   if (!db) return;
   try {
-    const tx = db.transaction(STORE, "readwrite");
+    const tx = db.transaction(STORE, 'readwrite');
     tx.objectStore(STORE).put(blob, id);
-  } catch { /* quota or a closing database: the thumbnail is still usable */ }
+  } catch {
+    /* quota or a closing database: the thumbnail is still usable */
+  }
 }
 
 /* ---------------------------------------------------------------- make */
@@ -127,34 +137,39 @@ async function shrink(blob: Blob): Promise<Blob> {
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(blob, {
-      resizeWidth: WIDTH, resizeQuality: "medium",
+      resizeWidth: WIDTH,
+      resizeQuality: 'medium',
     });
   } catch {
-    bitmap = await createImageBitmap(blob);       // older engines ignore options
+    bitmap = await createImageBitmap(blob); // older engines ignore options
   }
   const scale = Math.min(1, WIDTH / bitmap.width);
   const w = Math.max(1, Math.round(bitmap.width * scale));
   const h = Math.max(1, Math.round(bitmap.height * scale));
 
-  if (typeof OffscreenCanvas === "function") {
+  if (typeof OffscreenCanvas === 'function') {
     const canvas = new OffscreenCanvas(w, h);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("no 2d context");
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('no 2d context');
     ctx.drawImage(bitmap, 0, 0, w, h);
     bitmap.close();
-    return canvas.convertToBlob({ type: "image/jpeg", quality: QUALITY });
+    return canvas.convertToBlob({ type: 'image/jpeg', quality: QUALITY });
   }
 
-  const canvas = document.createElement("canvas");
+  const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("no 2d context");
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('no 2d context');
   ctx.drawImage(bitmap, 0, 0, w, h);
   bitmap.close();
-  return new Promise((resolve, reject) => canvas.toBlob(
-    (out) => (out ? resolve(out) : reject(new Error("toBlob failed"))),
-    "image/jpeg", QUALITY));
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      out => (out ? resolve(out) : reject(new Error('toBlob failed'))),
+      'image/jpeg',
+      QUALITY,
+    ),
+  );
 }
 
 function remember(id: number, blob: Blob): string {
@@ -175,12 +190,12 @@ async function fetchCover(id: number): Promise<Blob> {
   for (let attempt = 0; ; attempt++) {
     try {
       const res = await fetch(coverUrl(id));
-      if (res.status === 404) throw new Error("no cover");
+      if (res.status === 404) throw new Error('no cover');
       if (!res.ok) throw new Error(`cover ${res.status}`);
       return await res.blob();
     } catch (e) {
-      if (attempt >= 1 || (e as Error).message === "no cover") throw e;
-      await new Promise((r) => setTimeout(r, 250));
+      if (attempt >= 1 || (e as Error).message === 'no cover') throw e;
+      await new Promise(r => setTimeout(r, 250));
     }
   }
 }
@@ -194,7 +209,7 @@ async function build(id: number): Promise<string> {
   try {
     small = await shrink(original);
   } catch {
-    small = original;                  // undecodable: keep it whole, still works
+    small = original; // undecodable: keep it whole, still works
   }
   if (small.size < original.size) void idbPut(id, small);
   return remember(id, small);
@@ -205,16 +220,18 @@ function pump(): void {
   while (running < MAX_PARALLEL && queue.length) {
     const job = queue.shift()!;
     if (job.wanted && !job.wanted()) {
-      pending.delete(job.id);        // let it be asked for again on the way back
-      job.reject(new Error("dropped"));
+      pending.delete(job.id); // let it be asked for again on the way back
+      job.reject(new Error('dropped'));
       continue;
     }
     running++;
-    build(job.id).then(job.resolve, job.reject).finally(() => {
-      running--;
-      pending.delete(job.id);
-      pump();
-    });
+    build(job.id)
+      .then(job.resolve, job.reject)
+      .finally(() => {
+        running--;
+        pending.delete(job.id);
+        pump();
+      });
   }
 }
 
@@ -226,7 +243,7 @@ export const peek = (id: number): string | null => urls.get(id) ?? null;
 export function get(id: number, wanted?: () => boolean): Promise<string> {
   const have = urls.get(id);
   if (have) return Promise.resolve(have);
-  if (failed.has(id)) return Promise.reject(new Error("failed earlier"));
+  if (failed.has(id)) return Promise.reject(new Error('failed earlier'));
   const already = pending.get(id);
   if (already) return already;
 
@@ -236,7 +253,9 @@ export function get(id: number, wanted?: () => boolean): Promise<string> {
   });
   // Only a cover that genuinely is not there is remembered as failed; a
   // network hiccup must not blank the tile for the rest of the session.
-  promise.catch((e: Error) => { if (e.message === "no cover") failed.add(id); });
+  promise.catch((e: Error) => {
+    if (e.message === 'no cover') failed.add(id);
+  });
   // Recorded before the queue is pumped, never after: `pump` can find the job
   // already unwanted and clear its entry on the spot, and an entry written
   // after that would leave a rejected promise under this id for good.
@@ -256,7 +275,7 @@ export function prioritise(hot: ReadonlySet<number>): void {
 }
 
 export const supported = () =>
-  typeof createImageBitmap === "function" && typeof indexedDB !== "undefined";
+  typeof createImageBitmap === 'function' && typeof indexedDB !== 'undefined';
 
 export async function clear(): Promise<void> {
   for (const objectUrl of urls.values()) URL.revokeObjectURL(objectUrl);
@@ -265,6 +284,8 @@ export async function clear(): Promise<void> {
   const db = await openDB();
   if (!db) return;
   try {
-    db.transaction(STORE, "readwrite").objectStore(STORE).clear();
-  } catch { /* best effort */ }
+    db.transaction(STORE, 'readwrite').objectStore(STORE).clear();
+  } catch {
+    /* best effort */
+  }
 }

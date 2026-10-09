@@ -10,29 +10,41 @@
      still true a few seconds later;
    * an aborted request is not an error worth showing anyone. */
 
-import { url } from "./mount";
+import { url } from './mount';
 import type {
-  BatchResult, Book, BookCard, BookPage, FolderRow, FormatDetail, Manifest,
-  Overview, ReadingRow, ShelfFormat, ShelfQuery, TrashRow,
-} from "./types";
+  BatchResult,
+  Book,
+  BookCard,
+  BookPage,
+  FolderRow,
+  FormatDetail,
+  Manifest,
+  Overview,
+  ReadingRow,
+  ShelfFormat,
+  ShelfQuery,
+  TrashRow,
+} from './types';
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
     super(message);
-    this.name = "ApiError";
+    this.name = 'ApiError';
   }
 }
 
 /** True for the rejection a caller caused by walking away. */
-export const isAbort = (e: unknown) =>
-  e instanceof DOMException && e.name === "AbortError";
+export const isAbort = (e: unknown) => e instanceof DOMException && e.name === 'AbortError';
 
 interface Entry {
   readonly at: number;
   readonly value: unknown;
 }
 
-const FRESH_MS = 15_000;      // how long a finished GET stays reusable
+const FRESH_MS = 15_000; // how long a finished GET stays reusable
 const MAX_ENTRIES = 240;
 
 const cache = new Map<string, Entry>();
@@ -63,11 +75,11 @@ function remember(key: string, value: unknown): void {
 
 async function request<T>(href: string, init?: RequestInit): Promise<T> {
   const res = await fetch(href, init);
-  const type = res.headers.get("content-type") || "";
-  const body = type.includes("json") ? await res.json() : await res.text();
+  const type = res.headers.get('content-type') || '';
+  const body = type.includes('json') ? await res.json() : await res.text();
   if (!res.ok) {
     const message =
-      (body && typeof body === "object" && "error" in body
+      (body && typeof body === 'object' && 'error' in body
         ? String((body as { error: unknown }).error)
         : res.statusText) || `HTTP ${res.status}`;
     throw new ApiError(message, res.status);
@@ -89,14 +101,14 @@ export function get<T>(href: string, signal?: AbortSignal): Promise<T> {
     // Only the request still registered may file its answer: one dropped by
     // `invalidate` is stale, and must not evict or cache over its successor.
     const own: Promise<T> = request<T>(href).then(
-      (value) => {
+      value => {
         if (inflight.get(href) === own) {
           inflight.delete(href);
           remember(href, value);
         }
         return value;
       },
-      (error) => {
+      error => {
         if (inflight.get(href) === own) inflight.delete(href);
         throw error;
       },
@@ -109,92 +121,98 @@ export function get<T>(href: string, signal?: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     if (signal.aborted) return reject(abortError());
     const onAbort = () => reject(abortError());
-    signal.addEventListener("abort", onAbort, { once: true });
+    signal.addEventListener('abort', onAbort, { once: true });
     shared!.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
+      value => {
+        signal.removeEventListener('abort', onAbort);
         resolve(value);
       },
-      (error) => {
-        signal.removeEventListener("abort", onAbort);
+      error => {
+        signal.removeEventListener('abort', onAbort);
         reject(error);
       },
     );
   });
 }
 
-const abortError = () => new DOMException("aborted", "AbortError");
+const abortError = () => new DOMException('aborted', 'AbortError');
 
 export async function post<T>(path: string, data?: unknown): Promise<T> {
   return request<T>(url(path), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data ?? {}),
-    keepalive: true,        // a save fired while the page is closing still lands
+    keepalive: true, // a save fired while the page is closing still lands
   });
 }
 
 /* ------------------------------------------------------------- endpoints */
 export const api = {
-  overview: (signal?: AbortSignal) =>
-    get<Overview>(url("/api/overview"), signal),
+  overview: (signal?: AbortSignal) => get<Overview>(url('/api/overview'), signal),
 
   books: (query: ShelfQuery, offset: number, limit: number, signal?: AbortSignal) =>
-    get<BookPage>(url("/api/books", { ...query, offset, limit }), signal),
+    get<BookPage>(url('/api/books', { ...query, offset, limit }), signal),
 
   book: (id: number, signal?: AbortSignal) =>
-    get<{ book: Book; nearby: readonly BookCard[] }>(
-      url(`/api/books/${id}`), signal),
+    get<{ book: Book; nearby: readonly BookCard[] }>(url(`/api/books/${id}`), signal),
 
-  manifest: (id: number, signal?: AbortSignal) =>
-    get<Manifest>(url(`/api/book/${id}`), signal),
+  manifest: (id: number, signal?: AbortSignal) => get<Manifest>(url(`/api/book/${id}`), signal),
 
   folders: (root?: string, shelf?: string, signal?: AbortSignal) =>
-    get<{ folders: readonly FolderRow[] }>(url("/api/folders", { root, shelf }), signal),
+    get<{ folders: readonly FolderRow[] }>(url('/api/folders', { root, shelf }), signal),
 
   formats: (root?: string, shelf?: string, signal?: AbortSignal) =>
     get<{ formats: readonly FormatDetail[]; by_shelf: readonly ShelfFormat[] }>(
-      url("/api/formats", { root, shelf }), signal),
+      url('/api/formats', { root, shelf }),
+      signal,
+    ),
 
   trash: (signal?: AbortSignal) =>
-    get<{ total: number; items: readonly TrashRow[] }>(url("/api/trash"), signal),
+    get<{ total: number; items: readonly TrashRow[] }>(url('/api/trash'), signal),
 
   reading: (limit = 120, signal?: AbortSignal) =>
-    get<{ books: readonly ReadingRow[] }>(url("/api/reading", { limit }), signal),
+    get<{ books: readonly ReadingRow[] }>(url('/api/reading', { limit }), signal),
 
-  scan: () => post<{
-    books: number; new: number; updated: number; returned: number;
-    vanished: number; seconds: number;
-  }>("/api/scan"),
+  scan: () =>
+    post<{
+      books: number;
+      new: number;
+      updated: number;
+      returned: number;
+      vanished: number;
+      seconds: number;
+    }>('/api/scan'),
 
   saveProgress: (body: {
-    book_id: number; locator: string | null; position: number;
-    percent: number; finished: boolean;
-  }) => post<{ ok: boolean }>("/api/progress", body),
+    book_id: number;
+    locator: string | null;
+    position: number;
+    percent: number;
+    finished: boolean;
+  }) => post<{ ok: boolean }>('/api/progress', body),
 
   clearProgress: (bookId: number) =>
-    post<{ ok: boolean }>("/api/progress", { book_id: bookId, clear: true }),
+    post<{ ok: boolean }>('/api/progress', { book_id: bookId, clear: true }),
 
   /** One action over many books: listed by id, or "everything in this view"
       given as the view's filter minus what was unticked. `expect` is the count
       the user confirmed; the server refuses if the filter now matches more. */
   batchBooks: (body: {
-    action: "forget" | "trash" | "clear_progress";
+    action: 'forget' | 'trash' | 'clear_progress';
     ids?: readonly number[];
     query?: ShelfQuery;
     exclude?: readonly number[];
     expect: number;
-  }) => post<BatchResult>("/api/books/batch", body),
+  }) => post<BatchResult>('/api/books/batch', body),
 
   batchTrash: (body: {
-    action: "restore" | "purge";
+    action: 'restore' | 'purge';
     ids?: readonly number[];
     all?: boolean;
     exclude?: readonly number[];
     expect: number;
-  }) => post<BatchResult & { files_deleted?: number; entries?: number }>(
-    "/api/trash/batch", body),
+  }) => post<BatchResult & { files_deleted?: number; entries?: number }>('/api/trash/batch', body),
 
-  open: (path: string) => post<{ ok: boolean }>("/api/open", { path }),
-  reveal: (path: string) => post<{ ok: boolean }>("/api/reveal", { path }),
+  open: (path: string) => post<{ ok: boolean }>('/api/open', { path }),
+  reveal: (path: string) => post<{ ok: boolean }>('/api/reveal', { path }),
 };

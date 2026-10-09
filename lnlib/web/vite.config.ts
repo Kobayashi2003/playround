@@ -1,7 +1,7 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
-const API = "http://127.0.0.1:16020";
+const API = 'http://127.0.0.1:16020';
 
 /* The shelf is served at the origin root when it runs alone, and under a path
    prefix when a shared edge fronts it beside other apps, so every asset URL has
@@ -14,21 +14,18 @@ const API = "http://127.0.0.1:16020";
    server sits one port above `serve`'s, and refuses to start rather than
    wander onto another if that one is taken. */
 export default defineConfig({
-  base: "./",
+  base: './',
   plugins: [react()],
   server: {
-    host: "127.0.0.1",
+    host: '127.0.0.1',
     port: 16021,
     strictPort: true,
     proxy: Object.fromEntries(
-      ["/api", "/cover", "/book"].map((path) => [
-        path,
-        { target: API, changeOrigin: false },
-      ]),
+      ['/api', '/cover', '/book'].map(path => [path, { target: API, changeOrigin: false }]),
     ),
   },
   build: {
-    outDir: "dist",
+    outDir: 'dist',
     emptyOutDir: true,
     // The reader is a large engine and splitting it out means the shelf's own
     // bundle stays small; it is loaded only when a book is opened.

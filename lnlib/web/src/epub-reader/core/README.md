@@ -75,11 +75,11 @@ See the detailed [module map](./docs/module-map.md) before placing new code.
 Run commands from `src/library/data-display/epub-reader`:
 
 ```sh
-npm run boundaries:check
-npm run typecheck:core
-npm run test:unit
-npm run test:integration
-npm run check
+pnpm boundaries:check
+pnpm typecheck:core
+pnpm test:unit
+pnpm test:integration
+pnpm check
 ```
 
 Use the package-level [test guide](../tests/README.md) for corpus, browser,

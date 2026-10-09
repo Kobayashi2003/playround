@@ -136,7 +136,7 @@ one run, but only within it.
 For an app the gateway launches directly, the port goes on the command line. For
 one with a launcher of its own, it goes through `env`, and the project's
 `caddy-env.ps1` gives that variable precedence over its `.env` — so the app and
-the edge agree, and a bare `npm run dev` with no gateway in sight still reads
+the edge agree, and a bare `pnpm dev` with no gateway in sight still reads
 `.env` exactly as before.
 
 ### Two kinds of routing

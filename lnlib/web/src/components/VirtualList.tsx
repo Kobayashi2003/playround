@@ -5,8 +5,8 @@
    box reserves the full height so the scrollbar is honest, and only the rows
    crossing the viewport (plus a few either side) exist as elements. */
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { useRafThrottle } from "../lib/hooks";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useRafThrottle } from '../lib/hooks';
 
 interface VirtualListProps<T> {
   readonly items: readonly T[];
@@ -19,7 +19,12 @@ interface VirtualListProps<T> {
 }
 
 export function VirtualList<T>({
-  items, rowHeight, scrollParent, render, rowKey, overscan = 8,
+  items,
+  rowHeight,
+  scrollParent,
+  render,
+  rowKey,
+  overscan = 8,
 }: VirtualListProps<T>) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [range, setRange] = useState({ first: 0, last: 40 });
@@ -30,22 +35,27 @@ export function VirtualList<T>({
     if (!scroller || !box) return;
     const top = scroller.scrollTop - box.offsetTop;
     const first = Math.max(0, Math.floor(top / rowHeight) - overscan);
-    const last = Math.min(items.length - 1,
-      Math.ceil((top + scroller.clientHeight) / rowHeight) + overscan);
-    setRange((current) =>
-      current.first === first && current.last === last ? current : { first, last });
+    const last = Math.min(
+      items.length - 1,
+      Math.ceil((top + scroller.clientHeight) / rowHeight) + overscan,
+    );
+    setRange(current =>
+      current.first === first && current.last === last ? current : { first, last },
+    );
   });
 
-  useLayoutEffect(() => { measure(); }, [measure, items.length, rowHeight]);
+  useLayoutEffect(() => {
+    measure();
+  }, [measure, items.length, rowHeight]);
 
   useEffect(() => {
     if (!scrollParent) return;
     const scroller = scrollParent;
-    scroller.addEventListener("scroll", measure, { passive: true });
+    scroller.addEventListener('scroll', measure, { passive: true });
     const observer = new ResizeObserver(() => measure());
     observer.observe(scroller);
     return () => {
-      scroller.removeEventListener("scroll", measure);
+      scroller.removeEventListener('scroll', measure);
       observer.disconnect();
     };
   }, [scrollParent, measure]);

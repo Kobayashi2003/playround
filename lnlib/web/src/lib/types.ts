@@ -121,7 +121,7 @@ export interface TrashRow {
   readonly size: number;
   /** kept = only the record went; trashed = the file moved too; vanished =
       the file was already gone when the record was retired. */
-  readonly file_state: "kept" | "trashed" | "vanished";
+  readonly file_state: 'kept' | 'trashed' | 'vanished';
   readonly trash_path: string | null;
   readonly reason: string;
   readonly trashed_at: number;
@@ -152,32 +152,33 @@ export interface ReadingRow extends BookCard {
 }
 
 /** What the reader needs to open one book; an e-book carries nothing extra. */
-export type Manifest =
-  & {
-    readonly book: Book;
-    readonly progress: Progress | null;
-    readonly detail?: string;
-  }
-  & (
-    // EPUB and Kindle KF8 alike: the bundled reader is handed the file.
-    | { readonly kind: "ebook" }
-    | { readonly kind: "pdf" }
-    | { readonly kind: "images"; readonly pages: readonly string[];
-        readonly direction: "ltr" | "rtl" }
-    | { readonly kind: "text"; readonly text: string; readonly encoding: string }
-    | { readonly kind: "gone"; readonly retired: boolean }
-    | { readonly kind: "external" | "error" }
+export type Manifest = {
+  readonly book: Book;
+  readonly progress: Progress | null;
+  readonly detail?: string;
+} &
+  // EPUB and Kindle KF8 alike: the bundled reader is handed the file.
+  (
+    | { readonly kind: 'ebook' }
+    | { readonly kind: 'pdf' }
+    | {
+        readonly kind: 'images';
+        readonly pages: readonly string[];
+        readonly direction: 'ltr' | 'rtl';
+      }
+    | { readonly kind: 'text'; readonly text: string; readonly encoding: string }
+    | { readonly kind: 'gone'; readonly retired: boolean }
+    | { readonly kind: 'external' | 'error' }
   );
 
-export type SortOrder =
-  "author" | "date" | "date_asc" | "title" | "added" | "format";
+export type SortOrder = 'author' | 'date' | 'date_asc' | 'title' | 'added' | 'format';
 
 export interface ShelfQuery {
   readonly root?: string;
   readonly shelf?: string;
   readonly folder?: string;
   readonly q?: string;
-  readonly only?: "undated" | "extra" | "absent" | "present";
+  readonly only?: 'undated' | 'extra' | 'absent' | 'present';
   readonly format?: string;
   readonly order?: SortOrder;
 }
@@ -185,18 +186,18 @@ export interface ShelfQuery {
 /* ------------------------------------------------------------ presentation */
 /** What each format is called on screen, and what can be read here. */
 export const FORMAT_LABEL: Record<string, string> = {
-  epub: "EPUB",
-  pdf: "PDF",
-  cbz: "CBZ",
-  cbr: "CBR",
-  azw3: "AZW3",
-  mobi: "MOBI",
-  txt: "テキスト",
-  images: "画像フォルダ",
-  zip: "ZIP",
-  rar: "RAR",
-  "7z": "7Z",
-  tar: "TAR",
+  epub: 'EPUB',
+  pdf: 'PDF',
+  cbz: 'CBZ',
+  cbr: 'CBR',
+  azw3: 'AZW3',
+  mobi: 'MOBI',
+  txt: 'テキスト',
+  images: '画像フォルダ',
+  zip: 'ZIP',
+  rar: 'RAR',
+  '7z': '7Z',
+  tar: 'TAR',
 };
 
 export const formatLabel = (f: string) => FORMAT_LABEL[f] ?? f.toUpperCase();
@@ -206,13 +207,11 @@ export const formatLabel = (f: string) => FORMAT_LABEL[f] ?? f.toUpperCase();
    A .mobi is offered because the reader opens the KF8 part of one; the older
    Mobipocket-only and DRM-protected files are refused once opened, and the
    reader's own bar still has 外部 for those. */
-export const READABLE = new Set([
-  "epub", "azw3", "mobi", "pdf", "cbz", "zip", "images", "txt",
-]);
+export const READABLE = new Set(['epub', 'azw3', 'mobi', 'pdf', 'cbz', 'zip', 'images', 'txt']);
 
 export function bytes(n: number | null | undefined): string {
   let size = Number(n || 0);
-  const units = ["B", "KB", "MB", "GB", "TB"];
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
   while (size >= 1024 && i < units.length - 1) {
     size /= 1024;

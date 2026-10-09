@@ -8,16 +8,19 @@
    thousands of rows; it is a virtual list for the same reason the shelf is a
    virtual grid. */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Delayed } from "../components/Delayed";
-import { VirtualList } from "../components/VirtualList";
-import { api, isAbort } from "../lib/api";
-import { go, useDebounced } from "../lib/hooks";
-import type { FolderRow } from "../lib/types";
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Delayed } from '../components/Delayed';
+import { VirtualList } from '../components/VirtualList';
+import { api, isAbort } from '../lib/api';
+import { go, useDebounced } from '../lib/hooks';
+import type { FolderRow } from '../lib/types';
 
 const ROW = 46;
 
-export function FoldersView({ search, scrollParent }: {
+export function FoldersView({
+  search,
+  scrollParent,
+}: {
   readonly search: string;
   readonly scrollParent: HTMLElement | null;
 }) {
@@ -27,17 +30,19 @@ export function FoldersView({ search, scrollParent }: {
 
   useEffect(() => {
     const controller = new AbortController();
-    api.folders(undefined, undefined, controller.signal)
-      .then((data) => setRows(data.folders))
-      .catch((e: unknown) => { if (!isAbort(e)) setError((e as Error).message); });
+    api
+      .folders(undefined, undefined, controller.signal)
+      .then(data => setRows(data.folders))
+      .catch((e: unknown) => {
+        if (!isAbort(e)) setError((e as Error).message);
+      });
     return () => controller.abort();
   }, []);
 
   const shown = useMemo(() => {
     if (!rows) return null;
     if (!q) return rows;
-    return rows.filter((row) =>
-      `${row.folder} ${row.author ?? ""}`.toLowerCase().includes(q));
+    return rows.filter(row => `${row.folder} ${row.author ?? ''}`.toLowerCase().includes(q));
   }, [rows, q]);
 
   // A new filter starts at the top of the list.
@@ -46,8 +51,10 @@ export function FoldersView({ search, scrollParent }: {
   }, [q, scrollParent]);
 
   const open = useCallback((row: FolderRow) => {
-    go(`#/folder/${encodeURIComponent(row.root_label)}/` +
-       `${encodeURIComponent(row.shelf)}/${encodeURIComponent(row.folder)}`);
+    go(
+      `#/folder/${encodeURIComponent(row.root_label)}/` +
+        `${encodeURIComponent(row.shelf)}/${encodeURIComponent(row.folder)}`,
+    );
   }, []);
 
   if (error) return <div className="err">{error}</div>;
@@ -60,19 +67,21 @@ export function FoldersView({ search, scrollParent }: {
         <span className="sub">{shown.length.toLocaleString()} フォルダ</span>
       </div>
       <div className="flist-head">
-        <span>棚</span><span>フォルダ</span><span>冊数</span>
+        <span>棚</span>
+        <span>フォルダ</span>
+        <span>冊数</span>
       </div>
       <VirtualList
         items={shown}
         rowHeight={ROW}
         scrollParent={scrollParent}
-        rowKey={(row) => `${row.root_label}/${row.shelf}/${row.folder}`}
-        render={(row) => {
+        rowKey={row => `${row.root_label}/${row.shelf}/${row.folder}`}
+        render={row => {
           // A nested folder is shown by its own name, with the path above it
           // as context rather than as the thing to read.
-          const at = row.folder.lastIndexOf("/");
+          const at = row.folder.lastIndexOf('/');
           const name = at >= 0 ? row.folder.slice(at + 1) : row.folder;
-          const above = at >= 0 ? row.folder.slice(0, at) : "";
+          const above = at >= 0 ? row.folder.slice(0, at) : '';
           return (
             <button className="frow" onClick={() => open(row)} title={row.folder}>
               <span className="f-shelf">{row.shelf || row.root_label}</span>

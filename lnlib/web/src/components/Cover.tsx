@@ -4,9 +4,9 @@
    the queue re-checks just before it starts work, so tiles scrolled past
    during a fast flick cost nothing at all. */
 
-import { useEffect, useRef, useState } from "react";
-import { coverUrl } from "../lib/mount";
-import * as Thumbs from "../lib/thumbs";
+import { useEffect, useRef, useState } from 'react';
+import { coverUrl } from '../lib/mount';
+import * as Thumbs from '../lib/thumbs';
 
 interface CoverProps {
   readonly bookId: number;
@@ -21,22 +21,34 @@ interface CoverProps {
   readonly visible?: boolean;
 }
 
-const hopeless = (state: string | null) => state === "none" || state === "error";
+const hopeless = (state: string | null) => state === 'none' || state === 'error';
 
-export function Cover({ bookId, state, alt = "", visible = true }: CoverProps) {
-  const [src, setSrc] = useState<string | null>(
-    () => (hopeless(state) ? null : Thumbs.peek(bookId)),
+export function Cover({ bookId, state, alt = '', visible = true }: CoverProps) {
+  const [src, setSrc] = useState<string | null>(() =>
+    hopeless(state) ? null : Thumbs.peek(bookId),
   );
   const [failed, setFailed] = useState(hopeless(state));
   const alive = useRef(visible);
   alive.current = visible;
 
   useEffect(() => {
-    if (hopeless(state)) { setSrc(null); setFailed(true); return; }
+    if (hopeless(state)) {
+      setSrc(null);
+      setFailed(true);
+      return;
+    }
 
     const ready = Thumbs.peek(bookId);
-    if (ready) { setSrc(ready); setFailed(false); return; }
-    if (!Thumbs.supported()) { setSrc(coverUrl(bookId)); setFailed(false); return; }
+    if (ready) {
+      setSrc(ready);
+      setFailed(false);
+      return;
+    }
+    if (!Thumbs.supported()) {
+      setSrc(coverUrl(bookId));
+      setFailed(false);
+      return;
+    }
 
     // Nothing is drawn while it is being built: a placeholder that flashes and
     // is replaced a moment later reads as an error the first time you see it.
@@ -44,22 +56,23 @@ export function Cover({ bookId, state, alt = "", visible = true }: CoverProps) {
     setFailed(false);
     let current = true;
     Thumbs.get(bookId, () => current && alive.current)
-      .then((url) => { if (current) { setSrc(url); setFailed(false); } })
+      .then(url => {
+        if (current) {
+          setSrc(url);
+          setFailed(false);
+        }
+      })
       .catch((error: Error) => {
-        if (current && error.message !== "dropped") setFailed(true);
+        if (current && error.message !== 'dropped') setFailed(true);
       });
-    return () => { current = false; };
+    return () => {
+      current = false;
+    };
   }, [bookId, state]);
 
   if (failed) return <div className="none">表紙なし</div>;
   if (!src) return null;
   return (
-    <img
-      src={src}
-      alt={alt}
-      decoding="async"
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
+    <img src={src} alt={alt} decoding="async" loading="lazy" onError={() => setFailed(true)} />
   );
 }

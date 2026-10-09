@@ -11,13 +11,11 @@
    record and the server's row was written last is the one the reader opens on.
    That is what lets a book read in one browser be picked up in another. */
 
-import { api } from "../lib/api";
-import type { Progress } from "../lib/types";
-import type {
-  ReadingSessionRecord, ReadingSessionStorage,
-} from "../epub-reader/core";
+import { api } from '../lib/api';
+import type { Progress } from '../lib/types';
+import type { ReadingSessionRecord, ReadingSessionStorage } from '../epub-reader/core';
 
-const NAMESPACE = "lnlib:epub:";
+const NAMESPACE = 'lnlib:epub:';
 const PUSH_EVERY_MS = 4000;
 
 /** The shelf's own row, packed into the reader's record shape. */
@@ -48,13 +46,15 @@ const readLocal = (key: string): ReadingSessionRecord | null => {
 const writeLocal = (key: string, record: ReadingSessionRecord): void => {
   try {
     localStorage.setItem(NAMESPACE + key, JSON.stringify(record));
-  } catch { /* quota, or private mode: the server copy still gets it */ }
+  } catch {
+    /* quota, or private mode: the server copy still gets it */
+  }
 };
 
 const newer = (a: ReadingSessionRecord | null, b: ReadingSessionRecord | null) => {
   if (!a) return b;
   if (!b) return a;
-  return (a.updatedAt ?? "") >= (b.updatedAt ?? "") ? a : b;
+  return (a.updatedAt ?? '') >= (b.updatedAt ?? '') ? a : b;
 };
 
 export interface ShelfSession {
@@ -67,10 +67,7 @@ export interface ShelfSession {
   dispose(): void;
 }
 
-export function createShelfSession(
-  bookId: number,
-  seed: Progress | null,
-): ShelfSession {
+export function createShelfSession(bookId: number, seed: Progress | null): ShelfSession {
   const key = `book-${bookId}`;
   let spineLength = 0;
   let queued: ReadingSessionRecord | null = null;
@@ -83,7 +80,10 @@ export function createShelfSession(
   if (fresher) writeLocal(key, fresher);
 
   const push = () => {
-    if (timer) { window.clearTimeout(timer); timer = 0; }
+    if (timer) {
+      window.clearTimeout(timer);
+      timer = 0;
+    }
     const record = queued;
     queued = null;
     if (!record) return;
@@ -91,20 +91,22 @@ export function createShelfSession(
 
     const index = record.locator?.spineIndex ?? 0;
     const within = record.locator?.locations?.progression ?? 0;
-    const percent = spineLength > 0
-      ? Math.min(1, Math.max(0, (index + within) / spineLength))
-      : 0;
+    const percent = spineLength > 0 ? Math.min(1, Math.max(0, (index + within) / spineLength)) : 0;
 
-    void api.saveProgress({
-      book_id: bookId,
-      // The whole record goes over as the locator: nothing on the server side
-      // reads it, and keeping it intact means a position can be restored
-      // exactly rather than approximately.
-      locator: JSON.stringify(record),
-      position: within,
-      percent,
-      finished: percent >= 0.995,
-    }).catch(() => { /* reading must not stop because a write failed */ });
+    void api
+      .saveProgress({
+        book_id: bookId,
+        // The whole record goes over as the locator: nothing on the server side
+        // reads it, and keeping it intact means a position can be restored
+        // exactly rather than approximately.
+        locator: JSON.stringify(record),
+        position: within,
+        percent,
+        finished: percent >= 0.995,
+      })
+      .catch(() => {
+        /* reading must not stop because a write failed */
+      });
   };
 
   const schedule = () => {
@@ -114,15 +116,19 @@ export function createShelfSession(
   };
 
   const storage: ReadingSessionStorage = {
-    load: (storageKey) => readLocal(storageKey),
+    load: storageKey => readLocal(storageKey),
     save: (storageKey, record) => {
       writeLocal(storageKey, record);
-      if (storageKey !== key) return;   // another book's record: local only
+      if (storageKey !== key) return; // another book's record: local only
       queued = record;
       schedule();
     },
-    remove: (storageKey) => {
-      try { localStorage.removeItem(NAMESPACE + storageKey); } catch { /* ignore */ }
+    remove: storageKey => {
+      try {
+        localStorage.removeItem(NAMESPACE + storageKey);
+      } catch {
+        /* ignore */
+      }
       if (storageKey === key) {
         queued = null;
         void api.clearProgress(bookId).catch(() => {});
@@ -138,7 +144,9 @@ export function createShelfSession(
   return {
     key,
     storage,
-    setSpineLength: (length) => { spineLength = length; },
+    setSpineLength: length => {
+      spineLength = length;
+    },
     flush: push,
     dispose: push,
   };

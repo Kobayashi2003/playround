@@ -12,15 +12,13 @@
    axis the current mode actually uses -- offsets are line *extents*, not
    heights, and the same arithmetic serves both. */
 
-import {
-  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
-} from "react";
-import { api } from "../lib/api";
-import { useRafThrottle, useThrottle } from "../lib/hooks";
-import type { Book, Progress } from "../lib/types";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { api } from '../lib/api';
+import { useRafThrottle, useThrottle } from '../lib/hooks';
+import type { Book, Progress } from '../lib/types';
 
 const OVERSCAN = 8;
-const ESTIMATE = 30;          // px per line before one has been measured
+const ESTIMATE = 30; // px per line before one has been measured
 
 interface TextReaderViewProps {
   readonly book: Book;
@@ -29,16 +27,14 @@ interface TextReaderViewProps {
   readonly progress: Progress | null;
 }
 
-export default function TextReaderView({
-  book, text, encoding, progress,
-}: TextReaderViewProps) {
+export default function TextReaderView({ book, text, encoding, progress }: TextReaderViewProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState(() => {
-    const saved = Number(localStorage.getItem("lnlib.textsize") || 0);
+    const saved = Number(localStorage.getItem('lnlib.textsize') || 0);
     return saved >= 12 && saved <= 32 ? saved : 17;
   });
   const [vertical, setVertical] = useState(
-    () => localStorage.getItem("lnlib.textvertical") === "1",
+    () => localStorage.getItem('lnlib.textvertical') === '1',
   );
 
   const lines = useMemo(() => text.split(/\r?\n/), [text]);
@@ -77,13 +73,17 @@ export default function TextReaderView({
   }, [vertical]);
 
   const [saveSoon, saveNow] = useThrottle((fraction: number) => {
-    void api.saveProgress({
-      book_id: book.id,
-      locator: fraction.toFixed(5),
-      position: fraction,
-      percent: fraction,
-      finished: fraction >= 0.995,
-    }).catch(() => { /* reading must not stop because a write failed */ });
+    void api
+      .saveProgress({
+        book_id: book.id,
+        locator: fraction.toFixed(5),
+        position: fraction,
+        percent: fraction,
+        finished: fraction >= 0.995,
+      })
+      .catch(() => {
+        /* reading must not stop because a write failed */
+      });
   }, 3000);
 
   const measure = useRafThrottle(() => {
@@ -94,7 +94,7 @@ export default function TextReaderView({
     while (first < lines.length && offsets[first + 1] < along) first++;
     let last = first;
     while (last < lines.length - 1 && offsets[last] < along + visible) last++;
-    setRange((current) => {
+    setRange(current => {
       const f = Math.max(0, first - OVERSCAN);
       const l = Math.min(lines.length - 1, last + OVERSCAN);
       return current.first === f && current.last === l ? current : { first: f, last: l };
@@ -107,11 +107,13 @@ export default function TextReaderView({
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.addEventListener("scroll", measure, { passive: true });
-    return () => el.removeEventListener("scroll", measure);
+    el.addEventListener('scroll', measure, { passive: true });
+    return () => el.removeEventListener('scroll', measure);
   }, [measure]);
 
-  useLayoutEffect(() => { measure(); }, [measure, shape]);
+  useLayoutEffect(() => {
+    measure();
+  }, [measure, shape]);
 
   // Where it was left off, once there is a length to be a fraction of.
   const restored = useRef(false);
@@ -132,21 +134,22 @@ export default function TextReaderView({
   const report = useCallback((index: number, extent: number) => {
     if (Math.abs((extents.current[index] ?? 0) - extent) < 0.5) return;
     extents.current[index] = extent;
-    bump((n) => n + 1);
+    bump(n => n + 1);
   }, []);
 
   const shown = [];
   for (let i = range.first; i <= range.last && i < lines.length; i++) {
-    shown.push(
-      <Line key={i} index={i} text={lines[i]!} vertical={vertical}
-            onMeasure={report} />,
-    );
+    shown.push(<Line key={i} index={i} text={lines[i]!} vertical={vertical} onMeasure={report} />);
   }
 
   const step = (delta: number) => {
     const next = Math.max(12, Math.min(32, size + delta));
     setSize(next);
-    try { localStorage.setItem("lnlib.textsize", String(next)); } catch { /* ignore */ }
+    try {
+      localStorage.setItem('lnlib.textsize', String(next));
+    } catch {
+      /* ignore */
+    }
   };
 
   const start = offsets[range.first] ?? 0;
@@ -154,41 +157,45 @@ export default function TextReaderView({
   return (
     <div className="textreader">
       <div className="tbar">
-        <span className="dim">{encoding} · {lines.length.toLocaleString()} 行</span>
+        <span className="dim">
+          {encoding} · {lines.length.toLocaleString()} 行
+        </span>
         <span className="spacer" />
-        <button className="sm" onClick={() => step(-1)} title="文字を小さく">A−</button>
-        <button className="sm" onClick={() => step(1)} title="文字を大きく">A＋</button>
+        <button className="sm" onClick={() => step(-1)} title="文字を小さく">
+          A−
+        </button>
+        <button className="sm" onClick={() => step(1)} title="文字を大きく">
+          A＋
+        </button>
         <button
-          className={`sm${vertical ? " on" : ""}`}
+          className={`sm${vertical ? ' on' : ''}`}
           onClick={() => {
             const next = !vertical;
-            restored.current = true;      // do not jump back on the axis swap
+            restored.current = true; // do not jump back on the axis swap
             setVertical(next);
             try {
-              localStorage.setItem("lnlib.textvertical", next ? "1" : "0");
-            } catch { /* ignore */ }
+              localStorage.setItem('lnlib.textvertical', next ? '1' : '0');
+            } catch {
+              /* ignore */
+            }
           }}
           title="縦書きと横書きを切り替える"
         >
-          {vertical ? "横書きに" : "縦書きに"}
+          {vertical ? '横書きに' : '縦書きに'}
         </button>
       </div>
 
       <div
-        className={`tscroll${vertical ? " vertical" : ""}`}
+        className={`tscroll${vertical ? ' vertical' : ''}`}
         ref={scrollRef}
         style={{ fontSize: size }}
         tabIndex={0}
       >
-        <div
-          className="tspacer"
-          style={vertical ? { width: total } : { height: total }}
-        >
+        <div className="tspacer" style={vertical ? { width: total } : { height: total }}>
           <div
             className="tlines"
             style={{
-              transform: vertical
-                ? `translateX(${-start}px)` : `translateY(${start}px)`,
+              transform: vertical ? `translateX(${-start}px)` : `translateY(${start}px)`,
             }}
           >
             {shown}
@@ -199,7 +206,12 @@ export default function TextReaderView({
   );
 }
 
-function Line({ index, text, vertical, onMeasure }: {
+function Line({
+  index,
+  text,
+  vertical,
+  onMeasure,
+}: {
   readonly index: number;
   readonly text: string;
   readonly vertical: boolean;
@@ -211,8 +223,8 @@ function Line({ index, text, vertical, onMeasure }: {
     if (el) onMeasure(index, vertical ? el.offsetWidth : el.offsetHeight);
   });
   return (
-    <p ref={ref} className={text.trim() ? "tline" : "tline tblank"}>
-      {text || " "}
+    <p ref={ref} className={text.trim() ? 'tline' : 'tline tblank'}>
+      {text || ' '}
     </p>
   );
 }

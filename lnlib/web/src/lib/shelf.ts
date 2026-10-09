@@ -10,19 +10,19 @@
    has to be invalidated by hand; the last few are kept and the rest are
    dropped. */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, isAbort } from "./api";
-import type { BookCard, Facet, ShelfQuery, SortOrder } from "./types";
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { api, isAbort } from './api';
+import type { BookCard, Facet, ShelfQuery, SortOrder } from './types';
 
 export const PAGE = 120;
-const MAX_STORES = 6;         // how many query results stay warm at once
+const MAX_STORES = 6; // how many query results stay warm at once
 
 interface Store {
   query: ShelfQuery;
   rows: (BookCard | undefined)[];
   total: number;
   facets: readonly Facet[];
-  loaded: Set<number>;        // page numbers already in `rows`
+  loaded: Set<number>; // page numbers already in `rows`
   inflight: Map<number, Promise<void>>;
   scrollTop: number;
   error: string | null;
@@ -35,8 +35,15 @@ interface Store {
 const stores = new Map<string, Store>();
 
 const keyOf = (query: ShelfQuery) =>
-  [query.root ?? "", query.shelf ?? "", query.folder ?? "", query.only ?? "",
-   query.format ?? "", query.order ?? "", query.q ?? ""].join(" ");
+  [
+    query.root ?? '',
+    query.shelf ?? '',
+    query.folder ?? '',
+    query.only ?? '',
+    query.format ?? '',
+    query.order ?? '',
+    query.q ?? '',
+  ].join(' ');
 
 function storeFor(query: ShelfQuery): Store {
   const key = keyOf(query);
@@ -48,16 +55,24 @@ function storeFor(query: ShelfQuery): Store {
     return existing;
   }
   const fresh: Store = {
-    query, rows: [], total: -1, facets: [], loaded: new Set(),
-    inflight: new Map(), scrollTop: 0, error: null,
-    listeners: new Set(), version: 0, epoch: 0,
+    query,
+    rows: [],
+    total: -1,
+    facets: [],
+    loaded: new Set(),
+    inflight: new Map(),
+    scrollTop: 0,
+    error: null,
+    listeners: new Set(),
+    version: 0,
+    epoch: 0,
   };
   stores.set(key, fresh);
   while (stores.size > MAX_STORES) {
     const oldest = stores.keys().next().value;
     if (oldest === undefined || oldest === key) break;
     const dropped = stores.get(oldest);
-    if (dropped && dropped.listeners.size) break;   // still on screen: keep it
+    if (dropped && dropped.listeners.size) break; // still on screen: keep it
     stores.delete(oldest);
   }
   return fresh;
@@ -93,7 +108,7 @@ export function forgetShelves(): void {
     shelf should not scroll it back to the top of a thousand rows. */
 export function forgetBook(bookId: number): void {
   for (const store of stores.values()) {
-    const at = store.rows.findIndex((row) => row?.id === bookId);
+    const at = store.rows.findIndex(row => row?.id === bookId);
     if (at < 0) continue;
     store.rows.splice(at, 1);
     if (store.total > 0) store.total -= 1;
@@ -122,8 +137,9 @@ function loadPage(store: Store, page: number): Promise<void> {
 
   // What the rows meant when this was asked for; see `forgetBook`.
   const asked = store.epoch;
-  const request: Promise<void> = api.books(store.query, page * PAGE, PAGE)
-    .then((data) => {
+  const request: Promise<void> = api
+    .books(store.query, page * PAGE, PAGE)
+    .then(data => {
       if (store.inflight.get(page) === request) store.inflight.delete(page);
       if (store.epoch !== asked) return;
       store.loaded.add(page);
@@ -133,7 +149,9 @@ function loadPage(store: Store, page: number): Promise<void> {
         store.total = data.total;
         if (store.rows.length > data.total) store.rows.length = data.total;
       }
-      data.books.forEach((row, index) => { store.rows[page * PAGE + index] = row; });
+      data.books.forEach((row, index) => {
+        store.rows[page * PAGE + index] = row;
+      });
       announce(store);
     })
     .catch((error: unknown) => {
@@ -171,37 +189,56 @@ export function useShelf(query: ShelfQuery, order: SortOrder): ShelfHandle {
   const [, bump] = useState(0);
 
   useEffect(() => {
-    const listener = () => bump((n) => n + 1);
+    const listener = () => bump(n => n + 1);
     store.listeners.add(listener);
-    return () => { store.listeners.delete(listener); };
+    return () => {
+      store.listeners.delete(listener);
+    };
   }, [store]);
 
   // The first page is always wanted; without it the grid has no height and so
   // never works out which rows are on screen.
-  useEffect(() => { void loadPage(store, 0); }, [store]);
-
-  const ensure = useCallback((from: number, to: number) => {
-    const last = store.total >= 0 ? Math.min(to, store.total - 1) : to;
-    for (let page = Math.floor(Math.max(0, from) / PAGE);
-         page <= Math.floor(Math.max(0, last) / PAGE); page++) {
-      void loadPage(store, page);
-    }
+  useEffect(() => {
+    void loadPage(store, 0);
   }, [store]);
 
-  const loadRange = useCallback(async (from: number, to: number) => {
-    const last = store.total >= 0 ? Math.min(to, store.total - 1) : to;
-    const waits: Promise<void>[] = [];
-    for (let page = Math.floor(Math.max(0, from) / PAGE);
-         page <= Math.floor(Math.max(0, last) / PAGE); page++) {
-      waits.push(loadPage(store, page));
-    }
-    await Promise.all(waits);
-    return store.rows;
-  }, [store]);
+  const ensure = useCallback(
+    (from: number, to: number) => {
+      const last = store.total >= 0 ? Math.min(to, store.total - 1) : to;
+      for (
+        let page = Math.floor(Math.max(0, from) / PAGE);
+        page <= Math.floor(Math.max(0, last) / PAGE);
+        page++
+      ) {
+        void loadPage(store, page);
+      }
+    },
+    [store],
+  );
 
-  const rememberScroll = useCallback((top: number) => {
-    store.scrollTop = top;
-  }, [store]);
+  const loadRange = useCallback(
+    async (from: number, to: number) => {
+      const last = store.total >= 0 ? Math.min(to, store.total - 1) : to;
+      const waits: Promise<void>[] = [];
+      for (
+        let page = Math.floor(Math.max(0, from) / PAGE);
+        page <= Math.floor(Math.max(0, last) / PAGE);
+        page++
+      ) {
+        waits.push(loadPage(store, page));
+      }
+      await Promise.all(waits);
+      return store.rows;
+    },
+    [store],
+  );
+
+  const rememberScroll = useCallback(
+    (top: number) => {
+      store.scrollTop = top;
+    },
+    [store],
+  );
 
   return {
     rows: store.rows,

@@ -20,7 +20,7 @@ the library. A cross-site POST is refused; a request with no Origin at all
 (the CLI, curl) is not from a browser and is let through.
 
 Everything else is the front end, served out of `web/dist` -- a built React
-bundle. `npm run build` in `web/` produces it; when it is missing the server
+bundle. `pnpm build` in `web/` produces it; when it is missing the server
 says so rather than 404ing every asset in silence.
 """
 from __future__ import annotations
@@ -52,9 +52,9 @@ NO_BUILD_PAGE = b"""<!doctype html><meta charset="utf-8">
 <p>The shelf is a React application now, so it has to be compiled before it can
 be served:</p>
 <pre style="background:#f4f4f2;padding:12px 14px;border-radius:8px">cd web
-npm install
-npm run build</pre>
-<p>Then reload this page. While working on the interface, <code>npm run dev</code>
+pnpm install
+pnpm build</pre>
+<p>Then reload this page. While working on the interface, <code>pnpm dev</code>
 serves it with hot reloading and forwards the API to this process.</p>
 <p>The API itself is running: <a href="api/overview">api/overview</a>.</p>
 """
@@ -129,7 +129,7 @@ class Handler(BaseHTTPRequestHandler):
             return False
         if parsed.netloc.lower() == (self.headers.get("Host") or "").lower():
             return True
-        # `npm run dev` serves the interface from its own port and forwards the
+        # `pnpm dev` serves the interface from its own port and forwards the
         # API here, so the origin differs -- but both ends are this machine.
         return ((parsed.hostname or "") in self.LOOPBACK
                 and (self.client_address[0] or "") in self.LOOPBACK)
@@ -476,7 +476,7 @@ def serve(host: str | None = None, port: int | None = None, open_browser: bool =
     url = f"http://{host}:{port}{BASE_PATH}/"
     print(f"lnlib serving on {url}   (ctrl-c to stop)")
     if not os.path.isdir(WEB_DIR):
-        print(f"  ! the front end is not built -- run `npm install && npm run build` "
+        print(f"  ! the front end is not built -- run `pnpm install && pnpm build` "
               f"in {WEB_SRC}")
     if open_browser:
         import webbrowser

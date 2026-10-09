@@ -5,9 +5,7 @@
    handler runs once per frame rather than once per event, and a spinner is
    held back long enough that a fast answer never causes a flash of one. */
 
-import {
-  useCallback, useEffect, useLayoutEffect, useRef, useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 /** The latest value, but only once it has stopped changing for `delay` ms. */
 export function useDebounced<T>(value: T, delay = 220): T {
@@ -23,7 +21,9 @@ export function useDebounced<T>(value: T, delay = 220): T {
 /** A stable callback that reads the newest closure without re-subscribing. */
 export function useEvent<A extends unknown[], R>(fn: (...args: A) => R) {
   const ref = useRef(fn);
-  useLayoutEffect(() => { ref.current = fn; });
+  useLayoutEffect(() => {
+    ref.current = fn;
+  });
   return useCallback((...args: A) => ref.current(...args), []);
 }
 
@@ -36,18 +36,24 @@ export function useRafThrottle<A extends unknown[]>(fn: (...args: A) => void) {
   const frame = useRef(0);
   const args = useRef<A | null>(null);
 
-  useEffect(() => () => {
-    if (frame.current) cancelAnimationFrame(frame.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (frame.current) cancelAnimationFrame(frame.current);
+    },
+    [],
+  );
 
-  return useCallback((...next: A) => {
-    args.current = next;
-    if (frame.current) return;
-    frame.current = requestAnimationFrame(() => {
-      frame.current = 0;
-      if (args.current) latest(...args.current);
-    });
-  }, [latest]);
+  return useCallback(
+    (...next: A) => {
+      args.current = next;
+      if (frame.current) return;
+      frame.current = requestAnimationFrame(() => {
+        frame.current = 0;
+        if (args.current) latest(...args.current);
+      });
+    },
+    [latest],
+  );
 }
 
 /** Runs `fn` no more often than every `ms`, trailing edge included.
@@ -61,7 +67,10 @@ export function useThrottle<A extends unknown[]>(fn: (...args: A) => void, ms: n
   const args = useRef<A | null>(null);
 
   const flush = useCallback(() => {
-    if (timer.current) { window.clearTimeout(timer.current); timer.current = 0; }
+    if (timer.current) {
+      window.clearTimeout(timer.current);
+      timer.current = 0;
+    }
     if (!args.current) return;
     last.current = Date.now();
     const next = args.current;
@@ -69,16 +78,25 @@ export function useThrottle<A extends unknown[]>(fn: (...args: A) => void, ms: n
     latest(...next);
   }, [latest]);
 
-  useEffect(() => () => {
-    if (timer.current) window.clearTimeout(timer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) window.clearTimeout(timer.current);
+    },
+    [],
+  );
 
-  const run = useCallback((...next: A) => {
-    args.current = next;
-    const wait = ms - (Date.now() - last.current);
-    if (wait <= 0) { flush(); return; }
-    if (!timer.current) timer.current = window.setTimeout(flush, wait);
-  }, [flush, ms]);
+  const run = useCallback(
+    (...next: A) => {
+      args.current = next;
+      const wait = ms - (Date.now() - last.current);
+      if (wait <= 0) {
+        flush();
+        return;
+      }
+      if (!timer.current) timer.current = window.setTimeout(flush, wait);
+    },
+    [flush, ms],
+  );
 
   return [run, flush] as const;
 }
@@ -91,7 +109,10 @@ export function useThrottle<A extends unknown[]>(fn: (...args: A) => void, ms: n
 export function useDelayedFlag(active: boolean, after = 180): boolean {
   const [shown, setShown] = useState(false);
   useEffect(() => {
-    if (!active) { setShown(false); return; }
+    if (!active) {
+      setShown(false);
+      return;
+    }
     const timer = window.setTimeout(() => setShown(true), after);
     return () => window.clearTimeout(timer);
   }, [active, after]);
@@ -113,9 +134,9 @@ export function useElementWidth(node: HTMLElement | null): number {
     const measure = () => {
       frame = 0;
       const style = getComputedStyle(node);
-      const inner = node.clientWidth
-        - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-      setWidth((current) => (Math.abs(current - inner) < 0.5 ? current : inner));
+      const inner =
+        node.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      setWidth(current => (Math.abs(current - inner) < 0.5 ? current : inner));
     };
     measure();
     const observer = new ResizeObserver(() => {
@@ -133,49 +154,56 @@ export function useElementWidth(node: HTMLElement | null): number {
 
 /* ------------------------------------------------------------------ route */
 export type Route =
-  | { readonly view: "shelf"; readonly root?: string; readonly shelf?: string;
-      readonly folder?: string; readonly format?: string;
-      readonly only?: "undated" | "extra" | "absent" }
-  | { readonly view: "book"; readonly id: number }
-  | { readonly view: "read"; readonly id: number }
-  | { readonly view: "reading" }
-  | { readonly view: "folders" }
-  | { readonly view: "formats" }
-  | { readonly view: "trash" };
+  | {
+      readonly view: 'shelf';
+      readonly root?: string;
+      readonly shelf?: string;
+      readonly folder?: string;
+      readonly format?: string;
+      readonly only?: 'undated' | 'extra' | 'absent';
+    }
+  | { readonly view: 'book'; readonly id: number }
+  | { readonly view: 'read'; readonly id: number }
+  | { readonly view: 'reading' }
+  | { readonly view: 'folders' }
+  | { readonly view: 'formats' }
+  | { readonly view: 'trash' };
 
 /** Hash routing: the whole application is one document, and a book that is
     open is a location like any other, so the back button leaves it. */
 export function parseHash(hash: string): Route {
-  const raw = hash.replace(/^#\/?/, "");
-  const [head = "", ...rest] = raw.split("/").map(decodeURIComponent);
+  const raw = hash.replace(/^#\/?/, '');
+  const [head = '', ...rest] = raw.split('/').map(decodeURIComponent);
   switch (head) {
-    case "book":
-      return { view: "book", id: Number(rest[0]) || 0 };
-    case "read":
-      return { view: "read", id: Number(rest[0]) || 0 };
-    case "reading":
-      return { view: "reading" };
-    case "folders":
-      return { view: "folders" };
-    case "formats":
-      return { view: "formats" };
-    case "trash":
-      return { view: "trash" };
-    case "format":
-      return { view: "shelf", format: rest[0] || undefined };
-    case "absent":
-      return { view: "shelf", only: "absent" };
-    case "undated":
-      return { view: "shelf", only: "undated" };
-    case "shelf":
-      return { view: "shelf", root: rest[0] || undefined, shelf: rest[1] || undefined };
-    case "folder":
+    case 'book':
+      return { view: 'book', id: Number(rest[0]) || 0 };
+    case 'read':
+      return { view: 'read', id: Number(rest[0]) || 0 };
+    case 'reading':
+      return { view: 'reading' };
+    case 'folders':
+      return { view: 'folders' };
+    case 'formats':
+      return { view: 'formats' };
+    case 'trash':
+      return { view: 'trash' };
+    case 'format':
+      return { view: 'shelf', format: rest[0] || undefined };
+    case 'absent':
+      return { view: 'shelf', only: 'absent' };
+    case 'undated':
+      return { view: 'shelf', only: 'undated' };
+    case 'shelf':
+      return { view: 'shelf', root: rest[0] || undefined, shelf: rest[1] || undefined };
+    case 'folder':
       return {
-        view: "shelf", root: rest[0] || undefined,
-        shelf: rest[1] || undefined, folder: rest[2] || undefined,
+        view: 'shelf',
+        root: rest[0] || undefined,
+        shelf: rest[1] || undefined,
+        folder: rest[2] || undefined,
       };
     default:
-      return { view: "shelf" };
+      return { view: 'shelf' };
   }
 }
 
@@ -183,22 +211,30 @@ export function useRoute(): Route {
   const [route, setRoute] = useState(() => parseHash(location.hash));
   useEffect(() => {
     const onChange = () => setRoute(parseHash(location.hash));
-    window.addEventListener("hashchange", onChange);
-    return () => window.removeEventListener("hashchange", onChange);
+    window.addEventListener('hashchange', onChange);
+    return () => window.removeEventListener('hashchange', onChange);
   }, []);
   return route;
 }
 
-export const go = (hash: string) => { location.hash = hash; };
+export const go = (hash: string) => {
+  location.hash = hash;
+};
 
 /** The key a view is identified by, so its scroll position can be restored. */
 export function routeKey(route: Route): string {
   switch (route.view) {
-    case "shelf":
-      return ["shelf", route.root ?? "", route.shelf ?? "", route.folder ?? "",
-              route.format ?? "", route.only ?? ""].join("|");
-    case "book":
-    case "read":
+    case 'shelf':
+      return [
+        'shelf',
+        route.root ?? '',
+        route.shelf ?? '',
+        route.folder ?? '',
+        route.format ?? '',
+        route.only ?? '',
+      ].join('|');
+    case 'book':
+    case 'read':
       return `${route.view}|${route.id}`;
     default:
       return route.view;

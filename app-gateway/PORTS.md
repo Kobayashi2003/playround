@@ -1,7 +1,7 @@
 # Ports
 
-Every app of mine that listens on a port — under `playround/`, `project/` and
-`tools/Crawler/` — takes its ports from this table, so any of them can run at the
+Every app of mine that listens on a port — under `playround/`, `project/`,
+`sites/` and `tools/Crawler/` — takes its ports from this table, so any of them can run at the
 same time as any other without anyone coordinating. `portRanges` in
 `gateway.json` is the machine-readable half; the gateway checks its registry
 against it before launching anything.
@@ -49,6 +49,10 @@ infrastructure apps only connect to — PostgreSQL, Redis, Everything, Clash.
 | Crawler 18000–18999 | 18000–18029 | jable-downloader | Clash pool: instance *i* takes 18000+3*i* (HTTP), +1 (SOCKS), +2 (controller); at most 10 instances |
 | | 18030 | novelia-downloader-v2 | 18030 serve · 18031 `tests/ui_preview.py` |
 | | 18040 | tmw-downloader-v2 | 18040 http, stepping up to 18049 if taken |
-| 19000–19999 | | — | reserved for a future directory |
+| | 18050 | fc2-sukebei-browser | 18050 serve |
+| sites 19000–19999 | 19000 | component-atlas | 19000 Vite dev · 19001 Vite preview |
+| | 19010 | site-atlas | 19010 vinext dev · 19011 production server (`pnpm start`) |
 
-Apps that do not listen get no slot: epub-finder, and the other crawlers.
+Apps that do not listen get no slot: epub-finder, and the other crawlers. A site
+under `sites/` that is shown through Site Atlas runs inside it and gets no slot
+of its own.

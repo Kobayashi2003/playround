@@ -5,7 +5,7 @@
    gets the shelf's border, spacing and a chevron drawn in CSS so the arrow
    takes its colour from the text rather than from the operating system. */
 
-import type { ReactNode } from "react";
+import type { ReactNode } from 'react';
 
 interface SelectProps {
   readonly value: string;
@@ -17,12 +17,8 @@ interface SelectProps {
 
 export function Select({ value, onChange, label, children, className }: SelectProps) {
   return (
-    <span className={`sel${className ? " " + className : ""}`}>
-      <select
-        value={value}
-        aria-label={label}
-        onChange={(e) => onChange(e.target.value)}
-      >
+    <span className={`sel${className ? ' ' + className : ''}`}>
+      <select value={value} aria-label={label} onChange={e => onChange(e.target.value)}>
         {children}
       </select>
       <i aria-hidden="true" />

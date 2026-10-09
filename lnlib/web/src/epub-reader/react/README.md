@@ -78,15 +78,15 @@ See the detailed [module map](./docs/module-map.md) before placing new code.
 Run commands from `src/library/data-display/epub-reader`:
 
 ```sh
-npm run boundaries:check
-npm run typecheck:react
-npm run test:unit
-npm run test:integration
-npm run browser:check
-npm run visual:check
+pnpm boundaries:check
+pnpm typecheck:react
+pnpm test:unit
+pnpm test:integration
+pnpm browser:check
+pnpm visual:check
 ```
 
-Use `npm run check` for the normal complete static and automated test pass.
+Use `pnpm check` for the normal complete static and automated test pass.
 
 ## Maintainer documentation
 

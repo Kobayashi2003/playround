@@ -9,26 +9,28 @@
    moment the absence is actually tested, and the server retires the row then
    -- into the trash, so it can still be put back. */
 
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { Delayed } from "../components/Delayed";
-import { api, invalidate, isAbort } from "../lib/api";
-import { forgetBook } from "../lib/shelf";
-import { bookRaw } from "../lib/mount";
-import { go } from "../lib/hooks";
-import type { Manifest } from "../lib/types";
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { Delayed } from '../components/Delayed';
+import { api, invalidate, isAbort } from '../lib/api';
+import { forgetBook } from '../lib/shelf';
+import { bookRaw } from '../lib/mount';
+import { go } from '../lib/hooks';
+import type { Manifest } from '../lib/types';
 
 /* Everything this build knows how to be handed. A manifest that says anything
    else is not a book that cannot be opened -- it is a server still running the
    code it was started with, from before the interface was rebuilt, and saying
    so is the difference between a one-line fix and an evening. */
-const KINDS = new Set(["ebook", "pdf", "images", "text", "gone", "external",
-                       "error"]);
+const KINDS = new Set(['ebook', 'pdf', 'images', 'text', 'gone', 'external', 'error']);
 
-const EpubReaderView = lazy(() => import("../reader/EpubReaderView"));
-const ImageReaderView = lazy(() => import("../reader/ImageReaderView"));
-const TextReaderView = lazy(() => import("../reader/TextReaderView"));
+const EpubReaderView = lazy(() => import('../reader/EpubReaderView'));
+const ImageReaderView = lazy(() => import('../reader/ImageReaderView'));
+const TextReaderView = lazy(() => import('../reader/TextReaderView'));
 
-export function ReaderView({ id, onChange }: {
+export function ReaderView({
+  id,
+  onChange,
+}: {
   readonly id: number;
   readonly onChange: () => void;
 }) {
@@ -39,18 +41,21 @@ export function ReaderView({ id, onChange }: {
     const controller = new AbortController();
     setData(null);
     setError(null);
-    api.manifest(id, controller.signal)
-      .then((manifest) => {
+    api
+      .manifest(id, controller.signal)
+      .then(manifest => {
         setData(manifest);
         // The server has just taken this book out of the index; the shelf
         // behind us is holding a row that no longer exists.
-        if (manifest.kind === "gone" && manifest.retired) {
+        if (manifest.kind === 'gone' && manifest.retired) {
           invalidate();
           forgetBook(id);
           onChange();
         }
       })
-      .catch((e: unknown) => { if (!isAbort(e)) setError((e as Error).message); });
+      .catch((e: unknown) => {
+        if (!isAbort(e)) setError((e as Error).message);
+      });
     return () => controller.abort();
   }, [id, onChange]);
 
@@ -58,24 +63,26 @@ export function ReaderView({ id, onChange }: {
   // step, so the back button works and the grid comes back where it was.
   const leave = useCallback(() => {
     if (history.length > 1) history.back();
-    else go("#/all");
+    else go('#/all');
   }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Esc inside the reader's own panels belongs to the reader; only an Esc
       // that nothing else claimed should close the book.
-      if (e.key === "Escape" && !e.defaultPrevented) leave();
+      if (e.key === 'Escape' && !e.defaultPrevented) leave();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [leave]);
 
   if (error) {
     return (
       <div className="readerframe">
         <ReaderBar title="開けません" onLeave={leave} />
-        <div className="readerbody"><div className="err">{error}</div></div>
+        <div className="readerbody">
+          <div className="err">{error}</div>
+        </div>
       </div>
     );
   }
@@ -83,68 +90,77 @@ export function ReaderView({ id, onChange }: {
     return (
       <div className="readerframe">
         <ReaderBar title="" onLeave={leave} />
-        <div className="readerbody"><Delayed active /></div>
+        <div className="readerbody">
+          <Delayed active />
+        </div>
       </div>
     );
   }
 
   const { book } = data;
-  const plain = data.kind !== "ebook" && data.kind !== "pdf";
+  const plain = data.kind !== 'ebook' && data.kind !== 'pdf';
 
   return (
     <div className="readerframe" data-kind={data.kind}>
       <ReaderBar
         title={book.title}
-        subtitle={[book.author, book.imprint].filter(Boolean).join(" · ")}
+        subtitle={[book.author, book.imprint].filter(Boolean).join(' · ')}
         onLeave={leave}
-        bookId={data.kind === "gone" ? undefined : book.id}
-        onOpen={data.kind === "gone" ? undefined : () => void api.open(book.path)}
+        bookId={data.kind === 'gone' ? undefined : book.id}
+        onOpen={data.kind === 'gone' ? undefined : () => void api.open(book.path)}
       />
-      <div className={`readerbody${plain ? " plain" : ""}`}>
-        <Suspense fallback={<Delayed active after={120}>準備しています…</Delayed>}>
-          {data.kind === "ebook" ? (
+      <div className={`readerbody${plain ? ' plain' : ''}`}>
+        <Suspense
+          fallback={
+            <Delayed active after={120}>
+              準備しています…
+            </Delayed>
+          }
+        >
+          {data.kind === 'ebook' ? (
             <EpubReaderView book={book} progress={data.progress} />
-          ) : data.kind === "images" ? (
+          ) : data.kind === 'images' ? (
             <ImageReaderView
               book={book}
               pages={data.pages}
               direction={data.direction}
               progress={data.progress}
             />
-          ) : data.kind === "text" ? (
-            <TextReaderView book={book} text={data.text} encoding={data.encoding}
-                            progress={data.progress} />
-          ) : data.kind === "pdf" ? (
+          ) : data.kind === 'text' ? (
+            <TextReaderView
+              book={book}
+              text={data.text}
+              encoding={data.encoding}
+              progress={data.progress}
+            />
+          ) : data.kind === 'pdf' ? (
             // The browser has a PDF viewer and it is better than anything that
             // would fit in here; the file is simply handed to it.
             <iframe className="pdfframe" src={bookRaw(book.id)} title={book.title} />
           ) : (
             <div className="empty">
               <p>
-                {data.detail || (KINDS.has(data.kind)
-                  ? "この本は開けません"
-                  : "サーバーが古いままです。`python -m lnlib serve` を" +
-                    "起動し直してください")}
+                {data.detail ||
+                  (KINDS.has(data.kind)
+                    ? 'この本は開けません'
+                    : 'サーバーが古いままです。`python -m lnlib serve` を' +
+                      '起動し直してください')}
               </p>
               <p className="dim">{book.filename}</p>
               <div className="actions center">
-                {data.kind === "gone" ? (
-                  <button className="pri" onClick={leave}>棚に戻る</button>
+                {data.kind === 'gone' ? (
+                  <button className="pri" onClick={leave}>
+                    棚に戻る
+                  </button>
                 ) : (
                   <>
-                    <button onClick={() => void api.open(book.path)}>
-                      外部アプリで開く
-                    </button>
-                    <button onClick={() => void api.reveal(book.path)}>
-                      フォルダを開く
-                    </button>
+                    <button onClick={() => void api.open(book.path)}>外部アプリで開く</button>
+                    <button onClick={() => void api.reveal(book.path)}>フォルダを開く</button>
                   </>
                 )}
               </div>
-              {data.kind === "gone" && data.retired ? (
-                <p className="dim">
-                  ゴミ箱に移しました。戻したいときはゴミ箱から復元できます。
-                </p>
+              {data.kind === 'gone' && data.retired ? (
+                <p className="dim">ゴミ箱に移しました。戻したいときはゴミ箱から復元できます。</p>
               ) : null}
             </div>
           )}
@@ -154,7 +170,13 @@ export function ReaderView({ id, onChange }: {
   );
 }
 
-function ReaderBar({ title, subtitle, onLeave, onOpen, bookId }: {
+function ReaderBar({
+  title,
+  subtitle,
+  onLeave,
+  onOpen,
+  bookId,
+}: {
   readonly title: string;
   readonly subtitle?: string;
   readonly onLeave: () => void;
@@ -163,15 +185,23 @@ function ReaderBar({ title, subtitle, onLeave, onOpen, bookId }: {
 }) {
   return (
     <div className="rbar">
-      <button className="sm" onClick={onLeave} title="棚に戻る（Esc）">← 棚</button>
+      <button className="sm" onClick={onLeave} title="棚に戻る（Esc）">
+        ← 棚
+      </button>
       <div className="rtitle">
         <b>{title}</b>
         {subtitle ? <span>{subtitle}</span> : null}
       </div>
       {bookId ? (
-        <button className="sm" onClick={() => go(`#/book/${bookId}`)}>詳細</button>
+        <button className="sm" onClick={() => go(`#/book/${bookId}`)}>
+          詳細
+        </button>
       ) : null}
-      {onOpen ? <button className="sm" onClick={onOpen}>外部</button> : null}
+      {onOpen ? (
+        <button className="sm" onClick={onOpen}>
+          外部
+        </button>
+      ) : null}
     </div>
   );
 }

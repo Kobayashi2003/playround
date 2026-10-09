@@ -44,6 +44,6 @@ beside the owning code and retain only integration context here.
 
 The overview diagram is generated from the editable Draw.io source in
 [`diagrams/architecture-overview.drawio`](./diagrams/architecture-overview.drawio).
-Run `npm run docs:diagrams` from this package after changing it. Set `DRAWIO_PATH`
+Run `pnpm docs:diagrams` from this package after changing it. Set `DRAWIO_PATH`
 when the Draw.io executable is not available on `PATH` or in its default install
 location.
