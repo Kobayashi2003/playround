@@ -51,7 +51,7 @@
 
     "ports": {
       "type": "object",
-      "description": "Ports this app listens on, named by role. This is where the gateway places an app rather than discovering it: a number written here is handed to the app (through env or a launch argument) and to the route that proxies to it, so the two cannot drift. Two enabled apps claiming the same number is a load error, which is the collision separate projects could not see. The numbers follow PORTS.md: inside the portRanges entry of the directory the root lives in, all within one slot — the same numbers the app's own configuration already defaults to.",
+      "description": "Ports this app listens on, named by role. This is where the gateway places an app rather than discovering it: a number written here is handed to the app (through env or a launch argument) and to the route that proxies to it, so the two cannot drift. Two enabled apps claiming the same number is a load error, which is the collision separate projects could not see. The numbers follow PORTS.md: inside the range of the directory the root lives in, all within one slot — the same numbers the app's own configuration already defaults to.",
       "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 65535 }
     },
 
@@ -110,12 +110,9 @@
     "launch": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["file"],
-      "description": "The child process. Omit for an app that is already running under its own supervision and only needs routing.",
+      "description": "Start the app with its own start.ps1 in its root, as a child of the gateway. Omit for an app that is already running under its own supervision and only needs routing.",
       "properties": {
-        "file": { "type": "string", "description": "Executable. Prefer the project's own launcher over restating its startup here: it knows its own preflight." },
-        "args": { "type": "array", "items": { "type": "string" } },
-        "cwd":  { "type": "string", "description": "Working directory. Defaults to the app's root." }
+        "args": { "type": "array", "items": { "type": "string" }, "description": "Arguments for start.ps1." }
       }
     }
   }

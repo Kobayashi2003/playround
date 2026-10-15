@@ -16,6 +16,7 @@ has is the grouping it has on disk.
 
 Everything here is pure string handling with no I/O.
 """
+
 from __future__ import annotations
 
 import re
@@ -55,9 +56,25 @@ def roman(text: str) -> int | None:
 
 # Titles that carry no volume number of their own.
 EXTRA_HINTS = (
-    "book☆walker", "bookwalker", "特典", "限定", "書き下ろし", "ショートストーリー",
-    "画集", "art works", "artworks", "イラスト", "ペーパー", "短編集", "小篇集",
-    "アンソロジー", "ドラマcd", "設定資料", "ファンブック", "合本版", "ss集",
+    "book☆walker",
+    "bookwalker",
+    "特典",
+    "限定",
+    "書き下ろし",
+    "ショートストーリー",
+    "画集",
+    "art works",
+    "artworks",
+    "イラスト",
+    "ペーパー",
+    "短編集",
+    "小篇集",
+    "アンソロジー",
+    "ドラマcd",
+    "設定資料",
+    "ファンブック",
+    "合本版",
+    "ss集",
 )
 
 
@@ -69,7 +86,9 @@ def norm(s: str) -> str:
     """Aggressive fold used for matching titles, never for display."""
     s = nfkc(s).lower()
     s = re.sub(r"[\s　]+", "", s)
-    return re.sub(r"[!！?？。、,，.．・…~〜'\"'\"「」『』（）()\[\]【】〈〉《》:：;；/／\\+\-–—]", "", s)
+    return re.sub(
+        r"[!！?？。、,，.．・…~〜'\"'\"「」『』（）()\[\]【】〈〉《》:：;；/／\\+\-–—]", "", s
+    )
 
 
 # How wide a run of digits is padded to in a sort key. Twelve covers a
@@ -90,8 +109,7 @@ def natural(s: str) -> str:
     This is for ordering only. Searching still matches against `norm`, where
     the number reads the way it was typed.
     """
-    return RE_DIGIT_RUN.sub(
-        lambda m: m.group().lstrip("0").zfill(NUMBER_WIDTH), norm(s))
+    return RE_DIGIT_RUN.sub(lambda m: m.group().lstrip("0").zfill(NUMBER_WIDTH), norm(s))
 
 
 def is_extra(title: str) -> bool:
@@ -106,11 +124,6 @@ def yymmdd_to_iso(d: str | None) -> str | None:
     yy, mm, dd = int(d[:2]), d[2:4], d[4:6]
     year = 2000 + yy if yy < 70 else 1900 + yy
     return f"{year}-{mm}-{dd}"
-
-
-def iso_to_yymmdd(iso: str | None) -> str | None:
-    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", iso or "")
-    return m.group(1)[2:] + m.group(2) + m.group(3) if m else None
 
 
 def split_tags(stem: str) -> tuple[list[str], str]:
@@ -131,8 +144,11 @@ def read_tags(stem: str) -> dict:
     """
     tags, title = split_tags(stem)
     date = next((t for t in tags if RE_DATE6.match(t)), None)
-    named = [t.strip() for t in tags
-             if not RE_DATE6.match(t) and t.strip() and len(t.strip()) <= MAX_CREDIT]
+    named = [
+        t.strip()
+        for t in tags
+        if not RE_DATE6.match(t) and t.strip() and len(t.strip()) <= MAX_CREDIT
+    ]
 
     imprint = author = illustrator = None
     if len(named) >= 3:
@@ -141,8 +157,13 @@ def read_tags(stem: str) -> dict:
         imprint, author = named[0], named[1]
     elif len(named) == 1:
         author = named[0]
-    return {"imprint": imprint, "author": author, "illustrator": illustrator,
-            "date": date, "title": title}
+    return {
+        "imprint": imprint,
+        "author": author,
+        "illustrator": illustrator,
+        "date": date,
+        "title": title,
+    }
 
 
 def parse_folder(name: str) -> dict:
@@ -245,14 +266,3 @@ def volume_of(title: str) -> str | None:
     if m and roman(m.group(1)) is not None:
         return str(roman(m.group(1)))
     return None
-
-
-def sort_key(date_iso: str | None, volume: str | None, title: str):
-    """Chronological where possible, then by volume, then by title."""
-    vol = 1e9
-    if volume:
-        try:
-            vol = float(volume)
-        except ValueError:
-            pass
-    return (date_iso or "9999-99-99", vol, nfkc(title))

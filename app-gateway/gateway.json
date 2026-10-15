@@ -1,7 +1,6 @@
 {
   "$schema": "./schema/gateway.schema.json",
   "bind": ":30709",
-  "appsDir": "apps",
   "site": {
     "title": "Gateway",
     "tagline": "One ingress, several apps. Pick one.",
@@ -10,14 +9,7 @@
   "paths": {
     "project": "../../project",
     "playround": "..",
-    "crawler": "../../tools/Crawler",
-    "sites": "../../sites"
+    "crawler": "../../tools/Crawler"
   },
-  "portRanges": {
-    "playround": "16000-16999",
-    "project": "17000-17999",
-    "crawler": "18000-18999",
-    "sites": "19000-19999"
-  },
-  "portSlot": 10
+  "ports": "../../PORTS.md"
 }

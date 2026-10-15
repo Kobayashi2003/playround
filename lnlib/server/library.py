@@ -20,6 +20,7 @@ under `data/`. Two reasons, and both matter: a folder whose name starts with
 without a special case anywhere; and it is on the same drive as the book, so
 trashing a fourteen-gigabyte folder of scans is a rename rather than a copy.
 """
+
 from __future__ import annotations
 
 import json
@@ -98,15 +99,25 @@ def _row(conn, book_id: int):
     return conn.execute("SELECT * FROM books WHERE id=?", (book_id,)).fetchone()
 
 
-def _bin_it(conn, row, file_state: str, trash_path: str | None,
-            reason: str) -> int:
+def _bin_it(conn, row, file_state: str, trash_path: str | None, reason: str) -> int:
     """Move one books row into `trash`, keeping all of it."""
     payload = json.dumps(dict(row), ensure_ascii=False, default=str)
     cur = conn.execute(
         "INSERT INTO trash(path,title,author,format,size,row,file_state,"
         "trash_path,reason,trashed_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-        (row["path"], row["title"], row["author"], row["format"], row["size"],
-         payload, file_state, trash_path, reason, db.now()))
+        (
+            row["path"],
+            row["title"],
+            row["author"],
+            row["format"],
+            row["size"],
+            payload,
+            file_state,
+            trash_path,
+            reason,
+            db.now(),
+        ),
+    )
     conn.execute("DELETE FROM books WHERE id=?", (row["id"],))
     return cur.lastrowid
 
@@ -130,11 +141,13 @@ def retire(book_id: int, reason: str = "vanished") -> dict:
             return {"ok": False, "reason": "the file is there after all"}
         if not root_is_reachable(path):
             conn.execute("UPDATE books SET present=0 WHERE id=?", (book_id,))
-            return {"ok": False, "reason": "root not available",
-                    "detail": "ドライブが見つからないため記録は残しました"}
+            return {
+                "ok": False,
+                "reason": "root not available",
+                "detail": "ドライブが見つからないため記録は残しました",
+            }
         trash_id = _bin_it(conn, row, "vanished", None, reason)
-    return {"ok": True, "trash_id": trash_id, "file_state": "vanished",
-            "title": row["title"]}
+    return {"ok": True, "trash_id": trash_id, "file_state": "vanished", "title": row["title"]}
 
 
 def trash(limit: int = 200, offset: int = 0) -> dict:
@@ -144,7 +157,8 @@ def trash(limit: int = 200, offset: int = 0) -> dict:
             "SELECT id, path, title, author, format, size, file_state, "
             "trash_path, reason, trashed_at FROM trash "
             "ORDER BY trashed_at DESC LIMIT ? OFFSET ?",
-            (limit, offset)).fetchall()
+            (limit, offset),
+        ).fetchall()
     return {"total": total, "items": [dict(r) for r in rows]}
 
 
@@ -155,8 +169,7 @@ def restore(trash_id: int) -> dict:
     and anything else keyed by that id line up again.
     """
     with db.connect() as conn:
-        entry = conn.execute("SELECT * FROM trash WHERE id=?",
-                             (trash_id,)).fetchone()
+        entry = conn.execute("SELECT * FROM trash WHERE id=?", (trash_id,)).fetchone()
         if not entry:
             return {"ok": False, "reason": "not in the trash"}
 
@@ -180,13 +193,12 @@ def restore(trash_id: int) -> dict:
         # Only the columns this schema actually has. A record written by an
         # older version can carry a field that has since been dropped, and that
         # is not a reason to refuse to give someone their book back.
-        columns = [c["name"] for c in conn.execute("PRAGMA table_info(books)")
-                   if c["name"] in row]
+        columns = [c["name"] for c in conn.execute("PRAGMA table_info(books)") if c["name"] in row]
         marks = ",".join("?" * len(columns))
         try:
             conn.execute(
-                f"INSERT INTO books({','.join(columns)}) VALUES({marks})",
-                [row[c] for c in columns])
+                f"INSERT INTO books({','.join(columns)}) VALUES({marks})", [row[c] for c in columns]
+            )
         except sqlite3.IntegrityError:
             # The id or the path is taken again -- a rescan found the book
             # before the restore did. The shelf already has it, so the only
@@ -197,17 +209,18 @@ def restore(trash_id: int) -> dict:
         # dropped only once the book is demonstrably back on the shelf. Any
         # other failure leaves the entry in place to be tried again rather
         # than losing it along with the row it was standing in for.
-        back = conn.execute("SELECT 1 FROM books WHERE path=?",
-                            (path,)).fetchone()
+        back = conn.execute("SELECT 1 FROM books WHERE path=?", (path,)).fetchone()
         if not back:
-            return {"ok": False,
-                    "reason": "記録を戻せませんでした。ゴミ箱には残っています"}
+            return {"ok": False, "reason": "記録を戻せませんでした。ゴミ箱には残っています"}
         conn.execute("DELETE FROM trash WHERE id=?", (trash_id,))
     return {"ok": True, "title": entry["title"], "present": row["present"]}
 
 
-def empty(trash_id: int | None = None, older_than_days: float | None = None,
-          trash_ids: list[int] | None = None) -> dict:
+def empty(
+    trash_id: int | None = None,
+    older_than_days: float | None = None,
+    trash_ids: list[int] | None = None,
+) -> dict:
     """Delete for real. Nothing else in this module does.
 
     Files that were only ever recorded (`kept`) are left alone: forgetting a
@@ -227,8 +240,7 @@ def empty(trash_id: int | None = None, older_than_days: float | None = None,
         args.append(time.time() - older_than_days * 86400)
     if trash_ids is not None:
         if not trash_ids:
-            return {"ok": True, "entries": 0, "files_deleted": 0,
-                    "files_kept": 0, "failed": 0}
+            return {"ok": True, "entries": 0, "files_deleted": 0, "files_kept": 0, "failed": 0}
         where.append(f"id IN ({','.join('?' * len(trash_ids))})")
         args += list(trash_ids)
     clause = (" WHERE " + " AND ".join(where)) if where else ""
@@ -256,26 +268,35 @@ def empty(trash_id: int | None = None, older_than_days: float | None = None,
 
     with db.connect() as conn:
         for chunk in _chunks(done):
-            conn.execute(f"DELETE FROM trash WHERE id IN ({','.join('?' * len(chunk))})",
-                         chunk)
-    return {"ok": True, "entries": len(done), "files_deleted": deleted,
-            "files_kept": kept, "failed": failed}
+            conn.execute(f"DELETE FROM trash WHERE id IN ({','.join('?' * len(chunk))})", chunk)
+    return {
+        "ok": True,
+        "entries": len(done),
+        "files_deleted": deleted,
+        "files_kept": kept,
+        "failed": failed,
+    }
 
 
 # ------------------------------------------------------------------ batches
-BATCH_COMMIT = 50               # rows between commits while files are moving
-MAX_REPORTED = 50               # failures listed back; the rest are counted
+BATCH_COMMIT = 50  # rows between commits while files are moving
+MAX_REPORTED = 50  # failures listed back; the rest are counted
 
 
 def _chunks(items: list, size: int = 500):
     """SQLite caps the number of `?` in one statement; stay well under it."""
     for i in range(0, len(items), size):
-        yield items[i:i + size]
+        yield items[i : i + size]
 
 
 def _report(total: int, done: int, failures: list[dict]) -> dict:
-    return {"ok": not failures, "total": total, "done": done,
-            "failed": len(failures), "failures": failures[:MAX_REPORTED]}
+    return {
+        "ok": not failures,
+        "total": total,
+        "done": done,
+        "failed": len(failures),
+        "failures": failures[:MAX_REPORTED],
+    }
 
 
 def forget_many(book_ids: list[int]) -> dict:
@@ -316,14 +337,16 @@ def discard_many(book_ids: list[int]) -> dict:
                     _bin_it(conn, row, "vanished", None, "vanished")
                     done += 1
                 else:
-                    failures.append({"id": book_id, "title": row["title"],
-                                     "reason": "ドライブが見つかりません"})
+                    failures.append(
+                        {"id": book_id, "title": row["title"], "reason": "ドライブが見つかりません"}
+                    )
                 continue
             try:
                 landed = _to_trash(path, roots)
             except (OSError, ValueError) as e:
-                failures.append({"id": book_id, "title": row["title"],
-                                 "reason": f"{type(e).__name__}: {e}"})
+                failures.append(
+                    {"id": book_id, "title": row["title"], "reason": f"{type(e).__name__}: {e}"}
+                )
                 continue
             _bin_it(conn, row, "trashed", landed, "deleted")
             done += 1
@@ -341,8 +364,9 @@ def restore_many(trash_ids: list[int]) -> dict:
         if res.get("ok"):
             done += 1
         else:
-            failures.append({"id": trash_id, "title": res.get("title"),
-                             "reason": res.get("reason", "failed")})
+            failures.append(
+                {"id": trash_id, "title": res.get("title"), "reason": res.get("reason", "failed")}
+            )
     return _report(len(ids), done, failures)
 
 
@@ -354,10 +378,11 @@ def clear_progress_many(book_ids: list[int]) -> dict:
         for chunk in _chunks(ids):
             cur = conn.execute(
                 "DELETE FROM reading WHERE path IN (SELECT path FROM books "
-                f"WHERE id IN ({','.join('?' * len(chunk))}))", chunk)
+                f"WHERE id IN ({','.join('?' * len(chunk))}))",
+                chunk,
+            )
             cleared += cur.rowcount or 0
-    return {"ok": True, "total": len(ids), "done": cleared, "failed": 0,
-            "failures": []}
+    return {"ok": True, "total": len(ids), "done": cleared, "failed": 0, "failures": []}
 
 
 def drop_root(path: str) -> dict:
@@ -375,8 +400,7 @@ def drop_root(path: str) -> dict:
     prefix = os.path.abspath(path)
     prefix = prefix if prefix.endswith(os.sep) else prefix + os.sep
     with db.connect() as conn:
-        cur = conn.execute("DELETE FROM books WHERE substr(path, 1, ?) = ?",
-                           (len(prefix), prefix))
+        cur = conn.execute("DELETE FROM books WHERE substr(path, 1, ?) = ?", (len(prefix), prefix))
         removed = cur.rowcount or 0
         if removed:
             # A different set of books entirely: the browser's thumbnails for

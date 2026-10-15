@@ -2,32 +2,51 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import json
 import os
+import tkinter as tk
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from queue import Empty, SimpleQueue
-import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .index import Hit, SearchIndex
 
-
 APP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".local" / "share")) / "EpubFinder"
 PALETTES = {
     "light": {
-        "canvas": "#f3f6f8", "surface": "#ffffff", "ink": "#172631",
-        "muted": "#566879", "line": "#d7e0e5", "accent": "#146b70",
-        "accent_hover": "#0d565b", "accent_text": "#ffffff", "header": "#e7eff0",
-        "selected": "#d8edef", "selected_text": "#123c40", "match": "#ffe59a",
-        "match_text": "#4a3407", "input": "#ffffff", "button": "#e8eef1",
+        "canvas": "#f3f6f8",
+        "surface": "#ffffff",
+        "ink": "#172631",
+        "muted": "#566879",
+        "line": "#d7e0e5",
+        "accent": "#146b70",
+        "accent_hover": "#0d565b",
+        "accent_text": "#ffffff",
+        "header": "#e7eff0",
+        "selected": "#d8edef",
+        "selected_text": "#123c40",
+        "match": "#ffe59a",
+        "match_text": "#4a3407",
+        "input": "#ffffff",
+        "button": "#e8eef1",
     },
     "dark": {
-        "canvas": "#151c22", "surface": "#202b33", "ink": "#ecf3f4",
-        "muted": "#a9bac1", "line": "#3b4c55", "accent": "#62c1bc",
-        "accent_hover": "#83d4ce", "accent_text": "#102b2d", "header": "#293841",
-        "selected": "#245158", "selected_text": "#f1fbfb", "match": "#9f7122",
-        "match_text": "#fff7d9", "input": "#26343d", "button": "#33434c",
+        "canvas": "#151c22",
+        "surface": "#202b33",
+        "ink": "#ecf3f4",
+        "muted": "#a9bac1",
+        "line": "#3b4c55",
+        "accent": "#62c1bc",
+        "accent_hover": "#83d4ce",
+        "accent_text": "#102b2d",
+        "header": "#293841",
+        "selected": "#245158",
+        "selected_text": "#f1fbfb",
+        "match": "#9f7122",
+        "match_text": "#fff7d9",
+        "input": "#26343d",
+        "button": "#33434c",
     },
 }
 
@@ -65,27 +84,120 @@ class App(tk.Tk):
         self.configure(bg=c["canvas"])
         style.configure("TFrame", background=c["canvas"])
         style.configure("Surface.TFrame", background=c["surface"])
-        style.configure("TLabel", background=c["canvas"], foreground=c["ink"], font=("Segoe UI", 10))
-        style.configure("Title.TLabel", background=c["canvas"], foreground=c["ink"], font=("Segoe UI Semibold", 19))
-        style.configure("Section.TLabel", background=c["canvas"], foreground=c["ink"], font=("Segoe UI Semibold", 11))
-        style.configure("Muted.TLabel", background=c["canvas"], foreground=c["muted"], font=("Segoe UI", 9))
-        style.configure("SurfaceTitle.TLabel", background=c["surface"], foreground=c["ink"], font=("Segoe UI Semibold", 10))
-        style.configure("SurfaceMuted.TLabel", background=c["surface"], foreground=c["muted"], font=("Segoe UI", 9))
-        style.configure("TButton", font=("Segoe UI", 10), padding=(13, 8), background=c["button"], foreground=c["ink"], bordercolor=c["line"], relief="flat")
-        style.map("TButton", background=[("active", c["header"]), ("disabled", c["canvas"])], foreground=[("disabled", c["muted"])])
-        style.configure("Accent.TButton", background=c["accent"], foreground=c["accent_text"], bordercolor=c["accent"], relief="flat")
-        style.map("Accent.TButton", background=[("active", c["accent_hover"]), ("disabled", c["button"])], foreground=[("disabled", c["muted"])])
-        style.configure("TEntry", fieldbackground=c["input"], foreground=c["ink"], bordercolor=c["line"], insertcolor=c["ink"], padding=7)
-        style.map("TEntry", fieldbackground=[("disabled", c["header"])], foreground=[("disabled", c["muted"])])
-        style.configure("Treeview", font=("Segoe UI", 10), rowheight=34, background=c["surface"], fieldbackground=c["surface"], foreground=c["ink"], borderwidth=0)
-        style.configure("Treeview.Heading", font=("Segoe UI Semibold", 10), background=c["header"], foreground=c["ink"], padding=(9, 9), relief="flat")
-        style.map("Treeview", background=[("selected", c["selected"])], foreground=[("selected", c["selected_text"])])
+        style.configure(
+            "TLabel", background=c["canvas"], foreground=c["ink"], font=("Segoe UI", 10)
+        )
+        style.configure(
+            "Title.TLabel",
+            background=c["canvas"],
+            foreground=c["ink"],
+            font=("Segoe UI Semibold", 19),
+        )
+        style.configure(
+            "Section.TLabel",
+            background=c["canvas"],
+            foreground=c["ink"],
+            font=("Segoe UI Semibold", 11),
+        )
+        style.configure(
+            "Muted.TLabel", background=c["canvas"], foreground=c["muted"], font=("Segoe UI", 9)
+        )
+        style.configure(
+            "SurfaceTitle.TLabel",
+            background=c["surface"],
+            foreground=c["ink"],
+            font=("Segoe UI Semibold", 10),
+        )
+        style.configure(
+            "SurfaceMuted.TLabel",
+            background=c["surface"],
+            foreground=c["muted"],
+            font=("Segoe UI", 9),
+        )
+        style.configure(
+            "TButton",
+            font=("Segoe UI", 10),
+            padding=(13, 8),
+            background=c["button"],
+            foreground=c["ink"],
+            bordercolor=c["line"],
+            relief="flat",
+        )
+        style.map(
+            "TButton",
+            background=[("active", c["header"]), ("disabled", c["canvas"])],
+            foreground=[("disabled", c["muted"])],
+        )
+        style.configure(
+            "Accent.TButton",
+            background=c["accent"],
+            foreground=c["accent_text"],
+            bordercolor=c["accent"],
+            relief="flat",
+        )
+        style.map(
+            "Accent.TButton",
+            background=[("active", c["accent_hover"]), ("disabled", c["button"])],
+            foreground=[("disabled", c["muted"])],
+        )
+        style.configure(
+            "TEntry",
+            fieldbackground=c["input"],
+            foreground=c["ink"],
+            bordercolor=c["line"],
+            insertcolor=c["ink"],
+            padding=7,
+        )
+        style.map(
+            "TEntry",
+            fieldbackground=[("disabled", c["header"])],
+            foreground=[("disabled", c["muted"])],
+        )
+        style.configure(
+            "Treeview",
+            font=("Segoe UI", 10),
+            rowheight=34,
+            background=c["surface"],
+            fieldbackground=c["surface"],
+            foreground=c["ink"],
+            borderwidth=0,
+        )
+        style.configure(
+            "Treeview.Heading",
+            font=("Segoe UI Semibold", 10),
+            background=c["header"],
+            foreground=c["ink"],
+            padding=(9, 9),
+            relief="flat",
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", c["selected"])],
+            foreground=[("selected", c["selected_text"])],
+        )
         style.map("Treeview.Heading", background=[("active", c["header"])])
-        style.configure("TScrollbar", background=c["button"], troughcolor=c["surface"], arrowcolor=c["muted"], bordercolor=c["surface"])
-        style.configure("Horizontal.TProgressbar", background=c["accent"], troughcolor=c["line"], bordercolor=c["line"])
+        style.configure(
+            "TScrollbar",
+            background=c["button"],
+            troughcolor=c["surface"],
+            arrowcolor=c["muted"],
+            bordercolor=c["surface"],
+        )
+        style.configure(
+            "Horizontal.TProgressbar",
+            background=c["accent"],
+            troughcolor=c["line"],
+            bordercolor=c["line"],
+        )
         self.panes.configure(background=c["canvas"], sashwidth=8)
         self.preview.configure(highlightbackground=c["line"], bg=c["surface"])
-        self.detail.configure(bg=c["surface"], fg=c["ink"], insertbackground=c["ink"], selectbackground=c["selected"], selectforeground=c["selected_text"])
+        self.detail.configure(
+            bg=c["surface"],
+            fg=c["ink"],
+            insertbackground=c["ink"],
+            selectbackground=c["selected"],
+            selectforeground=c["selected_text"],
+        )
         self.detail.tag_configure("match", background=c["match"], foreground=c["match_text"])
         self.theme_button.configure(text="Light theme" if self.theme == "dark" else "Dark theme")
 
@@ -101,28 +213,52 @@ class App(tk.Tk):
         ttk.Label(top, text="EPUB Finder", style="Title.TLabel").grid(row=0, column=0, sticky="w")
         self.theme_button = ttk.Button(top, command=self._toggle_theme)
         self.theme_button.grid(row=0, column=1, sticky="e")
-        ttk.Label(top, text="Search your library and read every match in context.", style="Muted.TLabel").grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        ttk.Label(
+            top, text="Search your library and read every match in context.", style="Muted.TLabel"
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
         controls = ttk.Frame(self, padding=(24, 12, 24, 8))
         controls.pack(fill="x")
-        ttk.Label(controls, text="Library folder", style="Section.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 7))
-        self.folder_entry = ttk.Entry(controls, textvariable=self.folder, font=("Microsoft YaHei UI", 10))
+        ttk.Label(controls, text="Library folder", style="Section.TLabel").grid(
+            row=0, column=0, sticky="w", pady=(0, 7)
+        )
+        self.folder_entry = ttk.Entry(
+            controls, textvariable=self.folder, font=("Microsoft YaHei UI", 10)
+        )
         self.folder_entry.grid(row=1, column=0, sticky="ew", padx=(0, 8))
         self.folder_entry.bind("<Return>", lambda _event: self._scan())
-        ttk.Button(controls, text="Choose Folder", command=self._choose_folder).grid(row=1, column=1, padx=(0, 8))
-        self.scan_button = ttk.Button(controls, text="Update Index", style="Accent.TButton", command=self._scan)
+        ttk.Button(controls, text="Choose Folder", command=self._choose_folder).grid(
+            row=1, column=1, padx=(0, 8)
+        )
+        self.scan_button = ttk.Button(
+            controls, text="Update Index", style="Accent.TButton", command=self._scan
+        )
         self.scan_button.grid(row=1, column=2)
         controls.columnconfigure(0, weight=1)
 
         search = ttk.Frame(self, padding=(24, 4, 24, 16))
         search.pack(fill="x")
         ttk.Label(search, text="Search text", style="Section.TLabel").pack(anchor="w", pady=(0, 7))
-        self.search_entry = ttk.Entry(search, textvariable=self.query, font=("Microsoft YaHei UI", 12))
+        self.search_entry = ttk.Entry(
+            search, textvariable=self.query, font=("Microsoft YaHei UI", 12)
+        )
         self.search_entry.pack(fill="x")
         self.search_entry.bind("<Return>", lambda _event: self._search_now())
-        ttk.Label(search, text="Case-insensitive text matching · Includes subfolders", style="Muted.TLabel").pack(anchor="w", pady=(7, 0))
+        ttk.Label(
+            search,
+            text="Case-insensitive text matching · Includes subfolders",
+            style="Muted.TLabel",
+        ).pack(anchor="w", pady=(7, 0))
 
-        self.panes = tk.PanedWindow(self, orient="vertical", bd=0, relief="flat", sashrelief="flat", sashwidth=8, showhandle=False)
+        self.panes = tk.PanedWindow(
+            self,
+            orient="vertical",
+            bd=0,
+            relief="flat",
+            sashrelief="flat",
+            sashwidth=8,
+            showhandle=False,
+        )
         self.panes.pack(fill="both", expand=True, padx=24)
         results = ttk.Frame(self.panes)
         results.columnconfigure(0, weight=1)
@@ -130,10 +266,17 @@ class App(tk.Tk):
         results_header = ttk.Frame(results, padding=(0, 0, 0, 8))
         results_header.grid(row=0, column=0, columnspan=2, sticky="ew")
         ttk.Label(results_header, text="Search results", style="Section.TLabel").pack(side="left")
-        ttk.Label(results_header, textvariable=self.summary, style="Muted.TLabel").pack(side="right")
+        ttk.Label(results_header, textvariable=self.summary, style="Muted.TLabel").pack(
+            side="right"
+        )
         cols = ("book", "chapter", "location", "excerpt")
         self.tree = ttk.Treeview(results, columns=cols, show="headings", selectmode="browse")
-        for col, title, width in (("book", "Book", 190), ("chapter", "Chapter", 155), ("location", "Location", 180), ("excerpt", "Context", 530)):
+        for col, title, width in (
+            ("book", "Book", 190),
+            ("chapter", "Chapter", 155),
+            ("location", "Location", 180),
+            ("excerpt", "Context", 530),
+        ):
             self.tree.heading(col, text=title)
             self.tree.column(col, width=width, minwidth=80, stretch=col == "excerpt")
         self.tree.grid(row=1, column=0, sticky="nsew")
@@ -146,17 +289,42 @@ class App(tk.Tk):
         preview_section = ttk.Frame(self.panes)
         preview_section.columnconfigure(0, weight=1)
         preview_section.rowconfigure(1, weight=1)
-        ttk.Label(preview_section, text="Chapter preview", style="Section.TLabel").grid(row=0, column=0, sticky="w", pady=(3, 8))
+        ttk.Label(preview_section, text="Chapter preview", style="Section.TLabel").grid(
+            row=0, column=0, sticky="w", pady=(3, 8)
+        )
         self.preview = tk.Frame(preview_section, highlightthickness=1)
         self.preview.grid(row=1, column=0, sticky="nsew")
         self.preview.columnconfigure(0, weight=1)
         self.preview.rowconfigure(2, weight=1)
-        self.detail_title = ttk.Label(self.preview, text="Select a result to preview its chapter", style="SurfaceTitle.TLabel", padding=(14, 10, 14, 4))
+        self.detail_title = ttk.Label(
+            self.preview,
+            text="Select a result to preview its chapter",
+            style="SurfaceTitle.TLabel",
+            padding=(14, 10, 14, 4),
+        )
         self.detail_title.grid(row=0, column=0, sticky="ew")
-        self.detail_path = ttk.Label(self.preview, text="", style="SurfaceMuted.TLabel", padding=(14, 0, 14, 6), wraplength=1000, justify="left")
+        self.detail_path = ttk.Label(
+            self.preview,
+            text="",
+            style="SurfaceMuted.TLabel",
+            padding=(14, 0, 14, 6),
+            wraplength=1000,
+            justify="left",
+        )
         self.detail_path.grid(row=1, column=0, sticky="ew")
-        self.preview.bind("<Configure>", lambda event: self.detail_path.configure(wraplength=max(event.width - 42, 300)))
-        self.detail = tk.Text(self.preview, wrap="word", font=("Segoe UI", 11), relief="flat", padx=14, pady=8, spacing3=7)
+        self.preview.bind(
+            "<Configure>",
+            lambda event: self.detail_path.configure(wraplength=max(event.width - 42, 300)),
+        )
+        self.detail = tk.Text(
+            self.preview,
+            wrap="word",
+            font=("Segoe UI", 11),
+            relief="flat",
+            padx=14,
+            pady=8,
+            spacing3=7,
+        )
         self.detail.grid(row=2, column=0, sticky="nsew")
         detail_scroll = ttk.Scrollbar(self.preview, orient="vertical", command=self.detail.yview)
         detail_scroll.grid(row=2, column=1, sticky="ns")
@@ -187,7 +355,11 @@ class App(tk.Tk):
         return None
 
     def _choose_folder(self) -> None:
-        value = filedialog.askdirectory(parent=self, title="Choose an EPUB folder", initialdir=self.folder.get() or str(Path.home()))
+        value = filedialog.askdirectory(
+            parent=self,
+            title="Choose an EPUB folder",
+            initialdir=self.folder.get() or str(Path.home()),
+        )
         if value:
             self.folder.set(value)
             self._save_settings()
@@ -205,7 +377,9 @@ class App(tk.Tk):
 
         def run() -> None:
             try:
-                updated, errors = self.index.scan(root, lambda n, total, name: self.events.put(("progress", n, total, name)))
+                updated, errors = self.index.scan(
+                    root, lambda n, total, name: self.events.put(("progress", n, total, name))
+                )
                 count = self.index.count_books(root)
                 self.events.put(("scan_done", root, count, updated, errors))
             except Exception as exc:
@@ -251,9 +425,16 @@ class App(tk.Tk):
                     _, root, count, updated, errors = event
                     self.busy = False
                     self.scan_button.configure(state="normal")
-                    self.status.set(f"Indexed {count} EPUB files; updated {updated}" + (f"; failed {len(errors)}" if errors else ""))
+                    self.status.set(
+                        f"Indexed {count} EPUB files; updated {updated}"
+                        + (f"; failed {len(errors)}" if errors else "")
+                    )
                     if errors:
-                        messagebox.showwarning("Some files could not be indexed", "\n".join(errors[:12]) + ("\n…" if len(errors) > 12 else ""), parent=self)
+                        messagebox.showwarning(
+                            "Some files could not be indexed",
+                            "\n".join(errors[:12]) + ("\n…" if len(errors) > 12 else ""),
+                            parent=self,
+                        )
                     if Path(self.folder.get()).resolve() == root and self.query.get().strip():
                         self._search_now()
                 elif kind == "scan_error":
@@ -280,9 +461,20 @@ class App(tk.Tk):
         self.detail.delete("1.0", "end")
         self.detail.configure(state="disabled")
         for hit in hits:
-            iid = self.tree.insert("", "end", values=(hit.book, hit.chapter, f"Paragraph {hit.paragraph_number} · char {hit.offset}", hit.excerpt))
+            iid = self.tree.insert(
+                "",
+                "end",
+                values=(
+                    hit.book,
+                    hit.chapter,
+                    f"Paragraph {hit.paragraph_number} · char {hit.offset}",
+                    hit.excerpt,
+                ),
+            )
             self.hits[iid] = hit
-        self.summary.set(f"Showing first {len(hits)} results" if truncated else f"{len(hits)} results")
+        self.summary.set(
+            f"Showing first {len(hits)} results" if truncated else f"{len(hits)} results"
+        )
 
     def _select_hit(self, _event: object) -> None:
         selection = self.tree.selection()
@@ -290,7 +482,9 @@ class App(tk.Tk):
             return
         hit = self.hits[selection[0]]
         paragraphs = self.index.chapter_text(hit.book_id, hit.chapter_number)
-        self.detail_title.configure(text=f"{hit.book}  /  {hit.chapter}  /  Paragraph {hit.paragraph_number}  /  Character {hit.offset}")
+        self.detail_title.configure(
+            text=f"{hit.book}  /  {hit.chapter}  /  Paragraph {hit.paragraph_number}  /  Character {hit.offset}"
+        )
         self.detail_path.configure(text=f"File: {hit.path}    EPUB entry: {hit.href}")
         self.detail.configure(state="normal")
         self.detail.delete("1.0", "end")
@@ -311,7 +505,7 @@ class App(tk.Tk):
             if value and Path(value).is_dir():
                 self.folder.set(value)
                 self._scan()
-        except (OSError, ValueError, TypeError):
+        except OSError, ValueError, TypeError:
             pass
 
     def _save_settings(self) -> None:

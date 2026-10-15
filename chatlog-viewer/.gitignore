@@ -1,4 +1,3 @@
 .cache/
 .trash/
-__pycache__/
 store.json

@@ -143,8 +143,7 @@ export function ReaderView({
                 {data.detail ||
                   (KINDS.has(data.kind)
                     ? 'この本は開けません'
-                    : 'サーバーが古いままです。`python -m lnlib serve` を' +
-                      '起動し直してください')}
+                    : 'サーバーが古いままです。`python main.py serve` を' + '起動し直してください')}
               </p>
               <p className="dim">{book.filename}</p>
               <div className="actions center">

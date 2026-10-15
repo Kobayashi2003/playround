@@ -1,19 +1,25 @@
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from zipfile import ZipFile
 
-from epub_finder.epub import read_epub
-from epub_finder.index import SearchIndex
+from src.epub import read_epub
+from src.index import SearchIndex
 
 
 def make_epub(path: Path, body: str) -> None:
     with ZipFile(path, "w") as archive:
-        archive.writestr("META-INF/container.xml", '<container><rootfiles><rootfile full-path="OPS/package.opf"/></rootfiles></container>')
-        archive.writestr("OPS/package.opf", '''<package xmlns:dc="http://purl.org/dc/elements/1.1/">
+        archive.writestr(
+            "META-INF/container.xml",
+            '<container><rootfiles><rootfile full-path="OPS/package.opf"/></rootfiles></container>',
+        )
+        archive.writestr(
+            "OPS/package.opf",
+            """<package xmlns:dc="http://purl.org/dc/elements/1.1/">
             <metadata><dc:title>测试书</dc:title><dc:creator>作者</dc:creator></metadata>
             <manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/></manifest>
-            <spine><itemref idref="one"/></spine></package>''')
+            <spine><itemref idref="one"/></spine></package>""",
+        )
         archive.writestr("OPS/one.xhtml", f"<html><body><h1>第一章</h1><p>{body}</p></body></html>")
 
 
@@ -36,7 +42,9 @@ class EpubIndexTests(unittest.TestCase):
             self.assertEqual(hits[0].paragraph_number, 2)
             self.assertEqual(hits[0].offset, 4)
             self.assertIn("后文", hits[0].excerpt)
-            self.assertEqual(index.chapter_text(hits[0].book_id, 1)[1], "前文 关键词 后文。关键词 再次出现。")
+            self.assertEqual(
+                index.chapter_text(hits[0].book_id, 1)[1], "前文 关键词 后文。关键词 再次出现。"
+            )
             epub.unlink()
             index.scan(root)
             self.assertEqual(index.count_books(root), 0)

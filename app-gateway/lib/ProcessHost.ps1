@@ -3,7 +3,7 @@
 # Ctrl+C is the graceful path — Windows fans CTRL_C_EVENT out to the whole console
 # process group, so every launcher runs its own shutdown. Stop-Children is the
 # backstop for an external kill. It uses taskkill /T because the real workloads are
-# grandchildren (pixi -> python -> waitress/celery/redis; pwsh -> node), which
+# grandchildren (uv -> python -> waitress/celery/redis; pwsh -> node), which
 # Stop-Process would orphan.
 
 function Push-ProcessEnvironment {

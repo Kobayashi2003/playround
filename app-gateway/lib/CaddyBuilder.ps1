@@ -73,12 +73,11 @@ function New-GatewayCaddyfile {
         [hashtable[]] $Apps,
         [string]      $OutFile,
         [string]      $WebRoot,
-        [string]      $Bind,
-        [string]      $SourceDir = 'apps'
+        [string]      $Bind
     )
 
     $lines = @(
-        "# GENERATED on every launch. Edit the source instead: $SourceDir/<app>.json for"
+        "# GENERATED on every launch. Edit the source instead: apps/<app>.json for"
         '# which apps run and where, each project''s Caddyfile.snippet for its own routes.'
         '{'
         "`tauto_https off"
@@ -99,7 +98,7 @@ function New-GatewayCaddyfile {
                 $lines += ''
             }
             'proxy' {
-                $lines += "`t# $($app.Id) — routes generated from $SourceDir/$($app.Id).json"
+                $lines += "`t# $($app.Id) — routes generated from apps/$($app.Id).json"
                 $lines += New-ProxyRouteLines -App $app
                 $lines += ''
             }

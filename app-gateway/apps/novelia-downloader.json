@@ -10,11 +10,7 @@
     "http": 18030
   },
   "launch": {
-    "file": "pwsh",
     "args": [
-      "-NoProfile",
-      "-File",
-      "${root}/start.ps1",
       "-Port",
       "${ports.http}"
     ]

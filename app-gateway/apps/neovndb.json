@@ -20,12 +20,5 @@
     "NEOVNDB_USERS_PORT": "${ports.users}",
     "NEOVNDB_WEB_PORT": "${ports.web}"
   },
-  "launch": {
-    "file": "pwsh",
-    "args": [
-      "-NoProfile",
-      "-File",
-      "${root}/start.ps1"
-    ]
-  }
+  "launch": {}
 }

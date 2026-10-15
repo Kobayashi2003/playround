@@ -1,5 +1,4 @@
 @echo off
 rem Start the library browser and open it in the default browser.
-cd /d "%~dp0"
-python -m lnlib serve
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0start.ps1" %*
 pause

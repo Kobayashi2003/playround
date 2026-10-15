@@ -11,6 +11,7 @@ re-encoded, so no imaging library is needed. Per format:
   .azw3/.mobi  first sufficiently large embedded JPEG in the record area
   .txt         plain text, so there is no image inside it to copy out
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -23,10 +24,16 @@ import zipfile
 from . import config
 from .config import IMAGE_EXT
 
-MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
-        ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif"}
+MIME = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".avif": "image/avif",
+}
 
-MIN_IMAGE_BYTES = 6 * 1024        # skip icons, rules, publisher logos
+MIN_IMAGE_BYTES = 6 * 1024  # skip icons, rules, publisher logos
 
 
 def _cache_name(path: str, ext: str) -> str:
@@ -94,10 +101,9 @@ def _epub_cover(path: str) -> tuple[bytes, str] | None:
         base = posixpath.dirname(opf_name)
         try:
             root = ET.fromstring(z.read(opf_name))
-        except (KeyError, ET.ParseError):
+        except KeyError, ET.ParseError:
             return _zip_first_image(z, names)
 
-        ns = {"opf": "http://www.idpf.org/2007/opf"}
         manifest = {}
         for item in root.iter():
             if not item.tag.endswith("}item") and item.tag != "item":
@@ -105,8 +111,7 @@ def _epub_cover(path: str) -> tuple[bytes, str] | None:
             iid = item.get("id")
             href = item.get("href")
             if iid and href:
-                manifest[iid] = (href, item.get("media-type") or "",
-                                 item.get("properties") or "")
+                manifest[iid] = (href, item.get("media-type") or "", item.get("properties") or "")
 
         candidates: list[str] = []
 
@@ -118,15 +123,15 @@ def _epub_cover(path: str) -> tuple[bytes, str] | None:
                     if cid and cid in manifest:
                         candidates.append(manifest[cid][0])
         # 2. EPUB3 properties="cover-image"
-        for href, mtype, props in manifest.values():
+        for href, _mtype, props in manifest.values():
             if "cover-image" in props:
                 candidates.append(href)
         # 3. anything that calls itself a cover
-        for href, mtype, props in manifest.values():
+        for href, mtype, _props in manifest.values():
             if mtype.startswith("image/") and "cover" in href.lower():
                 candidates.append(href)
         # 4. first image in manifest order
-        for href, mtype, props in manifest.values():
+        for href, mtype, _props in manifest.values():
             if mtype.startswith("image/"):
                 candidates.append(href)
 
@@ -203,7 +208,7 @@ def _scan_jpeg(path: str, limit: int) -> tuple[bytes, str] | None:
         end = blob.find(b"\xff\xd9", start + 3)
         if end < 0:
             break
-        data = blob[start:end + 2]
+        data = blob[start : end + 2]
         pos = end + 2
         if len(data) >= MIN_IMAGE_BYTES:
             if best is None or len(data) > len(best):
@@ -217,7 +222,7 @@ def _scan_jpeg(path: str, limit: int) -> tuple[bytes, str] | None:
 EXTRACTORS = {
     ".epub": _epub_cover,
     ".cbz": _cbz_cover,
-    ".zip": _cbz_cover,           # the same thing, under its ordinary name
+    ".zip": _cbz_cover,  # the same thing, under its ordinary name
     ".pdf": lambda p: _scan_jpeg(p, 12 * 1024 * 1024),
     ".azw3": lambda p: _scan_jpeg(p, 12 * 1024 * 1024),
     ".mobi": lambda p: _scan_jpeg(p, 12 * 1024 * 1024),
@@ -229,30 +234,38 @@ def extract(path: str, ext: str, is_dir: bool, reuse: bool = True) -> dict:
     if reuse:
         got = _cached(path)
         if got:
-            return dict(state="ok", source="cache", detail=None,
-                        cache_name=got[0], mime=got[1])
+            return dict(state="ok", source="cache", detail=None, cache_name=got[0], mime=got[1])
     if is_dir:
         fn, source = _folder_cover, "folder-first"
     else:
         ext = ext.lower()
         fn = EXTRACTORS.get(ext)
-        source = {".epub": "epub-opf", ".cbz": "zip-first", ".zip": "zip-first",
-                  ".pdf": "pdf-jpeg",
-                  ".azw3": "mobi-jpeg", ".mobi": "mobi-jpeg"}.get(ext, "none")
+        source = {
+            ".epub": "epub-opf",
+            ".cbz": "zip-first",
+            ".zip": "zip-first",
+            ".pdf": "pdf-jpeg",
+            ".azw3": "mobi-jpeg",
+            ".mobi": "mobi-jpeg",
+        }.get(ext, "none")
         if fn is None:
-            return dict(state="none", source="none",
-                        detail=f"no extractor for {ext}", cache_name=None, mime=None)
+            return dict(
+                state="none",
+                source="none",
+                detail=f"no extractor for {ext}",
+                cache_name=None,
+                mime=None,
+            )
     try:
         got = fn(path)
     except (zipfile.BadZipFile, OSError, ValueError) as e:
-        return dict(state="error", source=source, detail=str(e)[:200],
-                    cache_name=None, mime=None)
+        return dict(state="error", source=source, detail=str(e)[:200], cache_name=None, mime=None)
     if not got:
-        return dict(state="none", source=source, detail="no image found",
-                    cache_name=None, mime=None)
+        return dict(
+            state="none", source=source, detail="no image found", cache_name=None, mime=None
+        )
     data, iext = got
     if iext not in MIME:
         iext = ".jpg"
     name = _write_cache(data, path, iext)
-    return dict(state="ok", source=source, detail=None,
-                cache_name=name, mime=MIME[iext])
+    return dict(state="ok", source=source, detail=None, cache_name=name, mime=MIME[iext])

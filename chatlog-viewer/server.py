@@ -2,15 +2,16 @@
 """chatlog-viewer — browse Claude Code / Codex conversation logs.
 
 Usage:
-    python server.py            # start and open a browser
-    python server.py --port 16010 --no-open
-    python server.py --reindex  # drop the cache and re-parse everything
+    uv run python server.py            # start and open a browser
+    uv run python server.py --port 16010 --no-open
+    uv run python server.py --reindex  # drop the cache and re-parse everything
 """
+
 from __future__ import annotations
 
 import argparse
+import io
 import json
-import os
 import re
 import shutil
 import sys
@@ -19,15 +20,13 @@ import time
 import traceback
 import urllib.parse
 import webbrowser
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 # The Windows console is often not UTF-8; switch the streams over first.
 for _stream in (sys.stdout, sys.stderr):
-    try:
+    if isinstance(_stream, io.TextIOWrapper):
         _stream.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import parsers  # noqa: E402
@@ -54,6 +53,7 @@ BASE_PATH = ""
 
 
 # ------------------------------------------------------------------- indexing
+
 
 def summarize(path, source, stat, parsed=None):
     parsed = parsed or parsers.parse(path, source)
@@ -115,8 +115,12 @@ class Store:
 
     def save(self):
         tmp = STORE_FILE.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"version": STORE_VERSION, "items": self.items},
-                                  ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.write_text(
+            json.dumps(
+                {"version": STORE_VERSION, "items": self.items}, ensure_ascii=False, indent=1
+            ),
+            encoding="utf-8",
+        )
         tmp.replace(STORE_FILE)
 
     def get(self, path):
@@ -151,7 +155,7 @@ STORE = Store()
 
 class Index:
     def __init__(self):
-        self.entries = {}          # path -> entry
+        self.entries = {}  # path -> entry
         self.lock = threading.Lock()
         self.status = {"state": "idle", "done": 0, "total": 0}
 
@@ -160,16 +164,20 @@ class Index:
             data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
             if data.get("version") == CACHE_VERSION:
                 self.entries = {e["path"]: e for e in data["entries"]}
-                print("[index] loaded %d sessions from cache" % len(self.entries))
+                print(f"[index] loaded {len(self.entries)} sessions from cache")
         except Exception:
             self.entries = {}
 
     def save_cache(self):
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = CACHE_FILE.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"version": CACHE_VERSION,
-                                   "entries": list(self.entries.values())},
-                                  ensure_ascii=False), encoding="utf-8")
+        tmp.write_text(
+            json.dumps(
+                {"version": CACHE_VERSION, "entries": list(self.entries.values())},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         tmp.replace(CACHE_FILE)
 
     def refresh(self, force=False):
@@ -192,7 +200,7 @@ class Index:
                 self.entries[key] = summarize(path, source, st)
                 changed += 1
             except Exception:
-                print("[index] failed to parse %s" % path)
+                print(f"[index] failed to parse {path}")
                 traceback.print_exc()
             self.status["done"] = i + 1
         for gone in set(self.entries) - alive:
@@ -200,7 +208,7 @@ class Index:
         with self.lock:
             self.status = {"state": "ready", "done": len(found), "total": len(found)}
         self.save_cache()
-        print("[index] done: %d sessions (%d newly parsed)" % (len(self.entries), changed))
+        print(f"[index] done: {len(self.entries)} sessions ({changed} newly parsed)")
 
     @staticmethod
     def public(entry):
@@ -238,7 +246,9 @@ class Index:
             snippets, start = [], 0
             while pos >= 0 and len(snippets) < 4:
                 a, b = max(0, pos - 24), min(len(hay), pos + len(q) + 120)
-                snippets.append(("…" if a else "") + hay[a:b].replace("\n", " ") + ("…" if b < len(hay) else ""))
+                snippets.append(
+                    ("…" if a else "") + hay[a:b].replace("\n", " ") + ("…" if b < len(hay) else "")
+                )
                 start = pos + len(q)
                 pos = low.find(q, start)
             item = self.public(e)
@@ -254,10 +264,11 @@ INDEX = Index()
 
 # --------------------------------------------------------------------- server
 
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "chatlog-viewer"
 
-    def log_message(self, fmt, *args):
+    def log_message(self, format, *args):
         pass
 
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
@@ -272,7 +283,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             self.wfile.write(body)
-        except (BrokenPipeError, ConnectionAbortedError):
+        except BrokenPipeError, ConnectionAbortedError:
             pass
 
     def _redirect(self, location, code=308):
@@ -294,7 +305,7 @@ class Handler(BaseHTTPRequestHandler):
             self._redirect(BASE_PATH + "/")
             return None
         if path.startswith(BASE_PATH + "/"):
-            return path[len(BASE_PATH):]
+            return path[len(BASE_PATH) :]
         self._send(404, "not found", "text/plain; charset=utf-8")
         return None
 
@@ -356,13 +367,13 @@ class Handler(BaseHTTPRequestHandler):
         src = Path(path)
         TRASH_DIR.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        dest = TRASH_DIR / ("%s-%s-%s" % (stamp, entry["source"], src.name))
+        dest = TRASH_DIR / ("{}-{}-{}".format(stamp, entry["source"], src.name))
         try:
             # shutil.move, not Path.replace: the logs are under C:\Users while the
             # viewer may be on another drive, and rename() cannot cross volumes.
             shutil.move(str(src), str(dest))
         except OSError as exc:
-            return self._send(500, {"error": "move failed: %s" % exc})
+            return self._send(500, {"error": f"move failed: {exc}"})
         STORE.forget(path)
         INDEX.drop(path)
         return self._send(200, {"ok": True, "trash": str(dest)})
@@ -401,9 +412,11 @@ class Handler(BaseHTTPRequestHandler):
         target = (STATIC / name).resolve()
         if not str(target).startswith(str(STATIC.resolve())) or not target.is_file():
             return self._send(404, "not found", "text/plain; charset=utf-8")
-        ctype = {".html": "text/html; charset=utf-8",
-                 ".css": "text/css; charset=utf-8",
-                 ".js": "text/javascript; charset=utf-8"}.get(target.suffix, "application/octet-stream")
+        ctype = {
+            ".html": "text/html; charset=utf-8",
+            ".css": "text/css; charset=utf-8",
+            ".js": "text/javascript; charset=utf-8",
+        }.get(target.suffix, "application/octet-stream")
         self._send(200, target.read_bytes(), ctype)
 
 
@@ -412,9 +425,13 @@ def main():
     ap.add_argument("--port", type=int, default=16010)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--no-open", action="store_true")
-    ap.add_argument("--base-path", default="", metavar="/prefix",
-                    help="serve under a path prefix instead of the origin root, "
-                         "for running behind a shared edge")
+    ap.add_argument(
+        "--base-path",
+        default="",
+        metavar="/prefix",
+        help="serve under a path prefix instead of the origin root, "
+        "for running behind a shared edge",
+    )
     ap.add_argument("--reindex", action="store_true")
     args = ap.parse_args()
 
@@ -428,8 +445,8 @@ def main():
     threading.Thread(target=lambda: INDEX.refresh(force=args.reindex), daemon=True).start()
 
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    url = "http://%s:%d%s/" % (args.host, args.port, BASE_PATH)
-    print("chatlog-viewer is up → %s   (Ctrl+C to quit)" % url)
+    url = f"http://{args.host}:{args.port}{BASE_PATH}/"
+    print(f"chatlog-viewer is up → {url}   (Ctrl+C to quit)")
     if not args.no_open:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:

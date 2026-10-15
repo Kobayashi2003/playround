@@ -45,7 +45,7 @@ function New-LandingPage {
 
     if (-not $listed.Count) {
         $cards = @'
-      <p class="empty">Nothing is enabled. Register an app in gateway.json, or turn one back on with <code>gateway.ps1 -Enable &lt;id&gt;</code>.</p>
+      <p class="empty">Nothing is enabled. Register an app in apps/, or turn one back on with <code>gateway.ps1 -Enable &lt;id&gt;</code>.</p>
 '@
     }
 

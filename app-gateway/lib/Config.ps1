@@ -232,16 +232,15 @@ function Resolve-GatewayApps {
             }
         }
 
+        # Every app starts through its own start.ps1, which knows its own preflight;
+        # the file only adds arguments.
         $launch = $null
         $launchNode = Get-JsonProperty $entry 'launch'
         if ($launchNode) {
-            $file = Expand-GatewayString ([string](Get-JsonProperty $launchNode 'file' '')) $vars "$where launch.file"
-            if (-not $file) { throw "$where has a launch block with no file." }
             $launch = @{
-                File = $file
-                Args = @(@(Get-JsonProperty $launchNode 'args' @()) |
-                            ForEach-Object { Expand-GatewayString ([string]$_) $vars "$where launch.args" })
-                Cwd  = Expand-GatewayString ([string](Get-JsonProperty $launchNode 'cwd' $root)) $vars "$where launch.cwd"
+                Script = Join-Path $root 'start.ps1'
+                Args   = @(@(Get-JsonProperty $launchNode 'args' @()) |
+                              ForEach-Object { Expand-GatewayString ([string]$_) $vars "$where launch.args" })
             }
         }
 
@@ -324,11 +323,9 @@ function Assert-GatewayApps {
     param(
         [hashtable[]] $Apps,
         [string]      $Bind,
-        # ${paths.NAME} -> absolute directory, and NAME -> @{ From; To } from
-        # gateway.json's portRanges. Together they say which range an app's ports
-        # must come from: the one named after the directory its root lives in.
-        [hashtable]   $Paths = @{},
-        [hashtable]   $PortRanges = @{},
+        # From Read-PortConvention: an app's ports come from the range of the
+        # directory its root lives in.
+        [hashtable[]] $PortRanges = @(),
         [int]         $PortSlot = 10
     )
 
@@ -341,10 +338,13 @@ function Assert-GatewayApps {
         if (-not (Test-Path -LiteralPath $app.Root)) {
             throw "App '$($app.Id)': root does not exist: $($app.Root)"
         }
+        if ($app.Launch -and -not (Test-Path -LiteralPath $app.Launch.Script)) {
+            throw "App '$($app.Id)': it is launched, but has no start.ps1 at $($app.Launch.Script)."
+        }
 
         # A slot belongs to one app even where the numbers inside it do not meet:
         # the spare ports in it are that app's room to grow.
-        $slot = Assert-AppPortRange -App $app -Paths $Paths -PortRanges $PortRanges -PortSlot $PortSlot
+        $slot = Assert-AppPortRange -App $app -PortRanges $PortRanges -PortSlot $PortSlot
         if ($slot) {
             if ($seenSlot.ContainsKey($slot.Key)) {
                 throw "Apps '$($seenSlot[$slot.Key])' and '$($app.Id)' both take the slot $($slot.From)-$($slot.To). One app, one slot. See PORTS.md."
@@ -388,6 +388,35 @@ function Assert-GatewayApps {
     }
 }
 
+function Read-PortConvention {
+    <# PORTS.md owns the port convention; the gateway only follows it. Reads the
+       slot size ("slot of **N** ports") and the Ranges table rows
+       (| `dir/` | from–to |), resolving each directory against the file's own.
+       Returns @{ Slot; Ranges = @(@{ Name; Dir; From; To }) }. #>
+    param([string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) { throw "Port convention not found: $Path" }
+    $text = Get-Content -LiteralPath $Path -Raw -Encoding utf8
+    $base = Split-Path -Parent (Convert-Path -LiteralPath $Path)
+
+    if ($text -notmatch 'slot of \*\*(\d+)\*\* ports') {
+        throw "$Path states no slot size (expected 'slot of **N** ports')."
+    }
+    $slot = [int]$Matches[1]
+
+    $ranges = foreach ($m in [regex]::Matches($text, '(?m)^\|\s*`([^`]+)`\s*\|\s*(\d+)\s*[–-]\s*(\d+)\s*\|\s*$')) {
+        $name = $m.Groups[1].Value.TrimEnd('/', '\')
+        @{
+            Name = $name
+            Dir  = [IO.Path]::GetFullPath($name, $base).TrimEnd('\', '/')
+            From = [int]$m.Groups[2].Value
+            To   = [int]$m.Groups[3].Value
+        }
+    }
+    if (-not $ranges) { throw "$Path has no Ranges table rows (| ``dir/`` | from–to |)." }
+    return @{ Slot = $slot; Ranges = @($ranges) }
+}
+
 function Assert-AppPortRange {
     <# The port convention (PORTS.md): every directory of apps owns a range, and
        every app one slot of $PortSlot ports inside it. Checked here because this
@@ -399,25 +428,21 @@ function Assert-AppPortRange {
        land inside it too, so trying a port for one run never borrows another
        app's. Returns @{ Key; From; To } for that slot, or nothing for an app whose
        root is under no ranged directory, which is not checked. #>
-    param([hashtable] $App, [hashtable] $Paths, [hashtable] $PortRanges, [int] $PortSlot)
+    param([hashtable] $App, [hashtable[]] $PortRanges, [int] $PortSlot)
 
     if (-not $App.Ports.Count -or -not $PortRanges.Count) { return }
 
     # The longest directory containing the root wins, so a ranged subdirectory
     # can sit inside a ranged parent.
-    $owner = $null; $ownerDir = ''
-    foreach ($p in $Paths.GetEnumerator()) {
-        $name = $p.Key -replace '^paths\.', ''
-        if (-not $PortRanges.ContainsKey($name)) { continue }
-        $dir = ([string]$p.Value).TrimEnd('\', '/')
-        $inside = $App.Root -eq $dir -or
-                  $App.Root.StartsWith("$dir\", [StringComparison]::OrdinalIgnoreCase) -or
-                  $App.Root.StartsWith("$dir/", [StringComparison]::OrdinalIgnoreCase)
-        if ($inside -and $dir.Length -gt $ownerDir.Length) { $owner = $name; $ownerDir = $dir }
+    $range = $null
+    foreach ($r in $PortRanges) {
+        $inside = $App.Root -eq $r.Dir -or
+                  $App.Root.StartsWith("$($r.Dir)\", [StringComparison]::OrdinalIgnoreCase) -or
+                  $App.Root.StartsWith("$($r.Dir)/", [StringComparison]::OrdinalIgnoreCase)
+        if ($inside -and (-not $range -or $r.Dir.Length -gt $range.Dir.Length)) { $range = $r }
     }
-    if (-not $owner) { return }
-
-    $range = $PortRanges[$owner]
+    if (-not $range) { return }
+    $owner = $range.Name
     # Slot index within the range. [double] then [int]: an exact quotient would
     # otherwise come back as an Int32, send Floor to its decimal overload, and
     # land in a hashtable as a key distinct from the double an inexact one gives.

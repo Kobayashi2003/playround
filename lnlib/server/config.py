@@ -3,11 +3,13 @@
 Everything lives in one JSON file next to the package so the whole project can
 be copied or version-controlled as a unit.
 """
+
 from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass, field, fields as dataclass_fields
+from dataclasses import asdict, dataclass, field
+from dataclasses import fields as dataclass_fields
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(PROJECT_DIR, "config.json")
@@ -15,11 +17,22 @@ DATA_DIR = os.path.join(PROJECT_DIR, "data")
 CACHE_DIR = os.path.join(DATA_DIR, "covers")
 DB_PATH = os.path.join(DATA_DIR, "library.db")
 
-BOOK_EXT = {".epub", ".azw3", ".mobi", ".pdf", ".cbz", ".cbr", ".txt",
-            # Comic archives under their ordinary names. A .zip is read exactly
-            # like a .cbz, which is all a .cbz is; the rest are recorded and
-            # counted but opened in the desktop app, as a .cbr always was.
-            ".zip", ".rar", ".7z", ".tar"}
+BOOK_EXT = {
+    ".epub",
+    ".azw3",
+    ".mobi",
+    ".pdf",
+    ".cbz",
+    ".cbr",
+    ".txt",
+    # Comic archives under their ordinary names. A .zip is read exactly
+    # like a .cbz, which is all a .cbz is; the rest are recorded and
+    # counted but opened in the desktop app, as a .cbr always was.
+    ".zip",
+    ".rar",
+    ".7z",
+    ".tar",
+}
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
 
 # How the top level of a root is laid out. Everything below it is walked the
@@ -44,6 +57,7 @@ def format_of(ext: str, is_dir: bool = False) -> str:
         return "images"
     return (ext or "").lstrip(".").lower() or "other"
 
+
 # A fresh checkout starts with no roots: which folders a library lives in is
 # this machine's business, not the repository's. `config --add-root` adds them,
 # and config.example.json shows what the file looks like.
@@ -59,7 +73,7 @@ class Root:
     layout: str = "shelves"
 
     @staticmethod
-    def of(raw: dict) -> "Root":
+    def of(raw: dict) -> Root:
         """Build from JSON, ignoring keys this version no longer knows about.
 
         `has_shelves` used to live here. Shelves are now recognised by looking
@@ -79,10 +93,11 @@ class Config:
     # shared edge, where one public port fronts several apps and the root belongs
     # to none of them. `serve --base-path` overrides it for one run.
     base_path: str = ""
-    theme: str = "auto"          # auto | dark | light
+    theme: str = "auto"
+    """auto | dark | light"""
 
     @staticmethod
-    def load() -> "Config":
+    def load() -> Config:
         if not os.path.exists(CONFIG_PATH):
             cfg = Config(roots=[Root.of(r) for r in DEFAULT_ROOTS])
             cfg.save()
@@ -110,11 +125,8 @@ class Config:
         tmp = CONFIG_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, ensure_ascii=False, indent=2)
-            fh.write("\n")          # it is a text file; it ends with a newline
+            fh.write("\n")  # it is a text file; it ends with a newline
         os.replace(tmp, CONFIG_PATH)
-
-    def enabled_roots(self) -> list[Root]:
-        return [r for r in self.roots if r.enabled and os.path.isdir(r.path)]
 
 
 def ensure_dirs() -> None:

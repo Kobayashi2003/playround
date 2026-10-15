@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import posixpath
+import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
-import posixpath
-import re
 from urllib.parse import unquote
-import xml.etree.ElementTree as ET
 from zipfile import BadZipFile, ZipFile
-
 
 MAX_MEMBER_BYTES = 25 * 1024 * 1024
 SPACE = re.compile(r"\s+")
@@ -43,7 +42,21 @@ def _member(zip_file: ZipFile, name: str) -> bytes:
 
 
 class _TextExtractor(HTMLParser):
-    BLOCKS = {"p", "div", "section", "article", "blockquote", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr"}
+    BLOCKS = {
+        "p",
+        "div",
+        "section",
+        "article",
+        "blockquote",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "tr",
+    }
     SKIP = {"script", "style", "svg", "head"}
 
     def __init__(self) -> None:
@@ -86,19 +99,34 @@ class _TextExtractor(HTMLParser):
                 self._heading.append(data)
 
     def paragraphs(self) -> list[str]:
-        return [clean for line in "".join(self.parts).splitlines() if (clean := SPACE.sub(" ", line).strip())]
+        return [
+            clean
+            for line in "".join(self.parts).splitlines()
+            if (clean := SPACE.sub(" ", line).strip())
+        ]
 
 
 def read_epub(path: Path) -> Book:
     try:
         with ZipFile(path) as archive:
             container = ET.fromstring(_member(archive, "META-INF/container.xml"))
-            rootfile = next((e.attrib.get("full-path") for e in container.iter() if _name(e.tag) == "rootfile"), None)
+            rootfile = next(
+                (e.attrib.get("full-path") for e in container.iter() if _name(e.tag) == "rootfile"),
+                None,
+            )
             if not rootfile:
                 raise ValueError("EPUB package document is missing")
             opf = ET.fromstring(_member(archive, rootfile))
-            title = next(("".join(e.itertext()).strip() for e in opf.iter() if _name(e.tag) == "title"), "") or path.stem
-            author = next(("".join(e.itertext()).strip() for e in opf.iter() if _name(e.tag) == "creator"), "")
+            title = (
+                next(
+                    ("".join(e.itertext()).strip() for e in opf.iter() if _name(e.tag) == "title"),
+                    "",
+                )
+                or path.stem
+            )
+            author = next(
+                ("".join(e.itertext()).strip() for e in opf.iter() if _name(e.tag) == "creator"), ""
+            )
             manifest = {
                 e.attrib["id"]: e.attrib
                 for e in opf.iter()
@@ -123,7 +151,9 @@ def read_epub(path: Path) -> Book:
                 paragraphs = extractor.paragraphs()
                 if paragraphs:
                     chapter_title = extractor.headings[0] if extractor.headings else Path(href).stem
-                    chapters.append(Chapter(len(chapters) + 1, chapter_title, member_name, paragraphs))
+                    chapters.append(
+                        Chapter(len(chapters) + 1, chapter_title, member_name, paragraphs)
+                    )
             return Book(title, author, chapters)
     except (BadZipFile, KeyError, ET.ParseError) as exc:
         raise ValueError(f"Cannot read EPUB: {exc}") from exc

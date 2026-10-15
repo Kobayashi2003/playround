@@ -3,13 +3,9 @@
 data/
 
 # This machine's library folders. config.example.json shows the shape;
-# `python -m lnlib config --add-root …` writes the real one.
+# `python main.py config --add-root …` writes the real one.
 config.json
 *.tmp
-
-# Python
-__pycache__/
-*.py[cod]
 
 # Logs, editors, operating systems
 *.log

@@ -1,0 +1,25 @@
+[project]
+name = "lnlib"
+version = "2.0.0"
+description = "A local bookshelf and reader for a light novel collection."
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.40.2",
+    "ruff>=0.17.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "W", "I", "B", "UP"]
+
+[tool.basedpyright]
+include = ["server", "main.py"]
+typeCheckingMode = "standard"

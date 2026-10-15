@@ -1,4 +1,5 @@
 """Parse Claude Code / Codex session logs into a common turn model."""
+
 from __future__ import annotations
 
 import json
@@ -57,11 +58,11 @@ def mark_superseded(turns):
 def _trunc(s, n):
     if not s:
         return ""
-    return s if len(s) <= n else s[:n] + "\n\n… (truncated; %d chars in the original)" % len(s)
+    return s if len(s) <= n else s[:n] + f"\n\n… (truncated; {len(s)} chars in the original)"
 
 
 def iter_json(path):
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+    with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             line = line.strip()
             if not line or line[0] != "{":
@@ -104,9 +105,18 @@ def _preview(obj, n=400):
 
 # ---------------------------------------------------------------- Claude Code
 
+
 def parse_claude(path):
-    meta = {"source": "claude", "id": path.stem, "path": str(path), "cwd": None,
-            "title": None, "branch": None, "version": None, "model": None}
+    meta = {
+        "source": "claude",
+        "id": path.stem,
+        "path": str(path),
+        "cwd": None,
+        "title": None,
+        "branch": None,
+        "version": None,
+        "model": None,
+    }
     turns = []
     for rec in iter_json(path):
         t = rec.get("type")
@@ -130,7 +140,9 @@ def parse_claude(path):
             msg = rec.get("message") or {}
             content = msg.get("content")
             human = (rec.get("origin") or {}).get("kind") == "human"
-            blocks = [{"type": "text", "text": content}] if isinstance(content, str) else (content or [])
+            blocks = (
+                [{"type": "text", "text": content}] if isinstance(content, str) else (content or [])
+            )
             for b in blocks:
                 if not isinstance(b, dict):
                     continue
@@ -139,22 +151,44 @@ def parse_claude(path):
                     c = b.get("content")
                     if isinstance(c, list):
                         c = "\n".join(x.get("text", "") for x in c if isinstance(x, dict))
-                    turns.append({"role": "tool_result", "ts": ts, "sidechain": side,
-                                  "text": _trunc(str(c or ""), MAX_TOOL_CHARS),
-                                  "error": bool(b.get("is_error"))})
+                    turns.append(
+                        {
+                            "role": "tool_result",
+                            "ts": ts,
+                            "sidechain": side,
+                            "text": _trunc(str(c or ""), MAX_TOOL_CHARS),
+                            "error": bool(b.get("is_error")),
+                        }
+                    )
                 elif bt == "text":
                     kind, txt, cmd = clean_text(b.get("text", ""))
                     if kind == "noise":
-                        turns.append({"role": "meta", "ts": ts, "sidechain": side,
-                                      "text": _trunc(txt, MAX_TOOL_CHARS)})
+                        turns.append(
+                            {
+                                "role": "meta",
+                                "ts": ts,
+                                "sidechain": side,
+                                "text": _trunc(txt, MAX_TOOL_CHARS),
+                            }
+                        )
                     elif kind == "command":
-                        turn = {"role": "user" if txt else "command", "ts": ts,
-                                "sidechain": side, "cmd": cmd,
-                                "text": _trunc(txt or cmd, MAX_TEXT_CHARS)}
+                        turn = {
+                            "role": "user" if txt else "command",
+                            "ts": ts,
+                            "sidechain": side,
+                            "cmd": cmd,
+                            "text": _trunc(txt or cmd, MAX_TEXT_CHARS),
+                        }
                         turns.append(turn)
                     else:
-                        turns.append({"role": "user" if human else "user_auto", "ts": ts,
-                                      "sidechain": side, "text": _trunc(txt, MAX_TEXT_CHARS)})
+                        turns.append(
+                            {
+                                "role": "user" if human else "user_auto",
+                                "ts": ts,
+                                "sidechain": side,
+                                "text": _trunc(txt, MAX_TEXT_CHARS),
+                            }
+                        )
                 elif bt == "image":
                     turns.append({"role": "user", "ts": ts, "sidechain": side, "text": "[image]"})
         elif t == "assistant":
@@ -166,30 +200,59 @@ def parse_claude(path):
                     continue
                 bt = b.get("type")
                 if bt == "text" and (b.get("text") or "").strip():
-                    turns.append({"role": "assistant", "ts": ts, "sidechain": side,
-                                  "text": _trunc(b["text"], MAX_TEXT_CHARS)})
+                    turns.append(
+                        {
+                            "role": "assistant",
+                            "ts": ts,
+                            "sidechain": side,
+                            "text": _trunc(b["text"], MAX_TEXT_CHARS),
+                        }
+                    )
                 elif bt == "thinking" and (b.get("thinking") or "").strip():
-                    turns.append({"role": "thinking", "ts": ts, "sidechain": side,
-                                  "text": _trunc(b["thinking"], MAX_TEXT_CHARS)})
+                    turns.append(
+                        {
+                            "role": "thinking",
+                            "ts": ts,
+                            "sidechain": side,
+                            "text": _trunc(b["thinking"], MAX_TEXT_CHARS),
+                        }
+                    )
                 elif bt == "tool_use":
-                    turns.append({"role": "tool_use", "ts": ts, "sidechain": side,
-                                  "name": b.get("name", "tool"),
-                                  "text": _preview(b.get("input"))})
+                    turns.append(
+                        {
+                            "role": "tool_use",
+                            "ts": ts,
+                            "sidechain": side,
+                            "name": b.get("name", "tool"),
+                            "text": _preview(b.get("input")),
+                        }
+                    )
         elif t == "system" and rec.get("content"):
-            turns.append({"role": "meta", "ts": ts, "sidechain": side,
-                          "text": _trunc(str(rec["content"]), 1000)})
+            turns.append(
+                {
+                    "role": "meta",
+                    "ts": ts,
+                    "sidechain": side,
+                    "text": _trunc(str(rec["content"]), 1000),
+                }
+            )
     return {"meta": meta, "turns": mark_superseded(turns)}
 
 
 # --------------------------------------------------------------------- Codex
+
 
 def _user_turn(cleaned, ts):
     kind, txt, cmd = cleaned
     if kind == "noise":
         return {"role": "meta", "ts": ts, "text": _trunc(txt, MAX_TOOL_CHARS)}
     if kind == "command":
-        return {"role": "user" if txt else "command", "ts": ts, "cmd": cmd,
-                "text": _trunc(txt or cmd, MAX_TEXT_CHARS)}
+        return {
+            "role": "user" if txt else "command",
+            "ts": ts,
+            "cmd": cmd,
+            "text": _trunc(txt or cmd, MAX_TEXT_CHARS),
+        }
     return {"role": "user", "ts": ts, "text": _trunc(txt, MAX_TEXT_CHARS)}
 
 
@@ -206,8 +269,16 @@ def _codex_text(content):
 
 
 def parse_codex(path):
-    meta = {"source": "codex", "id": path.stem, "path": str(path), "cwd": None,
-            "title": None, "branch": None, "version": None, "model": None}
+    meta = {
+        "source": "codex",
+        "id": path.stem,
+        "path": str(path),
+        "cwd": None,
+        "title": None,
+        "branch": None,
+        "version": None,
+        "model": None,
+    }
     events, items = [], []
     for rec in iter_json(path):
         rt = rec.get("type")
@@ -235,11 +306,15 @@ def parse_codex(path):
             elif pt == "agent_message":
                 txt = (p.get("message") or "").strip()
                 if txt:
-                    events.append({"role": "assistant", "ts": ts, "text": _trunc(txt, MAX_TEXT_CHARS)})
+                    events.append(
+                        {"role": "assistant", "ts": ts, "text": _trunc(txt, MAX_TEXT_CHARS)}
+                    )
             elif pt == "agent_reasoning":
                 txt = (p.get("text") or "").strip()
                 if txt:
-                    events.append({"role": "thinking", "ts": ts, "text": _trunc(txt, MAX_TEXT_CHARS)})
+                    events.append(
+                        {"role": "thinking", "ts": ts, "text": _trunc(txt, MAX_TEXT_CHARS)}
+                    )
             continue
 
         if rt == "response_item":
@@ -249,29 +324,44 @@ def parse_codex(path):
                 if role == "user":
                     items.append(_user_turn(clean_text(txt), ts))
                 elif role == "assistant" and txt.strip():
-                    items.append({"role": "assistant", "ts": ts, "text": _trunc(txt, MAX_TEXT_CHARS)})
+                    items.append(
+                        {"role": "assistant", "ts": ts, "text": _trunc(txt, MAX_TEXT_CHARS)}
+                    )
                 elif role in ("developer", "system") and txt.strip():
                     items.append({"role": "meta", "ts": ts, "text": _trunc(txt, MAX_TOOL_CHARS)})
             elif pt in ("function_call", "custom_tool_call", "local_shell_call"):
-                items.append({"role": "tool_use", "ts": ts, "name": p.get("name") or pt,
-                              "text": _preview(p.get("arguments") or p.get("input") or p.get("action"))})
+                items.append(
+                    {
+                        "role": "tool_use",
+                        "ts": ts,
+                        "name": p.get("name") or pt,
+                        "text": _preview(p.get("arguments") or p.get("input") or p.get("action")),
+                    }
+                )
             elif pt in ("function_call_output", "custom_tool_call_output"):
                 out = p.get("output")
                 if isinstance(out, dict):
                     out = out.get("content") or json.dumps(out, ensure_ascii=False)
-                items.append({"role": "tool_result", "ts": ts,
-                              "text": _trunc(str(out or ""), MAX_TOOL_CHARS)})
+                items.append(
+                    {
+                        "role": "tool_result",
+                        "ts": ts,
+                        "text": _trunc(str(out or ""), MAX_TOOL_CHARS),
+                    }
+                )
             elif pt == "reasoning":
                 txt = _codex_text(p.get("summary") or p.get("content"))
                 if txt.strip():
-                    items.append({"role": "thinking", "ts": ts, "text": _trunc(txt, MAX_TEXT_CHARS)})
+                    items.append(
+                        {"role": "thinking", "ts": ts, "text": _trunc(txt, MAX_TEXT_CHARS)}
+                    )
             continue
 
     # event_msg holds the conversation as presented to the user; response_item holds
     # the tool activity. Merge when both are present, otherwise use whichever exists.
     tool_items = [t for t in items if t["role"] in ("tool_use", "tool_result")]
     if events and tool_items:
-        turns = sorted(events + tool_items, key=lambda t: (t.get("ts") or ""))
+        turns = sorted(events + tool_items, key=lambda t: t.get("ts") or "")
     elif events:
         turns = events
     else:

@@ -10,9 +10,7 @@
     "http": 18040
   },
   "launch": {
-    "file": "python",
     "args": [
-      "main.py",
       "--port",
       "${ports.http}",
       "--no-open"

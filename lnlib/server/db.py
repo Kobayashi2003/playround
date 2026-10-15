@@ -21,6 +21,7 @@ whatever grouping the collection has is the grouping it has on disk. Every file
 the scanner recognises is a book of some `format`, `.txt` included -- the index
 records what a thing is, not what it is instead of.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -194,8 +195,9 @@ def _never_reuse_ids(conn: sqlite3.Connection) -> None:
     which `init` runs immediately after this.
     """
     for table in AUTOINCREMENT_TABLES:
-        row = conn.execute("SELECT sql FROM sqlite_master "
-                           "WHERE type='table' AND name=?", (table,)).fetchone()
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
         if not row or "AUTOINCREMENT" in (row["sql"] or "").upper():
             continue
 
@@ -213,8 +215,7 @@ def _never_reuse_ids(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys=OFF")
         try:
             conn.execute(ddl)
-            conn.execute(f"INSERT INTO {table}_new({listed}) "
-                         f"SELECT {listed} FROM {table}")
+            conn.execute(f"INSERT INTO {table}_new({listed}) SELECT {listed} FROM {table}")
             conn.execute(f"DROP TABLE {table}")
             conn.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
             conn.commit()
@@ -247,8 +248,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cached image files themselves are found again by path hash on the next
     extraction. Reading progress is keyed by path and survives untouched.
     """
-    have = {r["name"] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'")}
+    have = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     # `is_missing` is gone: a .txt is a text file rather than the absence of an
     # epub, so the column it was recorded in has no meaning to carry forward.
     # The table is derived from disk and `scan` rebuilds it in seconds.
@@ -267,11 +267,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
             # Purely additive, and derived from the title already in the row,
             # so it is filled in here rather than waiting for a rescan: the
             # shelf would otherwise be ordered by an empty key until one ran.
-            conn.execute("ALTER TABLE books "
-                         "ADD COLUMN nat_title TEXT NOT NULL DEFAULT ''")
+            conn.execute("ALTER TABLE books ADD COLUMN nat_title TEXT NOT NULL DEFAULT ''")
             rows = conn.execute("SELECT id, title FROM books").fetchall()
-            conn.executemany("UPDATE books SET nat_title=? WHERE id=?",
-                             [(natural(r["title"]), r["id"]) for r in rows])
+            conn.executemany(
+                "UPDATE books SET nat_title=? WHERE id=?",
+                [(natural(r["title"]), r["id"]) for r in rows],
+            )
     if "covers" in have:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(covers)")}
         if "book_id" not in cols:
@@ -295,7 +296,7 @@ def get_meta(conn: sqlite3.Connection, key: str, default=None):
         return default
     try:
         return json.loads(row["value"])
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 

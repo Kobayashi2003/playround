@@ -23,6 +23,7 @@ Everything else is the front end, served out of `web/dist` -- a built React
 bundle. `pnpm build` in `web/` produces it; when it is missing the server
 says so rather than 404ing every asset in silence.
 """
+
 from __future__ import annotations
 
 import json
@@ -67,7 +68,7 @@ def _json_bytes(obj) -> bytes:
 class Handler(BaseHTTPRequestHandler):
     server_version = "lnlib"
 
-    def log_message(self, fmt, *args):        # keep the console usable
+    def log_message(self, format, *args):  # keep the console usable
         return
 
     # ------------------------------------------------------------ plumbing
@@ -105,8 +106,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
 
     def _json(self, obj, code: int = 200):
-        self._send(code, _json_bytes(obj), "application/json; charset=utf-8",
-                   {"Cache-Control": "no-store"})
+        self._send(
+            code, _json_bytes(obj), "application/json; charset=utf-8", {"Cache-Control": "no-store"}
+        )
 
     def _err(self, code: int, msg: str):
         self._json({"error": msg}, code)
@@ -122,7 +124,7 @@ class Handler(BaseHTTPRequestHandler):
             return False
         origin = self.headers.get("Origin")
         if not origin:
-            return True             # not a browser request
+            return True  # not a browser request
         try:
             parsed = urllib.parse.urlparse(origin)
         except ValueError:
@@ -131,8 +133,9 @@ class Handler(BaseHTTPRequestHandler):
             return True
         # `pnpm dev` serves the interface from its own port and forwards the
         # API here, so the origin differs -- but both ends are this machine.
-        return ((parsed.hostname or "") in self.LOOPBACK
-                and (self.client_address[0] or "") in self.LOOPBACK)
+        return (parsed.hostname or "") in self.LOOPBACK and (
+            self.client_address[0] or ""
+        ) in self.LOOPBACK
 
     def _body(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
@@ -163,7 +166,7 @@ class Handler(BaseHTTPRequestHandler):
             self._redirect(BASE_PATH + "/")
             return None
         if path.startswith(BASE_PATH + "/"):
-            return path[len(BASE_PATH):]
+            return path[len(BASE_PATH) :]
         self._err(404, "not found")
         return None
 
@@ -191,7 +194,7 @@ class Handler(BaseHTTPRequestHandler):
             pass
         except ConnectionAbortedError:
             pass
-        except Exception as e:                                     # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             self._err(500, f"{type(e).__name__}: {e}")
 
     @staticmethod
@@ -202,23 +205,33 @@ class Handler(BaseHTTPRequestHandler):
         negative LIMIT as "no limit at all", so a mistyped parameter would
         quietly turn a page request into the whole table.
         """
+
         def number(key, fallback):
             try:
                 return int(one(key, fallback))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return fallback
-        return (max(1, min(number("limit", default), cap)),
-                max(0, number("offset", 0)))
+
+        return (max(1, min(number("limit", default), cap)), max(0, number("offset", 0)))
 
     def _api_get(self, path, one, qs):
         if path == "/api/overview":
             return self._json(queries.overview())
         if path == "/api/books":
             limit, offset = self._window(one, 120, 500)
-            return self._json(queries.books(
-                root=one("root"), shelf=one("shelf"), folder=one("folder"),
-                q=one("q"), only=one("only"), fmt=one("format"),
-                order=one("order"), offset=offset, limit=limit))
+            return self._json(
+                queries.books(
+                    root=one("root"),
+                    shelf=one("shelf"),
+                    folder=one("folder"),
+                    q=one("q"),
+                    only=one("only"),
+                    fmt=one("format"),
+                    order=one("order"),
+                    offset=offset,
+                    limit=limit,
+                )
+            )
         if path == "/api/folders":
             return self._json(queries.folders(root=one("root"), shelf=one("shelf")))
         if path == "/api/formats":
@@ -237,8 +250,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._err(404, d["error"]) if d.get("error") else self._json(d)
         if path == "/api/config":
             cfg = config.Config.load()
-            return self._json({"roots": [r.__dict__ for r in cfg.roots],
-                               "theme": cfg.theme})
+            return self._json({"roots": [r.__dict__ for r in cfg.roots], "theme": cfg.theme})
         return self._err(404, "unknown endpoint")
 
     def do_POST(self):
@@ -252,18 +264,26 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/scan":
                 from . import scan as scanner
+
                 return self._json(scanner.scan(verbose=False))
             if path == "/api/covers/build":
                 from . import coverjob
-                return self._json(coverjob.build(limit=int(body.get("limit", 400)),
-                                                 redo=bool(body.get("redo"))))
+
+                return self._json(
+                    coverjob.build(limit=int(body.get("limit", 400)), redo=bool(body.get("redo")))
+                )
             if path == "/api/progress":
                 if body.get("clear"):
                     return self._json(reader.clear_progress(int(body["book_id"])))
-                return self._json(reader.save_progress(
-                    int(body["book_id"]), body.get("locator"),
-                    float(body.get("position") or 0), float(body.get("percent") or 0),
-                    bool(body.get("finished"))))
+                return self._json(
+                    reader.save_progress(
+                        int(body["book_id"]),
+                        body.get("locator"),
+                        float(body.get("position") or 0),
+                        float(body.get("percent") or 0),
+                        bool(body.get("finished")),
+                    )
+                )
             # One book or thirty thousand go through the same two routes;
             # a single book is a batch of one.
             if path == "/api/books/batch":
@@ -285,7 +305,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._err(404, "unknown endpoint")
         except KeyError as e:
             self._err(400, f"missing field {e}")
-        except Exception as e:                                     # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             self._err(500, f"{type(e).__name__}: {e}")
 
     # -------------------------------------------------------------- batches
@@ -303,9 +323,13 @@ class Handler(BaseHTTPRequestHandler):
         if query is None:
             raise KeyError("ids or query")
         ids = queries.book_ids(
-            root=query.get("root"), shelf=query.get("shelf"),
-            folder=query.get("folder"), q=query.get("q"),
-            only=query.get("only"), fmt=query.get("format"))
+            root=query.get("root"),
+            shelf=query.get("shelf"),
+            folder=query.get("folder"),
+            q=query.get("q"),
+            only=query.get("only"),
+            fmt=query.get("format"),
+        )
         skip = {int(x) for x in body.get("exclude") or []}
         return [i for i in ids if i not in skip]
 
@@ -319,9 +343,16 @@ class Handler(BaseHTTPRequestHandler):
         expect = body.get("expect")
         if expect is None or int(expect) == len(ids):
             return True
-        self._json({"error": f"対象が {int(expect)} 冊から {len(ids)} 冊に変わりました。"
-                             "もう一度確認してください", "changed": True,
-                    "expected": int(expect), "found": len(ids)}, 409)
+        self._json(
+            {
+                "error": f"対象が {int(expect)} 冊から {len(ids)} 冊に変わりました。"
+                "もう一度確認してください",
+                "changed": True,
+                "expected": int(expect),
+                "found": len(ids),
+            },
+            409,
+        )
         return False
 
     def _books_batch(self, body: dict):
@@ -346,8 +377,7 @@ class Handler(BaseHTTPRequestHandler):
             # because the list in the browser shows only the newest entries.
             skip = {int(x) for x in body.get("exclude") or []}
             with db.connect() as conn:
-                ids = [r["id"] for r in conn.execute("SELECT id FROM trash")
-                       if r["id"] not in skip]
+                ids = [r["id"] for r in conn.execute("SELECT id FROM trash") if r["id"] not in skip]
         else:
             ids = [int(x) for x in body.get("ids") or []]
         if not ids:
@@ -368,7 +398,7 @@ class Handler(BaseHTTPRequestHandler):
         browser's own viewer. `f/…` is one file from inside a zip or a folder of
         scans, which is how a page image is fetched.
         """
-        rest = path[len("/book/"):]
+        rest = path[len("/book/") :]
         head, _, tail = rest.partition("/")
         try:
             book_id = int(head)
@@ -399,15 +429,19 @@ class Handler(BaseHTTPRequestHandler):
             row = conn.execute(
                 "SELECT b.path,b.ext,b.is_dir,b.format,c.cache_name,c.mime,c.state "
                 "FROM books b LEFT JOIN covers c ON c.book_id=b.id WHERE b.id=?",
-                (book_id,)).fetchone()
+                (book_id,),
+            ).fetchone()
         if not row:
             return self._err(404, "no such book")
         if row["format"] == "txt":
             return self._err(404, "a text file has no cover")
 
         cache_name, mime, state = row["cache_name"], row["mime"], row["state"]
-        if state != "ok" or not cache_name or not os.path.exists(
-                os.path.join(config.CACHE_DIR, cache_name)):
+        if (
+            state != "ok"
+            or not cache_name
+            or not os.path.exists(os.path.join(config.CACHE_DIR, cache_name))
+        ):
             if state == "error":
                 return self._err(404, "cover extraction failed")
             with _cover_lock:
@@ -419,8 +453,16 @@ class Handler(BaseHTTPRequestHandler):
                         "ON CONFLICT(book_id) DO UPDATE SET cache_name=excluded.cache_name,"
                         "mime=excluded.mime,source=excluded.source,state=excluded.state,"
                         "detail=excluded.detail,updated_at=excluded.updated_at",
-                        (book_id, res["cache_name"], res["mime"], res["source"],
-                         res["state"], res["detail"], db.now()))
+                        (
+                            book_id,
+                            res["cache_name"],
+                            res["mime"],
+                            res["source"],
+                            res["state"],
+                            res["detail"],
+                            db.now(),
+                        ),
+                    )
             if res["state"] != "ok":
                 return self._err(404, res["detail"] or "no cover")
             cache_name, mime = res["cache_name"], res["mime"]
@@ -428,8 +470,7 @@ class Handler(BaseHTTPRequestHandler):
         full = os.path.join(config.CACHE_DIR, cache_name)
         if not os.path.isfile(full):
             return self._err(404, "cover missing from cache")
-        self._stream(full, mime or "image/jpeg",
-                     {"Cache-Control": "public, max-age=604800"})
+        self._stream(full, mime or "image/jpeg", {"Cache-Control": "public, max-age=604800"})
 
     # --------------------------------------------------------------- static
     def _static(self, path: str):
@@ -440,8 +481,9 @@ class Handler(BaseHTTPRequestHandler):
         the entry document: routing happens in the browser.
         """
         if not os.path.isdir(WEB_DIR):
-            return self._send(200, NO_BUILD_PAGE, "text/html; charset=utf-8",
-                              {"Cache-Control": "no-store"})
+            return self._send(
+                200, NO_BUILD_PAGE, "text/html; charset=utf-8", {"Cache-Control": "no-store"}
+            )
         # Unquoted and with backslashes folded in before the check: on Windows
         # `os.path.join` walks a backslash like any other separator, so one
         # left in here would step straight out of `web/dist`.
@@ -458,13 +500,19 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype in ("application/javascript",):
             ctype += "; charset=utf-8"
-        self._stream(full, ctype, {"Cache-Control":
-                                   "public, max-age=31536000, immutable" if hashed
-                                   else "no-cache"})
+        self._stream(
+            full,
+            ctype,
+            {"Cache-Control": "public, max-age=31536000, immutable" if hashed else "no-cache"},
+        )
 
 
-def serve(host: str | None = None, port: int | None = None, open_browser: bool = True,
-          base_path: str | None = None):
+def serve(
+    host: str | None = None,
+    port: int | None = None,
+    open_browser: bool = True,
+    base_path: str | None = None,
+):
     global BASE_PATH
     cfg = config.Config.load()
     db.init()
@@ -476,10 +524,10 @@ def serve(host: str | None = None, port: int | None = None, open_browser: bool =
     url = f"http://{host}:{port}{BASE_PATH}/"
     print(f"lnlib serving on {url}   (ctrl-c to stop)")
     if not os.path.isdir(WEB_DIR):
-        print(f"  ! the front end is not built -- run `pnpm install && pnpm build` "
-              f"in {WEB_SRC}")
+        print(f"  ! the front end is not built -- run `pnpm install && pnpm build` in {WEB_SRC}")
     if open_browser:
         import webbrowser
+
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:
         httpd.serve_forever()

@@ -21,6 +21,7 @@ own diagnostic -- which is the only place that can tell.
 The inside of a zip is still served file by file for the image formats, and for
 anything that wants to resolve a link into a book without unpacking it.
 """
+
 from __future__ import annotations
 
 import os
@@ -32,17 +33,29 @@ from . import db, library
 from .config import IMAGE_EXT
 
 TEXT_MIME = {
-    ".xhtml": "application/xhtml+xml", ".html": "text/html", ".htm": "text/html",
-    ".css": "text/css", ".js": "text/javascript", ".xml": "application/xml",
-    ".ncx": "application/x-dtbncx+xml", ".opf": "application/oebps-package+xml",
+    ".xhtml": "application/xhtml+xml",
+    ".html": "text/html",
+    ".htm": "text/html",
+    ".css": "text/css",
+    ".js": "text/javascript",
+    ".xml": "application/xml",
+    ".ncx": "application/x-dtbncx+xml",
+    ".opf": "application/oebps-package+xml",
     ".txt": "text/plain",
 }
 BINARY_MIME = {
     ".svg": "image/svg+xml",
-    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
-    ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif",
-    ".otf": "font/otf", ".ttf": "font/ttf", ".woff": "font/woff",
-    ".woff2": "font/woff2", ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".avif": "image/avif",
+    ".otf": "font/otf",
+    ".ttf": "font/ttf",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".pdf": "application/pdf",
     ".epub": "application/epub+zip",
     ".azw3": "application/vnd.amazon.ebook",
     ".mobi": "application/x-mobipocket-ebook",
@@ -65,10 +78,15 @@ def mime_for(name: str) -> str:
 def _cbz_pages(path: str) -> list[str]:
     with zipfile.ZipFile(path) as z:
         return sorted(
-            (n for n in z.namelist()
-             if os.path.splitext(n)[1].lower() in IMAGE_EXT
-             and not n.endswith("/") and "__MACOSX" not in n),
-            key=lambda n: (len(posixpath.dirname(n)), n.lower()))
+            (
+                n
+                for n in z.namelist()
+                if os.path.splitext(n)[1].lower() in IMAGE_EXT
+                and not n.endswith("/")
+                and "__MACOSX" not in n
+            ),
+            key=lambda n: (len(posixpath.dirname(n)), n.lower()),
+        )
 
 
 def _folder_pages(path: str) -> list[str]:
@@ -76,15 +94,28 @@ def _folder_pages(path: str) -> list[str]:
         names = os.listdir(path)
     except OSError as e:
         raise ValueError(str(e)) from e
-    return sorted((n for n in names
-                   if os.path.splitext(n)[1].lower() in IMAGE_EXT),
-                  key=str.lower)
+    return sorted((n for n in names if os.path.splitext(n)[1].lower() in IMAGE_EXT), key=str.lower)
 
 
 # -------------------------------------------------------------------- entry
-BOOK_FIELDS = ("id", "title", "filename", "ext", "format", "date", "volume",
-               "size", "author", "imprint", "illustrator", "shelf", "folder",
-               "root_label", "root_kind", "path")
+BOOK_FIELDS = (
+    "id",
+    "title",
+    "filename",
+    "ext",
+    "format",
+    "date",
+    "volume",
+    "size",
+    "author",
+    "imprint",
+    "illustrator",
+    "shelf",
+    "folder",
+    "root_label",
+    "root_kind",
+    "path",
+)
 
 # Japanese text files come off the shelf in whatever their author saved them
 # as, and none of them says so. These are tried in order and the first that
@@ -102,7 +133,7 @@ def read_text(path: str) -> tuple[str, str]:
     for encoding in TEXT_ENCODINGS:
         try:
             text = raw.decode(encoding)
-        except (UnicodeDecodeError, LookupError):
+        except UnicodeDecodeError, LookupError:
             continue
         if truncated:
             text += "\n\n[…]"
@@ -126,18 +157,24 @@ def manifest(book_id: int) -> dict:
     b = dict(row)
     path, ext = b["path"], (b["ext"] or "").lower()
 
-    out = {"book": {k: b[k] for k in BOOK_FIELDS},
-           "progress": progress_for(path)}
+    out = {"book": {k: b[k] for k in BOOK_FIELDS}, "progress": progress_for(path)}
 
     if not os.path.exists(path):
         # Opening a book is the one moment its absence is actually tested
         # rather than inferred, so this is where a record is allowed to go.
         # `retire` refuses if the drive is simply not mounted.
         gone = library.retire(book_id)
-        return {**out, "kind": "gone", "retired": bool(gone.get("ok")),
-                "detail": gone.get("detail") or (
-                    "ファイルが見つからないため、記録を削除しました"
-                    if gone.get("ok") else "ファイルが見つかりません")}
+        return {
+            **out,
+            "kind": "gone",
+            "retired": bool(gone.get("ok")),
+            "detail": gone.get("detail")
+            or (
+                "ファイルが見つからないため、記録を削除しました"
+                if gone.get("ok")
+                else "ファイルが見つかりません"
+            ),
+        }
 
     try:
         if b["is_dir"]:
@@ -152,8 +189,7 @@ def manifest(book_id: int) -> dict:
             text, encoding = read_text(path)
             return {**out, "kind": "text", "text": text, "encoding": encoding}
         else:
-            return {**out, "kind": "external",
-                    "detail": f"{ext} はブラウザでは開けません"}
+            return {**out, "kind": "external", "detail": f"{ext} はブラウザでは開けません"}
     except (zipfile.BadZipFile, ValueError, OSError) as e:
         return {**out, "kind": "error", "detail": f"{type(e).__name__}: {e}"}
 
@@ -166,8 +202,7 @@ def manifest(book_id: int) -> dict:
 def resource(book_id: int, rel: str) -> tuple[bytes, str]:
     """One file from inside a book. Raises KeyError / FileNotFoundError."""
     with db.connect() as conn:
-        row = conn.execute("SELECT path, ext, is_dir FROM books "
-                           "WHERE id=?", (book_id,)).fetchone()
+        row = conn.execute("SELECT path, ext, is_dir FROM books WHERE id=?", (book_id,)).fetchone()
     if not row:
         raise KeyError("no such book")
     path, ext = row["path"], (row["ext"] or "").lower()
@@ -177,8 +212,7 @@ def resource(book_id: int, rel: str) -> tuple[bytes, str]:
         # A backslash is a separator to `os.path.join` on Windows, so it is
         # folded in before the check rather than being carried past it.
         safe = posixpath.normpath(rel.replace("\\", "/"))
-        if (safe.startswith("..") or ".." in safe.split("/")
-                or ":" in safe or posixpath.isabs(safe)):
+        if safe.startswith("..") or ".." in safe.split("/") or ":" in safe or posixpath.isabs(safe):
             raise KeyError("forbidden")
         full = os.path.join(path, safe.replace("/", os.sep))
         if not os.path.isfile(full):
@@ -208,8 +242,7 @@ def whole_file(book_id: int) -> tuple[str, str]:
     own viewer, so it is the hot path for opening a book rather than a corner.
     """
     with db.connect() as conn:
-        row = conn.execute("SELECT path, ext, is_dir FROM books "
-                           "WHERE id=?", (book_id,)).fetchone()
+        row = conn.execute("SELECT path, ext, is_dir FROM books WHERE id=?", (book_id,)).fetchone()
     if not row or row["is_dir"]:
         raise KeyError("not a single-file book")
     if not os.path.isfile(row["path"]):
@@ -224,8 +257,9 @@ def progress_for(path: str) -> dict | None:
     return dict(row) if row else None
 
 
-def save_progress(book_id: int, locator: str | None, position: float,
-                  percent: float, finished: bool = False) -> dict:
+def save_progress(
+    book_id: int, locator: str | None, position: float, percent: float, finished: bool = False
+) -> dict:
     """Write where the reader is.
 
     `locator` is opaque here: the epub reader stores its own JSON locator, the
@@ -243,8 +277,8 @@ def save_progress(book_id: int, locator: str | None, position: float,
             "locator=excluded.locator, position=excluded.position, "
             "percent=excluded.percent, finished=excluded.finished, "
             "updated_at=excluded.updated_at",
-            (row["path"], locator, float(position), float(percent),
-             int(bool(finished)), db.now()))
+            (row["path"], locator, float(position), float(percent), int(bool(finished)), db.now()),
+        )
     return {"ok": True}
 
 
@@ -267,5 +301,7 @@ def recent(limit: int = 60) -> list[dict]:
             "c.state cover_state "
             "FROM reading r JOIN books b ON b.path=r.path "
             "LEFT JOIN covers c ON c.book_id=b.id "
-            "ORDER BY r.updated_at DESC LIMIT ?", (limit,)).fetchall()
+            "ORDER BY r.updated_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
     return [dict(r) for r in rows]

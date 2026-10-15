@@ -30,11 +30,7 @@
     "env": "${root}/caddy-env.ps1"
   },
   "launch": {
-    "file": "pwsh",
     "args": [
-      "-NoProfile",
-      "-File",
-      "${root}/start-prod.ps1",
       "-NoCaddy"
     ]
   }

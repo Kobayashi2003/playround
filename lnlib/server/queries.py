@@ -4,6 +4,7 @@ Everything is a book. A view is a filter over one table and a window of rows
 out of it, which is what lets the shelf ask for exactly the page it is about to
 draw and nothing else.
 """
+
 from __future__ import annotations
 
 from . import db
@@ -26,9 +27,11 @@ DEFAULT_ORDER = "author"
 
 # Columns the shelf grid needs. The full row is fetched only for one book at a
 # time, so a page of 120 cards does not carry paths and sizes it never draws.
-CARD_COLUMNS = ("b.id, b.title, b.author, b.shelf, b.folder, b.root_label, "
-                "b.root_kind, b.date, b.volume, b.ext, b.format, b.is_extra, "
-                "b.is_dir, b.present")
+CARD_COLUMNS = (
+    "b.id, b.title, b.author, b.shelf, b.folder, b.root_label, "
+    "b.root_kind, b.date, b.volume, b.ext, b.format, b.is_extra, "
+    "b.is_dir, b.present"
+)
 
 
 def overview() -> dict:
@@ -80,8 +83,7 @@ def _filter(root, shelf, folder, q, only, fmt) -> tuple[str, list]:
     if fmt:
         # Several formats at once: `format=epub,pdf` is how the shelf asks for
         # "the ones I can actually read here".
-        wanted = [f.strip().lstrip(".").lower() for f in str(fmt).split(",")
-                  if f.strip()]
+        wanted = [f.strip().lstrip(".").lower() for f in str(fmt).split(",") if f.strip()]
         if wanted:
             where.append(f"b.format IN ({','.join('?' * len(wanted))})")
             args += wanted
@@ -96,48 +98,69 @@ def _filter(root, shelf, folder, q, only, fmt) -> tuple[str, list]:
     if q:
         # `%` and `_` are wildcards to LIKE, and they are ordinary characters
         # to someone typing a title into the search box.
-        needle = (norm(q).replace("\\", "\\\\")
-                  .replace("%", "\\%").replace("_", "\\_"))
-        where.append("(b.norm_title LIKE ? ESCAPE '\\' "
-                     "OR b.norm_author LIKE ? ESCAPE '\\')")
+        needle = norm(q).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        where.append("(b.norm_title LIKE ? ESCAPE '\\' OR b.norm_author LIKE ? ESCAPE '\\')")
         like = f"%{needle}%"
         args += [like, like]
     return (" WHERE " + " AND ".join(where)) if where else "", args
 
 
-def books(root: str | None = None, shelf: str | None = None,
-          folder: str | None = None, q: str | None = None,
-          only: str | None = None, fmt: str | None = None,
-          order: str | None = None, offset: int = 0, limit: int = 120) -> dict:
+def books(
+    root: str | None = None,
+    shelf: str | None = None,
+    folder: str | None = None,
+    q: str | None = None,
+    only: str | None = None,
+    fmt: str | None = None,
+    order: str | None = None,
+    offset: int = 0,
+    limit: int = 120,
+) -> dict:
     """One page of the shelf, with the cover each card should draw."""
     clause, args = _filter(root, shelf, folder, q, only, fmt)
     by = ORDERS.get(order or DEFAULT_ORDER, ORDERS[DEFAULT_ORDER])
 
     with db.connect() as conn:
-        total = conn.execute(
-            f"SELECT COUNT(*) c FROM books b{clause}", args).fetchone()["c"]
+        total = conn.execute(f"SELECT COUNT(*) c FROM books b{clause}", args).fetchone()["c"]
         rows = conn.execute(
             f"SELECT {CARD_COLUMNS}, c.state cover_state, "
             "r.percent read_percent, r.finished read_finished "
             "FROM books b LEFT JOIN covers c ON c.book_id=b.id "
             f"LEFT JOIN reading r ON r.path=b.path{clause} "
-            f"ORDER BY {by} LIMIT ? OFFSET ?", args + [limit, offset]).fetchall()
+            f"ORDER BY {by} LIMIT ? OFFSET ?",
+            args + [limit, offset],
+        ).fetchall()
         # What the format filter could still narrow to, counted under every
         # *other* filter that is active. A format offering nothing here is not
         # offered at all, so the control never leads anywhere empty.
-        facets = conn.execute(
-            f"SELECT b.format, COUNT(*) n FROM books b{clause} "
-            "GROUP BY b.format ORDER BY n DESC, b.format",
-            args).fetchall() if not fmt else []
-    return {"total": total, "offset": offset, "limit": limit,
-            "order": order or DEFAULT_ORDER, "format": fmt,
-            "facets": [dict(r) for r in facets],
-            "books": [dict(r) for r in rows]}
+        facets = (
+            conn.execute(
+                f"SELECT b.format, COUNT(*) n FROM books b{clause} "
+                "GROUP BY b.format ORDER BY n DESC, b.format",
+                args,
+            ).fetchall()
+            if not fmt
+            else []
+        )
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "order": order or DEFAULT_ORDER,
+        "format": fmt,
+        "facets": [dict(r) for r in facets],
+        "books": [dict(r) for r in rows],
+    }
 
 
-def book_ids(root: str | None = None, shelf: str | None = None,
-             folder: str | None = None, q: str | None = None,
-             only: str | None = None, fmt: str | None = None) -> list[int]:
+def book_ids(
+    root: str | None = None,
+    shelf: str | None = None,
+    folder: str | None = None,
+    q: str | None = None,
+    only: str | None = None,
+    fmt: str | None = None,
+) -> list[int]:
     """Every id a shelf view would show, under exactly the same filter.
 
     This is what "select everything here" resolves to on the server, so a
@@ -147,8 +170,9 @@ def book_ids(root: str | None = None, shelf: str | None = None,
     """
     clause, args = _filter(root, shelf, folder, q, only, fmt)
     with db.connect() as conn:
-        return [r["id"] for r in conn.execute(
-            f"SELECT b.id FROM books b{clause} ORDER BY b.id", args)]
+        return [
+            r["id"] for r in conn.execute(f"SELECT b.id FROM books b{clause} ORDER BY b.id", args)
+        ]
 
 
 def book(book_id: int) -> dict | None:
@@ -167,16 +191,22 @@ def book(book_id: int) -> dict | None:
             "r.updated_at read_at "
             "FROM books b LEFT JOIN covers c ON c.book_id=b.id "
             "LEFT JOIN reading r ON r.path=b.path WHERE b.id=?",
-            (book_id,)).fetchone()
+            (book_id,),
+        ).fetchone()
         if not row:
             return None
         d = dict(row)
-        near = [] if not d["folder"] else conn.execute(
-            f"SELECT {CARD_COLUMNS}, c.state cover_state "
-            "FROM books b LEFT JOIN covers c ON c.book_id=b.id "
-            "WHERE b.root_label=? AND b.shelf=? AND b.folder=? "
-            "ORDER BY b.sort_date, b.sort_vol, b.nat_title, b.id LIMIT 200",
-            (d["root_label"], d["shelf"], d["folder"])).fetchall()
+        near = (
+            []
+            if not d["folder"]
+            else conn.execute(
+                f"SELECT {CARD_COLUMNS}, c.state cover_state "
+                "FROM books b LEFT JOIN covers c ON c.book_id=b.id "
+                "WHERE b.root_label=? AND b.shelf=? AND b.folder=? "
+                "ORDER BY b.sort_date, b.sort_vol, b.nat_title, b.id LIMIT 200",
+                (d["root_label"], d["shelf"], d["folder"]),
+            ).fetchall()
+        )
     return {"book": d, "nearby": [dict(r) for r in near]}
 
 
@@ -193,13 +223,16 @@ def formats(root: str | None = None, shelf: str | None = None) -> dict:
             "SUM(b.is_dir) n_dirs, MIN(b.date) first_date, MAX(b.date) last_date, "
             "COUNT(DISTINCT b.norm_author) n_authors "
             f"FROM books b{clause} GROUP BY b.format "
-            "ORDER BY n_books DESC, b.format", args).fetchall()
+            "ORDER BY n_books DESC, b.format",
+            args,
+        ).fetchall()
         by_shelf = conn.execute(
             "SELECT b.root_label, b.shelf, b.format, COUNT(*) n_books "
             f"FROM books b{clause} GROUP BY b.root_label, b.shelf, b.format "
-            "ORDER BY b.root_label, b.shelf, n_books DESC", args).fetchall()
-    return {"formats": [dict(r) for r in rows],
-            "by_shelf": [dict(r) for r in by_shelf]}
+            "ORDER BY b.root_label, b.shelf, n_books DESC",
+            args,
+        ).fetchall()
+    return {"formats": [dict(r) for r in rows], "by_shelf": [dict(r) for r in by_shelf]}
 
 
 def folders(root: str | None = None, shelf: str | None = None) -> dict:
@@ -212,5 +245,7 @@ def folders(root: str | None = None, shelf: str | None = None) -> dict:
             "MIN(b.author) author, COUNT(DISTINCT b.format) n_formats "
             f"FROM books b{clause}{extra} "
             "GROUP BY b.root_label, b.shelf, b.folder "
-            "ORDER BY b.root_label, b.shelf, b.folder", args).fetchall()
+            "ORDER BY b.root_label, b.shelf, b.folder",
+            args,
+        ).fetchall()
     return {"folders": [dict(r) for r in rows]}

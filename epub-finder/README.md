@@ -1,22 +1,21 @@
 # EPUB Finder
 
-A local desktop application for searching EPUB files in a selected folder and its subfolders. Results show the book, chapter, paragraph, character position, and surrounding text. Select a result to preview the chapter with the match highlighted.
+A desktop app that searches the text of every EPUB under a folder and previews the matching
+chapter with the hit highlighted.
 
 ## Run
 
-Requires Python 3.10 or newer with Tkinter. No third-party Python packages are needed.
+Requires Python 3.14 with Tkinter; standard library only.
 
-- Windows: double-click `main.pyw`, or run `pythonw main.pyw` from this directory.
-- Other systems: run `python main.pyw` from this directory.
+```bash
+pythonw main.pyw    # Windows, without a console window
+python main.pyw
+```
 
-Selecting a folder starts a scan. Use **Update Index** to synchronize added, changed, or deleted EPUB files later. The application remembers the last selected folder and checks it again at startup.
+Choosing a folder indexes it; **Update Index** picks up added, changed or deleted books. Search
+is a case-insensitive literal match (characters, Chinese phrases, short English words); the
+first 500 hits are shown. Only visible XHTML/HTML text in spine order is searched — not images,
+not DRM-protected books, and not books with a content file over 25 MB.
 
-Use the theme button in the upper-right corner to switch between light and dark themes. The selection is saved for the next launch. Drag the divider between results and the chapter preview to resize either area.
-
-Search matches consecutive text without regard to case. It supports single characters, Chinese phrases, and short English words. Each occurrence is a separate result; the first 500 results are shown. Character positions are one-based within a paragraph. Chapter names come from the first heading in each chapter when available, or from the EPUB's internal filename.
-
-The index and settings are stored in the user's local `EpubFinder` application data directory (`%LOCALAPPDATA%\EpubFinder` on Windows). Books and search terms are never uploaded.
-
-## Supported content
-
-The application follows the EPUB OPF spine reading order and searches visible text in XHTML and HTML content files. It cannot search text in images or DRM-protected content. An EPUB is skipped with an error message if one of its internal content files exceeds 25 MB.
+The index and settings live in `%LOCALAPPDATA%\EpubFinder` (the platform's app-data directory
+elsewhere). Nothing is uploaded.

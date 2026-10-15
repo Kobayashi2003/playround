@@ -18,14 +18,8 @@
     ]
   },
   "launch": {
-    "file": "python",
     "args": [
-      "-m",
-      "lnlib",
-      "serve",
-      "--host",
-      "127.0.0.1",
-      "--port",
+      "-Port",
       "${ports.http}",
       "--base-path",
       "${basePath}",

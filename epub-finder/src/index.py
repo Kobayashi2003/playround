@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from contextlib import contextmanager
-from pathlib import Path
 import re
 import sqlite3
-from typing import Callable, Iterator
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
 
 from .epub import read_epub
 
@@ -65,16 +65,24 @@ class SearchIndex:
         finally:
             db.close()
 
-    def scan(self, root: Path, progress: Callable[[int, int, str], None] | None = None) -> tuple[int, list[str]]:
+    def scan(
+        self, root: Path, progress: Callable[[int, int, str], None] | None = None
+    ) -> tuple[int, list[str]]:
         root = root.resolve()
-        files = sorted((p for p in root.rglob("*") if p.is_file() and p.suffix.lower() == ".epub"), key=lambda p: str(p).casefold())
+        files = sorted(
+            (p for p in root.rglob("*") if p.is_file() and p.suffix.lower() == ".epub"),
+            key=lambda p: str(p).casefold(),
+        )
         seen = {str(p) for p in files}
         errors: list[str] = []
         updated = 0
         with self._connect() as db:
-            existing = {row[0]: (row[1], row[2]) for row in db.execute(
-                "SELECT path, size, mtime_ns FROM books WHERE root = ?", (str(root),)
-            )}
+            existing = {
+                row[0]: (row[1], row[2])
+                for row in db.execute(
+                    "SELECT path, size, mtime_ns FROM books WHERE root = ?", (str(root),)
+                )
+            }
             for i, path in enumerate(files, 1):
                 path_str = str(path)
                 if progress:
@@ -88,13 +96,28 @@ class SearchIndex:
                         db.execute("DELETE FROM books WHERE path = ?", (path_str,))
                         cursor = db.execute(
                             "INSERT INTO books(root, path, title, author, size, mtime_ns) VALUES (?, ?, ?, ?, ?, ?)",
-                            (str(root), path_str, book.title, book.author, stat.st_size, stat.st_mtime_ns),
+                            (
+                                str(root),
+                                path_str,
+                                book.title,
+                                book.author,
+                                stat.st_size,
+                                stat.st_mtime_ns,
+                            ),
                         )
                         book_id = cursor.lastrowid
                         db.executemany(
                             "INSERT INTO paragraphs VALUES (?, ?, ?, ?, ?, ?, ?)",
                             (
-                                (book_id, chapter.number, chapter.title, chapter.href, j, text, text.casefold())
+                                (
+                                    book_id,
+                                    chapter.number,
+                                    chapter.title,
+                                    chapter.href,
+                                    j,
+                                    text,
+                                    text.casefold(),
+                                )
                                 for chapter in book.chapters
                                 for j, text in enumerate(chapter.paragraphs, 1)
                             ),
@@ -111,7 +134,9 @@ class SearchIndex:
 
     def count_books(self, root: Path) -> int:
         with self._connect() as db:
-            return db.execute("SELECT count(*) FROM books WHERE root = ?", (str(root.resolve()),)).fetchone()[0]
+            return db.execute(
+                "SELECT count(*) FROM books WHERE root = ?", (str(root.resolve()),)
+            ).fetchone()[0]
 
     def search(self, root: Path, query: str, limit: int = 500) -> tuple[list[Hit], bool]:
         query = query.strip()
@@ -120,27 +145,45 @@ class SearchIndex:
         pattern = re.compile(re.escape(query), re.IGNORECASE)
         hits: list[Hit] = []
         with self._connect() as db:
-            rows = db.execute("""
+            rows = db.execute(
+                """
                 SELECT b.id, b.path, b.title, b.author, p.chapter_number, p.chapter,
                        p.href, p.paragraph_number, p.text
                 FROM paragraphs p JOIN books b ON b.id = p.book_id
                 WHERE b.root = ? AND instr(p.folded, ?) > 0
                 ORDER BY b.title COLLATE NOCASE, p.chapter_number, p.paragraph_number
-            """, (str(root.resolve()), query.casefold()))
+            """,
+                (str(root.resolve()), query.casefold()),
+            )
             for row in rows:
                 text = row[8]
                 for match in pattern.finditer(text):
                     start, end = match.span()
                     left, right = max(0, start - 65), min(len(text), end + 85)
-                    excerpt = ("…" if left else "") + text[left:right] + ("…" if right < len(text) else "")
-                    hits.append(Hit(*row[:8], start + 1, excerpt, start - left + (1 if left else 0), end - left + (1 if left else 0)))
+                    excerpt = (
+                        ("…" if left else "")
+                        + text[left:right]
+                        + ("…" if right < len(text) else "")
+                    )
+                    hits.append(
+                        Hit(
+                            *row[:8],
+                            offset=start + 1,
+                            excerpt=excerpt,
+                            match_start=start - left + (1 if left else 0),
+                            match_end=end - left + (1 if left else 0),
+                        )
+                    )
                     if len(hits) > limit:
                         return hits[:limit], True
         return hits, False
 
     def chapter_text(self, book_id: int, chapter_number: int) -> list[str]:
         with self._connect() as db:
-            return [row[0] for row in db.execute(
-                "SELECT text FROM paragraphs WHERE book_id = ? AND chapter_number = ? ORDER BY paragraph_number",
-                (book_id, chapter_number),
-            )]
+            return [
+                row[0]
+                for row in db.execute(
+                    "SELECT text FROM paragraphs WHERE book_id = ? AND chapter_number = ? ORDER BY paragraph_number",
+                    (book_id, chapter_number),
+                )
+            ]

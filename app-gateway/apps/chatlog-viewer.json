@@ -18,12 +18,8 @@
     ]
   },
   "launch": {
-    "file": "python",
     "args": [
-      "server.py",
-      "--host",
-      "127.0.0.1",
-      "--port",
+      "-Port",
       "${ports.http}",
       "--base-path",
       "${basePath}",

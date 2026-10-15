@@ -43,11 +43,7 @@ param(
 
     # Flip "enabled" in an app's own file and exit. The persistent form of -App.
     [Parameter(ParameterSetName = 'Enable',  Mandatory)] [string[]] $Enable,
-    [Parameter(ParameterSetName = 'Disable', Mandatory)] [string[]] $Disable,
-
-    # Settings somewhere other than ./gateway.json — a second registry, or a test
-    # one. Its "appsDir" is what decides which plugins load.
-    [string]   $Config
+    [Parameter(ParameterSetName = 'Disable', Mandatory)] [string[]] $Disable
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,8 +59,7 @@ $Enable  = Split-List $Enable
 $Disable = Split-List $Disable
 
 $root         = $PSScriptRoot
-$settingsPath = if ($Config) { [IO.Path]::GetFullPath($Config) } else { Join-Path $root 'gateway.json' }
-$baseDir      = Split-Path -Parent $settingsPath
+$appsDir      = Join-Path $root 'apps'
 $runtimeDir   = Join-Path $root '.runtime'
 $webRoot      = Join-Path $runtimeDir 'web'
 $caddyfile    = Join-Path $runtimeDir 'Caddyfile'
@@ -75,10 +70,7 @@ $caddyfile    = Join-Path $runtimeDir 'Caddyfile'
 . (Join-Path $root 'lib\ProcessHost.ps1')
 
 # --------------------------------------------------------------------- load
-# $settings, not $config: -Config above is a [string] path, and PowerShell would
-# quietly stringify the parsed object back into it.
-$settings = Read-GatewaySettings -Path $settingsPath
-$appsDir  = [IO.Path]::GetFullPath([string](Get-JsonProperty $settings 'appsDir' 'apps'), $baseDir)
+$settings = Read-GatewaySettings -Path (Join-Path $root 'gateway.json')
 $plugins  = @(Get-AppPlugin -Dir $appsDir)
 
 # ---------------------------------------------------------------- enable/disable
@@ -98,26 +90,13 @@ $paths = @{}
 $pathsNode = Get-JsonProperty $settings 'paths'
 if ($pathsNode) {
     foreach ($p in $pathsNode.PSObject.Properties) {
-        $paths["paths.$($p.Name)"] = [IO.Path]::GetFullPath([string]$p.Value, $baseDir)
+        $paths["paths.$($p.Name)"] = [IO.Path]::GetFullPath([string]$p.Value, $root)
     }
 }
 
-# portRanges: { "project": "17000-17999" } -> @{ project = @{ From; To } }, keyed
-# by the same names as paths. The convention itself is in PORTS.md.
-$portRanges = @{}
-$rangesNode = Get-JsonProperty $settings 'portRanges'
-if ($rangesNode) {
-    foreach ($r in $rangesNode.PSObject.Properties) {
-        if ([string]$r.Value -notmatch '^(\d+)-(\d+)$' -or [int]$Matches[1] -gt [int]$Matches[2]) {
-            throw "gateway.json portRanges.$($r.Name) must be 'from-to', got '$($r.Value)'."
-        }
-        if (-not $paths.ContainsKey("paths.$($r.Name)")) {
-            throw "gateway.json portRanges.$($r.Name) names no entry in paths."
-        }
-        $portRanges[$r.Name] = @{ From = [int]$Matches[1]; To = [int]$Matches[2] }
-    }
-}
-$portSlot = [int](Get-JsonProperty $settings 'portSlot' 10)
+# The port convention is not the gateway's: it reads the ranges from PORTS.md.
+$portsFile  = [IO.Path]::GetFullPath([string](Get-JsonProperty $settings 'ports' '../../PORTS.md'), $root)
+$convention = Read-PortConvention -Path $portsFile
 
 # -Port hearth:backend=17019 -> @{ hearth = @{ backend = 17019 } }
 $portOverride = @{}
@@ -133,7 +112,7 @@ foreach ($spec in $Port) {
 $unknownOverride = @($portOverride.Keys | Where-Object { $_ -notin $plugins.Id })
 if ($unknownOverride) { throw "-Port names unknown app(s): $($unknownOverride -join ', '). Known: $($plugins.Id -join ', ')" }
 
-$all = @(Resolve-GatewayApps -Plugins $plugins -BaseDir $baseDir -Bind $bind `
+$all = @(Resolve-GatewayApps -Plugins $plugins -BaseDir $root -Bind $bind `
                              -Paths $paths -PortOverride $portOverride)
 
 # --------------------------------------------------------------------- list
@@ -172,7 +151,7 @@ if (-not $selected.Count) {
     throw "Nothing to run: every app in $appsDir is disabled. Turn one on with -Enable <id>, or name one with -App."
 }
 
-Assert-GatewayApps -Apps $selected -Bind $bind -Paths $paths -PortRanges $portRanges -PortSlot $portSlot
+Assert-GatewayApps -Apps $selected -Bind $bind -PortRanges $convention.Ranges -PortSlot $convention.Slot
 
 # --------------------------------------------------------------------- config
 # Regenerated every launch — the plugin files are the source of truth, and a stale
@@ -185,8 +164,7 @@ New-LandingPage -Apps $selected -WebRoot $webRoot `
     -Tagline      ([string](Get-JsonProperty $site 'tagline' '')) `
     -FallbackIcon ([string](Get-JsonProperty $site 'fallbackIcon' '*')) | Out-Null
 
-New-GatewayCaddyfile -Apps $selected -OutFile $caddyfile -WebRoot $webRoot -Bind $bind `
-    -SourceDir (Split-Path -Leaf $appsDir) | Out-Null
+New-GatewayCaddyfile -Apps $selected -OutFile $caddyfile -WebRoot $webRoot -Bind $bind | Out-Null
 
 $routeEnv = Get-MergedRouteEnv -Apps $selected
 
@@ -234,20 +212,25 @@ if (Get-NetTCPConnection -LocalPort $bindPort -State Listen -ErrorAction Silentl
 
 # --------------------------------------------------------------------- launch
 $children = @()
+$runFile = Join-Path $root '.running.json'
 try {
     foreach ($a in $selected) {
         if (-not $a.Launch) {
             Write-Host "[SKIP]  $($a.Id) declares no launch; routing only." -ForegroundColor DarkGray
             continue
         }
-        $children += Start-Child -Label $a.Id -File $a.Launch.File -Arguments $a.Launch.Args `
-            -Cwd $a.Launch.Cwd -Environment $a.Env
+        $children += Start-Child -Label $a.Id -File 'pwsh' -Cwd $a.Root -Environment $a.Env `
+            -Arguments (@('-NoProfile', '-File', $a.Launch.Script) + $a.Launch.Args)
     }
 
     # Caddy last, so its upstreams are already coming up. It tolerates a cold one
     # anyway (502 until ready); this just keeps the log readable.
     $children += Start-Child -Label 'caddy' -File 'caddy' -Cwd $root -Environment $routeEnv `
         -Arguments @('run', '--config', $caddyfile, '--adapter', 'caddyfile')
+
+    # stop.ps1 reads this to stop the gateway from another window.
+    $children | ForEach-Object { @{ ProcessId = $_.Process.Id; StartTicks = $_.Process.StartTime.Ticks } } |
+        ConvertTo-Json -AsArray | Set-Content -LiteralPath $runFile
 
     Write-Host ''
     Write-Host "[GATEWAY] up on http://localhost$bind — Ctrl+C to stop everything." -ForegroundColor Green
@@ -256,4 +239,5 @@ try {
     Wait-Children -Children $children
 } finally {
     Stop-Children -Children $children
+    Remove-Item -LiteralPath $runFile -ErrorAction SilentlyContinue
 }

@@ -28,22 +28,40 @@ the likeliest reason a file is missing is that the drive holding it is not
 plugged in. A root that could not be opened at all is skipped entirely rather
 than being read as an empty one, so an unplugged drive marks nothing.
 """
+
 from __future__ import annotations
 
 import os
 import time
 
 from . import config, db
-from .naming import (is_extra, natural, norm, parse_folder, parse_item,
-                     split_author_suffix, volume_of)
 from .config import BOOK_EXT, IMAGE_EXT, format_of
-
+from .naming import (
+    is_extra,
+    natural,
+    norm,
+    parse_folder,
+    parse_item,
+    split_author_suffix,
+    volume_of,
+)
 
 # A folder of page scans named like this is named for what it holds, not for
 # the book; the book's name is on the folder above it.
-GENERIC_IMAGE_DIRS = {"images", "image", "img", "imgs", "pages", "page",
-                      "scans", "scan", "jpg", "jpeg", "png"}
-MAX_DEPTH = 12                  # a guard against a link loop, not a real limit
+GENERIC_IMAGE_DIRS = {
+    "images",
+    "image",
+    "img",
+    "imgs",
+    "pages",
+    "page",
+    "scans",
+    "scan",
+    "jpg",
+    "jpeg",
+    "png",
+}
+MAX_DEPTH = 12  # a guard against a link loop, not a real limit
 
 
 def _list(path: str) -> tuple[list, list]:
@@ -97,8 +115,7 @@ def _shelves_of(root_path: str) -> list[str]:
     page scans is a book however it is named.
     """
     _, dirs = _list(root_path)
-    return [d.name for d in dirs
-            if not d.name.startswith("[") and not _is_image_volume(d.path)]
+    return [d.name for d in dirs if not d.name.startswith("[") and not _is_image_volume(d.path)]
 
 
 def _file_book(entry, credit: dict | None) -> dict | None:
@@ -113,8 +130,15 @@ def _file_book(entry, credit: dict | None) -> dict | None:
         st = entry.stat()
     except OSError:
         return None
-    return dict(path=entry.path, filename=entry.name, ext=ext, is_dir=0,
-                size=st.st_size, mtime=st.st_mtime, **meta)
+    return dict(
+        path=entry.path,
+        filename=entry.name,
+        ext=ext,
+        is_dir=0,
+        size=st.st_size,
+        mtime=st.st_mtime,
+        **meta,
+    )
 
 
 def _folder_book(entry, files, parent_name: str, credit: dict | None) -> dict:
@@ -132,16 +156,25 @@ def _folder_book(entry, files, parent_name: str, credit: dict | None) -> dict:
         mtime = entry.stat().st_mtime
     except OSError:
         mtime = 0
-    return dict(path=entry.path, filename=entry.name, ext="<dir>", is_dir=1,
-                size=size, mtime=mtime, **meta)
+    return dict(
+        path=entry.path, filename=entry.name, ext="<dir>", is_dir=1, size=size, mtime=mtime, **meta
+    )
 
 
 def scan(verbose: bool = True) -> dict:
     cfg = config.Config.load()
     db.init()
     started = time.time()
-    stats = {"roots": 0, "books": 0, "new": 0, "updated": 0, "returned": 0,
-             "vanished": 0, "formats": {}, "skipped_roots": []}
+    stats = {
+        "roots": 0,
+        "books": 0,
+        "new": 0,
+        "updated": 0,
+        "returned": 0,
+        "vanished": 0,
+        "formats": {},
+        "skipped_roots": [],
+    }
     scanned_roots: list[str] = []
 
     with db.connect() as conn:
@@ -157,8 +190,7 @@ def scan(verbose: bool = True) -> dict:
             if root.layout == "authors":
                 # The whole root is one shelf, and every folder directly under
                 # it is someone's name.
-                _walk(conn, root, "", root.path, "", None, stats,
-                      skip=set(), authors=True)
+                _walk(conn, root, "", root.path, "", None, stats, skip=set(), authors=True)
                 continue
 
             # The root itself is scanned as an unnamed shelf so loose books and
@@ -166,24 +198,34 @@ def scan(verbose: bool = True) -> dict:
             shelves = _shelves_of(root.path)
             _walk(conn, root, "", root.path, "", None, stats, skip=set(shelves))
             for shelf in shelves:
-                _walk(conn, root, shelf, os.path.join(root.path, shelf), "",
-                      None, stats, skip=set())
+                _walk(
+                    conn, root, shelf, os.path.join(root.path, shelf), "", None, stats, skip=set()
+                )
 
         _mark_absent(conn, scanned_roots, started, stats)
 
-        db.set_meta(conn, "last_scan", {"at": time.time(),
-                                        "seconds": round(time.time() - started, 2),
-                                        **{k: v for k, v in stats.items()
-                                           if k != "skipped_roots"}})
+        db.set_meta(
+            conn,
+            "last_scan",
+            {
+                "at": time.time(),
+                "seconds": round(time.time() - started, 2),
+                **{k: v for k, v in stats.items() if k != "skipped_roots"},
+            },
+        )
 
     stats["seconds"] = round(time.time() - started, 2)
     if verbose:
-        kinds = ", ".join(f"{k} {n}" for k, n in
-                          sorted(stats["formats"].items(), key=lambda kv: -kv[1]))
-        print(f"scanned {stats['roots']} roots: {stats['books']} books found "
-              f"in {stats['seconds']}s")
-        print(f"  {stats['new']} new, {stats['updated']} changed, "
-              f"{stats['returned']} back again, {stats['vanished']} not found")
+        kinds = ", ".join(
+            f"{k} {n}" for k, n in sorted(stats["formats"].items(), key=lambda kv: -kv[1])
+        )
+        print(
+            f"scanned {stats['roots']} roots: {stats['books']} books found in {stats['seconds']}s"
+        )
+        print(
+            f"  {stats['new']} new, {stats['updated']} changed, "
+            f"{stats['returned']} back again, {stats['vanished']} not found"
+        )
         if kinds:
             print(f"  {kinds}")
         for p in stats["skipped_roots"]:
@@ -212,13 +254,25 @@ def _mark_absent(conn, scanned_roots, started, stats) -> None:
         where.append("substr(path, 1, ?) = ?")
         args += [len(prefix), prefix]
     cur = conn.execute(
-        f"UPDATE books SET present=0 WHERE present=1 AND last_seen < ? "
-        f"AND ({' OR '.join(where)})", args)
+        f"UPDATE books SET present=0 WHERE present=1 AND last_seen < ? AND ({' OR '.join(where)})",
+        args,
+    )
     stats["vanished"] = cur.rowcount or 0
 
 
-def _walk(conn, root, shelf, base, rel, credit, stats, skip,
-          authors: bool = False, depth: int = 0, listing=None) -> None:
+def _walk(
+    conn,
+    root,
+    shelf,
+    base,
+    rel,
+    credit,
+    stats,
+    skip,
+    authors: bool = False,
+    depth: int = 0,
+    listing=None,
+) -> None:
     """Record every book in one folder of a shelf, then everything below it.
 
     `rel` is where this folder sits inside the shelf ("" for the shelf itself);
@@ -248,14 +302,24 @@ def _walk(conn, root, shelf, base, rel, credit, stats, skip,
 
         if authors and depth == 0:
             # Author/... -- the folder's name is the credit, brackets or not.
-            sub_credit = {"author": entry.name, "imprint": None,
-                          "illustrator": None}
+            sub_credit = {"author": entry.name, "imprint": None, "illustrator": None}
         else:
             own = parse_folder(entry.name)
             sub_credit = own if own.get("author") else credit
         sub_rel = f"{rel}/{entry.name}" if rel else entry.name
-        _walk(conn, root, shelf, base, sub_rel, sub_credit, stats, set(),
-              authors=authors, depth=depth + 1, listing=(sub_files, sub_dirs))
+        _walk(
+            conn,
+            root,
+            shelf,
+            base,
+            sub_rel,
+            sub_credit,
+            stats,
+            set(),
+            authors=authors,
+            depth=depth + 1,
+            listing=(sub_files, sub_dirs),
+        )
 
 
 def _insert(conn, root, shelf, folder, credit, book, stats) -> None:
@@ -281,8 +345,8 @@ def _insert(conn, root, shelf, folder, credit, book, stats) -> None:
 
     now = db.now()
     before = conn.execute(
-        "SELECT present, size, mtime, title, shelf, folder FROM books "
-        "WHERE path=?", (book["path"],)).fetchone()
+        "SELECT present, size, mtime, title, shelf, folder FROM books WHERE path=?", (book["path"],)
+    ).fetchone()
 
     conn.execute(
         "INSERT INTO books("
@@ -304,11 +368,33 @@ def _insert(conn, root, shelf, folder, credit, book, stats) -> None:
         "norm_title=excluded.norm_title, norm_author=excluded.norm_author, "
         "nat_title=excluded.nat_title, "
         "present=1, last_seen=excluded.last_seen",
-        (root.label, root.kind, shelf, folder, book["path"], book["filename"],
-         title, author, imprint, illustrator, book["ext"], fmt, book["date"],
-         volume, int(is_extra(title)), book["is_dir"], book["size"],
-         book["mtime"], book["date"] or "9999-99-99", sort_vol,
-         norm(title), norm(author or ""), natural(title), now, now),
+        (
+            root.label,
+            root.kind,
+            shelf,
+            folder,
+            book["path"],
+            book["filename"],
+            title,
+            author,
+            imprint,
+            illustrator,
+            book["ext"],
+            fmt,
+            book["date"],
+            volume,
+            int(is_extra(title)),
+            book["is_dir"],
+            book["size"],
+            book["mtime"],
+            book["date"] or "9999-99-99",
+            sort_vol,
+            norm(title),
+            norm(author or ""),
+            natural(title),
+            now,
+            now,
+        ),
     )
 
     stats["books"] += 1
@@ -317,7 +403,11 @@ def _insert(conn, root, shelf, folder, credit, book, stats) -> None:
         stats["new"] += 1
     elif not before["present"]:
         stats["returned"] += 1
-    elif (before["size"] != book["size"] or before["mtime"] != book["mtime"]
-          or before["title"] != title or before["shelf"] != shelf
-          or before["folder"] != folder):
+    elif (
+        before["size"] != book["size"]
+        or before["mtime"] != book["mtime"]
+        or before["title"] != title
+        or before["shelf"] != shelf
+        or before["folder"] != folder
+    ):
         stats["updated"] += 1
