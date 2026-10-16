@@ -42,7 +42,7 @@
       "type": "string",
       "pattern": "^/[^\\s]*[^/\\s]$",
       "description": "Public path prefix the app is reached under, no trailing slash. Every app shares one origin here, so the root belongs to the landing page and each app must live under a prefix it also knows about itself: a build-time basePath for Next, a runtime flag for the rest. Required for a landing card and for the default proxy route.",
-      "examples": ["/hearth", "/vndb"]
+      "examples": ["/hearth", "/chatlog"]
     },
     "probe": {
       "type": "string",

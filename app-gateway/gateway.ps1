@@ -11,13 +11,13 @@
 # unregisters one. See schema/app.schema.json for the fields, README.md for why.
 #
 #   .\gateway.ps1                              every enabled app
-#   .\gateway.ps1 -App hearth,lnlib            just these, enabled or not
+#   .\gateway.ps1 -App hearth,chatlog-viewer   just these, enabled or not
 #   .\gateway.ps1 -List                        the registry, and what is on
 #   .\gateway.ps1 -ConfigOnly                  generate and validate config, launch nothing
 #   .\gateway.ps1 -Bind :8080                  move the public port, this run
 #   .\gateway.ps1 -Port hearth:backend=17019   move an app's port, this run
-#   .\gateway.ps1 -Enable lnlib                turn an app on, written back to its own file
-#   .\gateway.ps1 -Disable lnlib               turn it off again
+#   .\gateway.ps1 -Enable tmw-downloader       turn an app on, written back to its own file
+#   .\gateway.ps1 -Disable tmw-downloader      turn it off again
 
 [CmdletBinding(DefaultParameterSetName = 'Run')]
 param(
