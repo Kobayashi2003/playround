@@ -1,6 +1,8 @@
-# Starts the viewer; .\stop.ps1 stops it from another window. Other arguments go to server.py.
+# Starts the viewer and opens it in the browser (-NoBrowser to skip); .\stop.ps1 stops it from
+# another window. Other arguments go to server.py.
 param(
     [int]$Port = 16010,
+    [switch]$NoBrowser,
     [Parameter(ValueFromRemainingArguments)][string[]]$Rest = @()
 )
 $ErrorActionPreference = 'Stop'
@@ -14,8 +16,10 @@ if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyCon
 uv sync --locked
 if ($LASTEXITCODE -ne 0) { throw 'Could not install dependencies; check the network or proxy and run this again.' }
 
-$server = Start-Process uv -NoNewWindow -PassThru `
-    -ArgumentList (@('run', '--locked', 'python', 'server.py', '--port', $Port) + $Rest)
+# server.py opens the browser itself once it is listening.
+$serverArgs = @('run', '--locked', 'python', 'server.py', '--port', $Port) + $Rest
+if ($NoBrowser) { $serverArgs += '--no-open' }
+$server = Start-Process uv -NoNewWindow -PassThru -ArgumentList $serverArgs
 @{ ProcessId = $server.Id; StartTicks = $server.StartTime.Ticks } | ConvertTo-Json | Set-Content -LiteralPath $runFile
 try {
     while (-not $server.HasExited) { Start-Sleep -Milliseconds 500 }

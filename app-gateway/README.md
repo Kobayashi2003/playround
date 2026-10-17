@@ -25,7 +25,8 @@ Requires PowerShell 7 and Caddy on `PATH`.
 .\gateway.ps1 -Enable tmw-downloader       # / -Disable: written back to apps/tmw-downloader.json
 ```
 
-Ctrl+C stops everything; `.\stop.ps1` does the same from another window.
+Ctrl+C stops everything; `.\stop.ps1` does the same from another window. The landing page opens in
+the browser unless `-NoBrowser`; apps are always started with `-NoBrowser`.
 
 ## Apps
 
@@ -39,7 +40,7 @@ Each `apps/<id>.json` registers one app; `schema/app.schema.json` documents ever
   "basePath": "/chatlog",
   "ports": { "http": 16010 },
   "routes": { "proxy": [ { "upstream": "127.0.0.1:${ports.http}" } ] },
-  "launch": { "args": ["-Port", "${ports.http}", "--base-path", "${basePath}", "--no-open"] }
+  "launch": { "args": ["-Port", "${ports.http}", "--base-path", "${basePath}"] }
 }
 ```
 

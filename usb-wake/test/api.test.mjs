@@ -1,0 +1,190 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { Miniflare, convertV4MiniflareOptions } from "miniflare";
+
+const owner = "owner-fixture-".repeat(4);
+const device = "device-fixture-".repeat(4);
+
+async function fixture(t) {
+  const mf = new Miniflare(
+    convertV4MiniflareOptions({
+      workers: [
+        {
+          name: "entry",
+          modules: true,
+          scriptPath: "pages-entry/public/_worker.js",
+          compatibilityDate: "2026-10-15",
+          serviceBindings: { RELAY: "relay" },
+        },
+        {
+          name: "relay",
+          modules: true,
+          scriptPath: "cloud/dist/index.js",
+          compatibilityDate: "2026-10-15",
+          bindings: { ADMIN_TOKEN: owner, DEVICE_TOKEN: device },
+          durableObjects: {
+            WAKE_STATE: { className: "WakeState", useSQLite: true },
+          },
+        },
+      ],
+      host: "127.0.0.1",
+      port: 16033,
+    }),
+  );
+  t.after(() => mf.dispose());
+  return (
+    path,
+    {
+      token,
+      body,
+      cookie,
+      origin,
+      method = body === undefined ? "GET" : "POST",
+    } = {},
+  ) =>
+    mf.dispatchFetch(`https://wake.test${path}`, {
+      method,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(cookie ? { Cookie: cookie } : {}),
+        ...(origin ? { Origin: origin } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+}
+
+test("open access preserves device and owner authentication", async (t) => {
+  const call = await fixture(t);
+  assert.equal(
+    (await (await call("/api/status")).json()).passwordRequired,
+    false,
+  );
+  assert.equal((await call("/api/status")).status, 200);
+  assert.equal((await call("/device/poll", { body: {} })).status, 401);
+  assert.equal(
+    (await call("/device/poll", { body: {}, token: owner })).status,
+    401,
+  );
+  assert.equal(
+    (await call("/api/settings", { body: { enabled: false }, token: device }))
+      .status,
+    401,
+  );
+  assert.equal(
+    (await call("/api/wake", { body: {}, origin: "https://other.test" }))
+      .status,
+    403,
+  );
+  assert.equal((await call("/api/wake", { method: "POST" })).status, 415);
+  assert.equal((await call("/api/wake", { body: {} })).status, 409);
+  assert.equal(
+    (await call("/device/poll", { body: { lastHandled: 123 }, token: device }))
+      .status,
+    400,
+  );
+  assert.equal(
+    (
+      await call("/device/poll", {
+        body: { lastHandled: "x".repeat(3000) },
+        token: device,
+      })
+    ).status,
+    400,
+  );
+});
+
+test("password can be enabled, changed and disabled by owner; sessions are invalidated", async (t) => {
+  const call = await fixture(t);
+  const settings = (body) => call("/api/settings", { token: owner, body });
+  assert.equal(
+    (await settings({ enabled: true, password: "short" })).status,
+    400,
+  );
+  assert.equal(
+    (await settings({ enabled: true, password: "correct-password" })).status,
+    200,
+  );
+  assert.equal((await call("/api/status")).status, 401);
+  assert.equal((await call("/api/status", { token: device })).status, 401);
+  assert.equal((await call("/api/status", { token: owner })).status, 200);
+  assert.equal(
+    (await call("/api/login", { body: { password: "wrong" } })).status,
+    401,
+  );
+  const login = await call("/api/login", {
+    body: { password: "correct-password" },
+  });
+  assert.equal(login.status, 200);
+  const cookie = login.headers.get("Set-Cookie");
+  assert.match(cookie, /HttpOnly; SameSite=Strict/);
+  assert.match(cookie, /Secure/);
+  assert.equal((await call("/api/status", { cookie })).status, 200);
+  assert.equal(
+    (await call("/api/settings", { cookie, body: { enabled: false } })).status,
+    401,
+  );
+  assert.equal(
+    (
+      await call("/api/status", {
+        cookie: cookie.replace(/wake_session=./, "wake_session=X"),
+      })
+    ).status,
+    401,
+  );
+  await settings({ enabled: true, password: "another-password" });
+  assert.equal((await call("/api/status", { cookie })).status, 401);
+  for (let i = 0; i < 8; i++)
+    assert.equal(
+      (await call("/api/login", { body: { password: "wrong" } })).status,
+      401,
+    );
+  assert.equal(
+    (await call("/api/login", { body: { password: "wrong" } })).status,
+    429,
+  );
+  await settings({ enabled: false });
+  assert.equal((await call("/api/status")).status, 200);
+  assert.equal(
+    (await (await call("/api/status")).json()).passwordRequired,
+    false,
+  );
+});
+
+test("commands are redelivered until acknowledged, deduplicated, then cooled down", async (t) => {
+  const call = await fixture(t);
+  const poll = (body) => call("/device/poll", { token: device, body });
+  await poll({});
+  const created = await call("/api/wake", { body: {} });
+  assert.equal(created.status, 201);
+  const { command } = await created.json();
+  assert.equal(command.expiresAt - command.issuedAt, 30000);
+  assert.equal((await call("/api/wake", { body: {} })).status, 409);
+  for (let i = 0; i < 2; i++)
+    assert.equal((await (await poll({})).json()).command.id, command.id);
+  assert.equal(
+    (await (await poll({ lastHandled: command.id, lastResult: "sent" })).json())
+      .command,
+    null,
+  );
+  assert.equal((await (await poll({})).json()).command, null);
+  assert.equal(
+    (await (await call("/api/status")).json()).command.status,
+    "sent",
+  );
+  assert.equal((await call("/api/wake", { body: {} })).status, 429);
+});
+
+test("expired commands cannot wake after delayed reconnection", async (t) => {
+  const call = await fixture(t);
+  await call("/device/poll", { token: device, body: {} });
+  await call("/api/wake", { body: {} });
+  await new Promise((resolve) => setTimeout(resolve, 30500));
+  assert.equal((await (await call("/api/status")).json()).online, false);
+  const poll = await call("/device/poll", { token: device, body: {} });
+  assert.equal((await poll.json()).command, null);
+  assert.equal(
+    (await (await call("/api/status")).json()).command.status,
+    "expired",
+  );
+});

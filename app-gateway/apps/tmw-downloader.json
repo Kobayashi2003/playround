@@ -12,8 +12,7 @@
   "launch": {
     "args": [
       "--port",
-      "${ports.http}",
-      "--no-open"
+      "${ports.http}"
     ]
   }
 }

@@ -1,0 +1,17 @@
+.pio/
+backups/
+*.log
+__pycache__/
+firmware/src/cloud_settings.h
+cloud/.secrets.json
+.wrangler/
+node_modules/
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+cloud/src/generated-assets.js
+.running.json
+.logs/
+cloud/.dev.vars
+cloud/CONTROL-ACCESS.txt

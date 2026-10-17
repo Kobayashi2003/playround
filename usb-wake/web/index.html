@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#f5f8fc" />
+    <title>Remote Wake</title>
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <main class="controller">
+      <header class="header">
+        <a class="brand" href="./"
+          ><span class="brand-icon" aria-hidden="true">↟</span>
+          <h1>Remote Wake</h1></a
+        >
+        <button id="settingsButton" class="icon-button" aria-label="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h16M4 17h16M8 4v6m8 4v6" />
+          </svg>
+        </button>
+      </header>
+      <section id="loginPanel" class="login-panel" hidden>
+        <h2>Unlock</h2>
+        <form id="loginForm">
+          <label for="loginPassword">Password</label>
+          <input
+            id="loginPassword"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+          <button class="primary-button" type="submit">Continue</button>
+          <p id="loginError" class="form-message" role="alert"></p>
+        </form>
+      </section>
+      <section id="controlPanel" class="control-panel" aria-label="PC control">
+        <div
+          id="connection"
+          class="connection"
+          data-state="connecting"
+          role="status"
+        >
+          <span class="status-dot" aria-hidden="true"></span
+          ><span id="connectionText">Connecting</span>
+        </div>
+        <div class="power-area">
+          <button
+            id="wakeButton"
+            class="power-button"
+            aria-label="Wake PC"
+            disabled
+          >
+            <svg viewBox="0 0 64 64" aria-hidden="true">
+              <path d="M32 10v22M19 17a22 22 0 1 0 26 0" />
+            </svg>
+          </button>
+          <span id="buttonLabel" class="button-label" role="status"
+            >Wake PC</span
+          >
+        </div>
+        <p id="actionError" class="form-message" role="alert"></p>
+        <section class="activity" aria-label="Last request">
+          <div class="activity-heading">
+            <span>Last request</span><time id="commandTime">—</time>
+          </div>
+          <p id="commandResult" role="status">No requests yet</p>
+        </section>
+      </section>
+      <footer id="sessionControls" hidden>
+        <button id="logoutButton" class="text-button">Lock</button>
+      </footer>
+    </main>
+    <dialog id="settingsDialog" aria-labelledby="settingsTitle">
+      <div class="dialog-heading">
+        <h2 id="settingsTitle">Settings</h2>
+        <button
+          id="closeSettings"
+          class="icon-button"
+          aria-label="Close settings"
+        >
+          ×
+        </button>
+      </div>
+      <form id="settingsForm">
+        <label class="toggle-row" for="passwordEnabled"
+          ><span>Require password</span
+          ><input id="passwordEnabled" type="checkbox" role="switch"
+        /></label>
+        <div id="newPasswordField" hidden>
+          <label for="newPassword">New password</label>
+          <input
+            id="newPassword"
+            type="password"
+            minlength="8"
+            autocomplete="new-password"
+            placeholder="At least 8 characters"
+            disabled
+          />
+        </div>
+        <label for="managementKey">Management key</label>
+        <input id="managementKey" type="password" autocomplete="off" required />
+        <button id="saveSettings" class="primary-button" type="submit">
+          Save
+        </button>
+        <p id="settingsMessage" class="form-message" role="alert"></p>
+      </form>
+    </dialog>
+  </body>
+</html>

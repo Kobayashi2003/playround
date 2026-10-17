@@ -1,8 +1,9 @@
-# Starts the library server; .\stop.ps1 stops it from another window. -Build rebuilds the
-# interface first. Other arguments go to `main.py serve`.
+# Starts the library server and opens it in the browser (-NoBrowser to skip); .\stop.ps1 stops it
+# from another window. -Build rebuilds the interface first. Other arguments go to `main.py serve`.
 param(
     [int]$Port = 16020,
     [switch]$Build,
+    [switch]$NoBrowser,
     [Parameter(ValueFromRemainingArguments)][string[]]$Rest = @()
 )
 $ErrorActionPreference = 'Stop'
@@ -26,8 +27,10 @@ if (-not (Test-Path web\dist\index.html)) { throw 'The interface is not built. R
 uv sync --locked
 if ($LASTEXITCODE -ne 0) { throw 'Could not install dependencies; check the network or proxy and run this again.' }
 
-$server = Start-Process uv -NoNewWindow -PassThru `
-    -ArgumentList (@('run', '--locked', 'python', 'main.py', 'serve', '--port', $Port) + $Rest)
+# `serve` opens the browser itself once it is listening.
+$serverArgs = @('run', '--locked', 'python', 'main.py', 'serve', '--port', $Port) + $Rest
+if ($NoBrowser) { $serverArgs += '--no-browser' }
+$server = Start-Process uv -NoNewWindow -PassThru -ArgumentList $serverArgs
 @{ ProcessId = $server.Id; StartTicks = $server.StartTime.Ticks } | ConvertTo-Json | Set-Content -LiteralPath $runFile
 try {
     while (-not $server.HasExited) { Start-Sleep -Milliseconds 500 }

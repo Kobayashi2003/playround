@@ -1,0 +1,360 @@
+:root {
+  font-family: "Segoe UI Variable Text", system-ui, sans-serif;
+  color: #18304d;
+  background: #f5f8fc;
+  font-synthesis: none;
+  color-scheme: light;
+  --blue: #2463eb;
+  --muted: #5f7189;
+  --line: #dce5f0;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+}
+button,
+input,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+button,
+a,
+input {
+  outline-offset: 5px;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 3px solid #5a87ef;
+}
+[hidden] {
+  display: none !important;
+}
+.controller {
+  width: min(100%, 580px);
+  margin: 0 auto;
+  padding: 34px 32px 24px;
+}
+.header,
+.activity-heading,
+.dialog-heading,
+footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.header {
+  padding-bottom: 46px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  font-size: 18px;
+  font-weight: 650;
+  text-decoration: none;
+}
+.brand-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #cad9ed;
+  border-radius: 9px;
+  font-size: 24px;
+  color: var(--blue);
+}
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #526982;
+  font-size: 30px;
+}
+.icon-button:hover {
+  background: #e7edf6;
+}
+.icon-button svg {
+  width: 23px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+.control-panel {
+  text-align: center;
+}
+.connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border-radius: 20px;
+  background: #e9eef5;
+  font-size: 13px;
+  color: #617389;
+}
+.status-dot {
+  height: 7px;
+  width: 7px;
+  border-radius: 50%;
+  background: #8999ac;
+}
+.connection[data-state="online"] {
+  color: #08756c;
+  background: #e3f2ef;
+}
+.connection[data-state="online"] .status-dot {
+  background: #118577;
+}
+.connection[data-state="offline"] {
+  background: #edeff3;
+  color: #738091;
+}
+h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+h2 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 650;
+}
+.power-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 46px 0 40px;
+}
+.power-button {
+  display: grid;
+  place-items: center;
+  width: 146px;
+  height: 146px;
+  border-radius: 50%;
+  border: 7px solid #edf3fc;
+  background: var(--blue);
+  color: #fff;
+  box-shadow:
+    0 0 0 1px #d4e1f6,
+    0 9px 0 #dfe7f4;
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s,
+    background 0.2s;
+}
+.power-button:not(:disabled):hover {
+  background: #1856dc;
+  transform: translateY(-2px);
+}
+.power-button:not(:disabled):active {
+  transform: translateY(5px);
+  box-shadow:
+    0 0 0 1px #d4e1f6,
+    0 3px 0 #dfe7f4;
+}
+.power-button:disabled {
+  background: #b3c2d7;
+  box-shadow:
+    0 0 0 1px #d4deeb,
+    0 7px 0 #e5ebf3;
+}
+.power-button[data-pending="true"] {
+  background: #627fae;
+}
+.power-button svg {
+  width: 63px;
+  height: 63px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+.button-label {
+  margin-top: 29px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.activity {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 20px 0;
+  text-align: left;
+}
+.activity-heading {
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.activity-heading time {
+  font-variant-numeric: tabular-nums;
+}
+.activity p {
+  margin: 10px 0 0;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+footer {
+  margin-top: 43px;
+  color: #7a889a;
+  font-size: 12px;
+  min-height: 34px;
+  justify-content: flex-end;
+}
+.text-button {
+  border: 0;
+  background: none;
+  color: #526982;
+  font-size: 13px;
+  padding: 10px;
+}
+.form-message {
+  color: #b23f46;
+  font-size: 13px;
+  line-height: 1.7;
+  min-height: 0;
+  margin: 12px 0 0;
+}
+.form-message:empty {
+  margin: 0;
+}
+
+dialog {
+  width: min(440px, calc(100% - 32px));
+  max-height: calc(100dvh - 48px);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 24px;
+  color: inherit;
+  background: #fff;
+  box-shadow: 0 24px 80px #18304d24;
+}
+dialog::backdrop {
+  background: #18304d55;
+  backdrop-filter: blur(3px);
+}
+.dialog-heading h2 {
+  font-size: 21px;
+  margin: 0;
+  font-weight: 650;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+  margin: 20px 0;
+}
+.toggle-row input {
+  appearance: none;
+  width: 42px;
+  height: 26px;
+  margin: 0;
+  border-radius: 20px;
+  background: #9aabc0;
+  padding: 3px;
+  cursor: pointer;
+}
+.toggle-row input::before {
+  content: "";
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 0.15s;
+}
+.toggle-row input:checked {
+  background: var(--blue);
+}
+.toggle-row input:checked::before {
+  transform: translateX(16px);
+}
+label {
+  display: block;
+  font-size: 14px;
+  margin: 20px 0 9px;
+}
+input:not([type="checkbox"]) {
+  width: 100%;
+  min-height: 46px;
+  padding: 11px 12px;
+  border: 1px solid #c4d1e1;
+  border-radius: 8px;
+  color: #18304d;
+  background: #fff;
+}
+.primary-button {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: var(--blue);
+  color: white;
+  min-height: 46px;
+  margin-top: 24px;
+  padding: 12px;
+  font-weight: 600;
+}
+.primary-button:disabled {
+  opacity: 0.6;
+}
+
+.login-panel {
+  padding-top: 36px;
+}
+
+.login-panel form {
+  margin-top: 32px;
+}
+@media (max-width: 420px) {
+  .controller {
+    padding: 22px 24px 18px;
+  }
+  .header {
+    padding-bottom: 32px;
+  }
+  .power-area {
+    padding-top: 38px;
+  }
+  .power-button {
+    width: 138px;
+    height: 138px;
+  }
+  footer {
+    margin-top: 30px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

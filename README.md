@@ -8,3 +8,4 @@ Small personal apps, one folder each. Ports follow [PORTS.md](../PORTS.md).
 | [chatlog-viewer](chatlog-viewer/) | Reads Claude Code and Codex session logs in the browser |
 | [epub-finder](epub-finder/) | Desktop full-text search over a folder of EPUBs |
 | [lnlib](lnlib/) | Bookshelf and in-browser reader for a light novel and manga collection |
+| [usb-wake](usb-wake/) | ESP32 Wi-Fi Wake-on-LAN controller with a free Cloudflare relay |

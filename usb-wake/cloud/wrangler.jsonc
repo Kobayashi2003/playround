@@ -1,0 +1,13 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "personal-usb-wake",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-15",
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [{ "name": "WAKE_STATE", "class_name": "WakeState" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WakeState"] }],
+  "observability": { "enabled": false },
+  "dev": { "ip": "127.0.0.1", "port": 16030, "inspector_port": 16034 },
+}

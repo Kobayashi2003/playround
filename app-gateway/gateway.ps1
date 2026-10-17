@@ -14,6 +14,7 @@
 #   .\gateway.ps1 -App hearth,chatlog-viewer   just these, enabled or not
 #   .\gateway.ps1 -List                        the registry, and what is on
 #   .\gateway.ps1 -ConfigOnly                  generate and validate config, launch nothing
+#   .\gateway.ps1 -NoBrowser                   do not open the landing page
 #   .\gateway.ps1 -Bind :8080                  move the public port, this run
 #   .\gateway.ps1 -Port hearth:backend=17019   move an app's port, this run
 #   .\gateway.ps1 -Enable tmw-downloader       turn an app on, written back to its own file
@@ -37,6 +38,10 @@ param(
 
     [Parameter(ParameterSetName = 'Run')]
     [switch]   $ConfigOnly,
+
+    # Do not open the landing page in the browser.
+    [Parameter(ParameterSetName = 'Run')]
+    [switch]   $NoBrowser,
 
     [Parameter(ParameterSetName = 'List')]
     [switch]   $List,
@@ -219,8 +224,11 @@ try {
             Write-Host "[SKIP]  $($a.Id) declares no launch; routing only." -ForegroundColor DarkGray
             continue
         }
-        $children += Start-Child -Label $a.Id -File 'pwsh' -Cwd $a.Root -Environment $a.Env `
-            -Arguments (@('-NoProfile', '-File', $a.Launch.Script) + $a.Launch.Args)
+        # The gateway's landing page is the one page to open; an app's own would be its
+        # internal port.
+        $appArgs = @('-NoProfile', '-File', $a.Launch.Script) + $a.Launch.Args
+        if ((Get-Command $a.Launch.Script).Parameters.ContainsKey('NoBrowser')) { $appArgs += '-NoBrowser' }
+        $children += Start-Child -Label $a.Id -File 'pwsh' -Cwd $a.Root -Environment $a.Env -Arguments $appArgs
     }
 
     # Caddy last, so its upstreams are already coming up. It tolerates a cold one
@@ -232,9 +240,22 @@ try {
     $children | ForEach-Object { @{ ProcessId = $_.Process.Id; StartTicks = $_.Process.StartTime.Ticks } } |
         ConvertTo-Json -AsArray | Set-Content -LiteralPath $runFile
 
+    $landing = "http://127.0.0.1:$bindPort/"
     Write-Host ''
-    Write-Host "[GATEWAY] up on http://localhost$bind — Ctrl+C to stop everything." -ForegroundColor Green
+    Write-Host "[GATEWAY] up on $landing — Ctrl+C to stop everything." -ForegroundColor Green
     Write-Host ''
+
+    if (-not $NoBrowser) {
+        # Open the landing page once Caddy answers; the job ends with this script.
+        $null = Start-ThreadJob -ArgumentList $landing -ScriptBlock {
+            param($url)
+            for ($i = 0; $i -lt 240; $i++) {
+                try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; Start-Process $url; return }
+                catch { if ($_.Exception.Response) { Start-Process $url; return } }
+                Start-Sleep -Milliseconds 500
+            }
+        }
+    }
 
     Wait-Children -Children $children
 } finally {

@@ -1,0 +1,8 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "personal-usb-wake-entry",
+  "pages_build_output_dir": "./public",
+  "compatibility_date": "2026-10-15",
+  "services": [{ "binding": "RELAY", "service": "personal-usb-wake" }],
+  "dev": { "ip": "127.0.0.1", "port": 16031, "inspector_port": 16035 },
+}

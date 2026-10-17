@@ -1,0 +1,17 @@
+node_modules
+.wrangler
+**/.wrangler
+dist
+cloud/dist
+backups
+firmware
+*.pem
+cloud/src/generated-assets.js
+cloud/CONTROL-ACCESS.txt
+cloud/.secrets.json
+uv.lock
+pnpm-lock.yaml
+.venv
+typings
+.pytest_cache
+.ruff_cache

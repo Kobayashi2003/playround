@@ -22,8 +22,7 @@
       "-Port",
       "${ports.http}",
       "--base-path",
-      "${basePath}",
-      "--no-open"
+      "${basePath}"
     ]
   }
 }
