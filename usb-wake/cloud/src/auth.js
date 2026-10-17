@@ -98,7 +98,7 @@ export async function controlAuthorized(request, access, secret) {
   )
     return false;
   try {
-    return crypto.subtle.verify(
+    return await crypto.subtle.verify(
       "HMAC",
       await sessionKey(secret),
       unbase64(signature),

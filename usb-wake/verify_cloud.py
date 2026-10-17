@@ -26,9 +26,13 @@ def main() -> None:
         assert error.code == 401 and state["passwordRequired"] is True
     else:
         assert public["passwordRequired"] is False
-    for path in ("/api/settings", "/device/poll"):
+    for path, body in (
+        ("/api/settings", {}),
+        ("/device/poll", {}),
+        ("/device/socket", None),
+    ):
         try:
-            client.call(path, {})
+            client.call(path, body)
         except HTTPError as error:
             assert error.code == 401, error.code
         else:

@@ -5,7 +5,7 @@ import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 const owner = "owner-fixture-".repeat(4);
 const device = "device-fixture-".repeat(4);
 
-async function fixture(t) {
+async function fixture(t, { open = true } = {}) {
   const mf = new Miniflare(
     convertV4MiniflareOptions({
       workers: [
@@ -32,7 +32,7 @@ async function fixture(t) {
     }),
   );
   t.after(() => mf.dispose());
-  return (
+  const call = (
     path,
     {
       token,
@@ -52,7 +52,55 @@ async function fixture(t) {
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+  call.socket = async (token = device) => {
+    const response = await mf.dispatchFetch("https://wake.test/device/socket", {
+      headers: { Upgrade: "websocket", Authorization: `Bearer ${token}` },
+    });
+    if (response.status !== 101) return { status: response.status };
+    const ws = response.webSocket;
+    const queue = [];
+    const waiting = [];
+    ws.addEventListener("message", ({ data }) => {
+      const parsed = data === "pong" ? data : JSON.parse(data);
+      if (waiting.length) waiting.shift()(parsed);
+      else queue.push(parsed);
+    });
+    const closed = new Promise((resolve) =>
+      ws.addEventListener("close", ({ code }) => resolve(code)),
+    );
+    ws.accept();
+    t.after(() => ws.close());
+    return {
+      status: 101,
+      closed,
+      send: (value) =>
+        ws.send(typeof value === "string" ? value : JSON.stringify(value)),
+      next: () =>
+        queue.length
+          ? Promise.resolve(queue.shift())
+          : new Promise((resolve) => waiting.push(resolve)),
+    };
+  };
+  if (open)
+    assert.equal(
+      (await call("/api/settings", { token: owner, body: { enabled: false } }))
+        .status,
+      200,
+    );
+  return call;
 }
+
+test("fresh deployments require a password the owner has not yet set", async (t) => {
+  const call = await fixture(t, { open: false });
+  assert.equal((await call("/api/status")).status, 401);
+  assert.equal((await call("/api/wake", { body: {} })).status, 401);
+  const login = await call("/api/login", { body: { password: "anything" } });
+  assert.equal(login.status, 409);
+  assert.equal((await login.json()).error, "password_not_set");
+  const status = await call("/api/status", { token: owner });
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).passwordRequired, true);
+});
 
 test("open access preserves device and owner authentication", async (t) => {
   const call = await fixture(t);
@@ -145,6 +193,14 @@ test("password can be enabled, changed and disabled by owner; sessions are inval
   );
   await settings({ enabled: false });
   assert.equal((await call("/api/status")).status, 200);
+  await settings({ enabled: true, password: "correct-password" });
+  for (let i = 0; i < 8; i++)
+    assert.equal(
+      (await call("/api/login", { body: { password: "wrong" } })).status,
+      401,
+    );
+  // Settings changes reset the limiter, so the owner is never locked out.
+  await settings({ enabled: false });
   assert.equal(
     (await (await call("/api/status")).json()).passwordRequired,
     false,
@@ -187,4 +243,46 @@ test("expired commands cannot wake after delayed reconnection", async (t) => {
     (await (await call("/api/status")).json()).command.status,
     "expired",
   );
+});
+
+test("socket delivers commands immediately and accepts acknowledgements", async (t) => {
+  const call = await fixture(t);
+  assert.equal((await call.socket(owner)).status, 401);
+  assert.equal((await call("/device/socket", { token: device })).status, 426);
+  const board = await call.socket();
+  board.send("ping");
+  assert.equal(await board.next(), "pong");
+  board.send({});
+  assert.equal((await board.next()).command, null);
+  assert.equal((await (await call("/api/status")).json()).online, true);
+  const created = await call("/api/wake", { body: {} });
+  assert.equal(created.status, 201);
+  const { command } = await created.json();
+  const pushed = await board.next();
+  assert.deepEqual(pushed.command, {
+    id: command.id,
+    expiresAt: command.expiresAt,
+  });
+  board.send({ lastHandled: command.id, lastResult: "failed" });
+  assert.equal((await board.next()).command, null);
+  assert.equal(
+    (await (await call("/api/status")).json()).command.status,
+    "failed",
+  );
+  board.send({ lastHandled: 5 });
+  assert.equal(await board.closed, 1008);
+});
+
+test("a reconnecting board replaces its old socket and receives pending work", async (t) => {
+  const call = await fixture(t);
+  const first = await call.socket();
+  first.send({});
+  await first.next();
+  const { command } = await (await call("/api/wake", { body: {} })).json();
+  await first.next();
+  const second = await call.socket();
+  assert.equal(await first.closed, 1012);
+  second.send({ lastHandled: "older-command", lastResult: "sent" });
+  assert.equal((await second.next()).command.id, command.id);
+  assert.equal((await (await call("/api/status")).json()).online, true);
 });

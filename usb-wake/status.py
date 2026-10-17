@@ -1,9 +1,10 @@
-"""Inspect the current HID board or request wake/bootloader mode."""
+"""Inspect the current HID board, set its wake target or request wake/bootloader."""
 
 import argparse
+import time
 from contextlib import closing
 
-from board import open_board, text_report
+from board import open_board, target_mac_report, text_report
 
 
 def main() -> None:
@@ -15,8 +16,16 @@ def main() -> None:
     action.add_argument(
         "--bootloader", action="store_true", help="Enter the ROM USB downloader"
     )
+    action.add_argument(
+        "--target-mac", metavar="MAC", help="Set the PC adapter to wake"
+    )
     args = parser.parse_args()
     with closing(open_board()) as device:
+        if args.target_mac:
+            device.send_feature_report(target_mac_report(args.target_mac))
+            time.sleep(0.5)
+            print("TARGET", text_report(device, 202))
+            return
         if args.bootloader or args.wake:
             device.send_feature_report(
                 bytes([2, 255 if args.bootloader else 254]) + bytes(62)
@@ -25,6 +34,7 @@ def main() -> None:
             return
         print("NETWORK", text_report(device, 200))
         print("CLOUD", text_report(device, 201))
+        print("TARGET", text_report(device, 202))
 
 
 if __name__ == "__main__":

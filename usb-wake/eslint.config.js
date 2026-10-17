@@ -22,5 +22,15 @@ export default [
       globals: { ...globals.browser, ...globals.node, ...globals.worker },
     },
   },
+  {
+    // Cloudflare runtime globals that the generic worker set does not list.
+    files: ["cloud/src/**/*.js"],
+    languageOptions: {
+      globals: {
+        WebSocketPair: "readonly",
+        WebSocketRequestResponsePair: "readonly",
+      },
+    },
+  },
   prettier,
 ];

@@ -2,6 +2,8 @@ const $ = (id) => document.getElementById(id);
 const messages = {
   incorrect_password: "Incorrect password.",
   password_required: "Enter your password.",
+  password_not_set:
+    "No password is set yet. Set one in Settings with the management key.",
   invalid_management_key: "Invalid management key.",
   password_length: "Use at least 8 characters (up to 256 bytes).",
   device_offline: "Device offline. Check power and Wi-Fi.",
@@ -34,7 +36,8 @@ async function api(path, body, managementKey) {
     cache: "no-store",
     signal: AbortSignal.timeout(12000),
   });
-  const data = await response.json();
+  // Cloudflare error pages are HTML, so a failed parse means a failed request.
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new ApiError(data.error, response.status);
   return data;
 }

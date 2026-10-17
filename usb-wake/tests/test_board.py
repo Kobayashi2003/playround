@@ -2,7 +2,7 @@
 
 import pytest
 
-from board import config_reports
+from board import config_reports, target_mac_report
 
 
 def test_utf8_credentials_round_trip_over_multiple_reports() -> None:
@@ -31,3 +31,25 @@ def test_utf8_credentials_round_trip_over_multiple_reports() -> None:
 def test_invalid_credentials_never_produce_reports(ssid: str, password: str) -> None:
     with pytest.raises(ValueError):
         config_reports(ssid, password)
+
+
+def test_target_mac_report_matches_firmware_layout() -> None:
+    report = target_mac_report("58-11-22-ab-1c-c8")
+    assert len(report) == 64
+    assert report[:8] == bytes([2, 252, 0x58, 0x11, 0x22, 0xAB, 0x1C, 0xC8])
+    assert report[8:] == bytes(56)
+
+
+@pytest.mark.parametrize(
+    "mac",
+    [
+        "",
+        "58:11:22:AB:1C",
+        "58:11:22:AB:1C:ZZ",
+        "FF:FF:FF:FF:FF:FF",
+        "5811:22:AB:1C:C8:00",
+    ],
+)
+def test_invalid_target_mac_is_rejected(mac: str) -> None:
+    with pytest.raises(ValueError):
+        target_mac_report(mac)

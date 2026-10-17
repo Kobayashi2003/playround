@@ -3,7 +3,7 @@
   "name": "personal-usb-wake",
   "main": "src/index.js",
   "compatibility_date": "2026-10-15",
-  "workers_dev": true,
+  "workers_dev": false,
   "durable_objects": {
     "bindings": [{ "name": "WAKE_STATE", "class_name": "WakeState" }],
   },

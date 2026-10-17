@@ -25,6 +25,19 @@ def text_report(device: hid.device, page: int) -> str:
     return data[1:].split(b"\0", 1)[0].decode("ascii", errors="replace")
 
 
+def target_mac_report(mac: str) -> bytes:
+    parts = mac.replace("-", ":").split(":")
+    if len(parts) != 6 or any(len(part) != 2 for part in parts):
+        raise ValueError("MAC address must look like 58:11:22:AB:1C:C8.")
+    try:
+        address = bytes(int(part, 16) for part in parts)
+    except ValueError:
+        raise ValueError("MAC address must contain hexadecimal bytes.") from None
+    if address[0] & 1:
+        raise ValueError("MAC address must belong to a single adapter.")
+    return (bytes([2, 252]) + address).ljust(64, b"\0")
+
+
 def config_reports(ssid: str, password: str) -> list[bytes]:
     ssid_bytes, password_bytes = ssid.encode("utf-8"), password.encode("utf-8")
     if not 1 <= len(ssid_bytes) <= 32:

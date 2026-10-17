@@ -1,7 +1,8 @@
 # Remote Wake
 
-ESP32-S3-Zero controller powered by USB. It connects to 2.4 GHz Wi-Fi, polls a
-Cloudflare relay, and sends Wake-on-LAN packets to the PC's wired adapter.
+ESP32-S3-Zero controller powered by USB. It connects to 2.4 GHz Wi-Fi, holds a
+WebSocket to a Cloudflare relay, and sends Wake-on-LAN packets to the PC's wired
+adapter as soon as a command arrives.
 
 ## Use
 
@@ -9,9 +10,11 @@ Open <https://personal-usb-wake-entry.pages.dev/> and select **Wake PC**.
 The board, router and Ethernet adapter must stay powered during hibernation.
 BOOT also sends a wake request; RESET preserves saved settings.
 
-Access is currently passwordless. **Settings** can enable, change or disable a
-password using the management key in `cloud/CONTROL-ACCESS.txt`. Settings changes
-invalidate sessions. “Wake packets sent” confirms transmission, not PC resume.
+A fresh deployment requires a password but has none, so nobody can wake the PC
+until the owner sets one: **Settings** enables, changes or disables the password
+using the management key in `cloud/CONTROL-ACCESS.txt`. The production relay is
+currently set to passwordless. Settings changes invalidate sessions and reset
+login throttling. “Wake packets sent” confirms transmission, not PC resume.
 
 ## Develop
 
@@ -40,12 +43,16 @@ uv run pytest
 ```powershell
 uv run status.py
 uv run status.py --wake
+uv run status.py --target-mac 58:11:22:AB:1C:C8
 ./start.ps1 -Mode Setup     # http://127.0.0.1:16032/; closes after setup
 ```
 
-Wi-Fi credentials are written over USB and stored on the board. Firmware uses
-verified HTTPS, five-second polling, 30-second command expiry and persisted
-command IDs to prevent duplicate sends.
+Wi-Fi credentials and the target MAC are written over USB and stored on the
+board. Firmware runs the cloud link in its own task over a verified-TLS
+WebSocket (`/device/socket`), pings every 20 seconds and reconnects after 50
+seconds of silence. Commands expire after 30 seconds and persisted command IDs
+prevent duplicate sends. The relay still accepts the older `/device/poll`
+firmware.
 
 To build firmware, run `uvx --from platformio platformio run` inside `firmware/`.
 `uv run status.py --bootloader` enters the ROM downloader. Upload with PlatformIO's
@@ -61,8 +68,9 @@ uv run verify_cloud.py https://personal-usb-wake-entry.pages.dev
 uv run remote_test.py https://personal-usb-wake-entry.pages.dev
 ```
 
-Worker `personal-usb-wake` owns the SQLite Durable Object and secrets. Pages
-`personal-usb-wake-entry` forwards requests through the RELAY service binding.
+Worker `personal-usb-wake` owns the SQLite Durable Object and secrets; its
+`workers.dev` route is disabled. Pages `personal-usb-wake-entry` forwards
+requests, including the board's WebSocket, through the RELAY service binding.
 Both use the Free plan. To update that proxy, run `pnpm exec wrangler pages deploy
 public --project-name personal-usb-wake-entry` from `pages-entry/`.
 

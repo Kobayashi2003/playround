@@ -10,6 +10,7 @@ const routes = new Map([
   ["/api/logout", "POST"],
   ["/api/settings", "POST"],
   ["/device/poll", "POST"],
+  ["/device/socket", "GET"],
 ]);
 
 export default {
@@ -34,7 +35,7 @@ export default {
     if (!env.ADMIN_TOKEN || !env.DEVICE_TOKEN)
       return json({ error: "not_configured" }, 503);
     if (
-      path === "/device/poll" &&
+      path.startsWith("/device/") &&
       !(await ownerAuthorized(request, env.DEVICE_TOKEN))
     )
       return json({ error: "unauthorized" }, 401);

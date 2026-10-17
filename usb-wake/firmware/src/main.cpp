@@ -71,6 +71,10 @@ void fillDiagnosticReport(uint8_t *buffer, uint8_t page) {
     cloudReport(buffer);
     return;
   }
+  if (page == 202) {
+    targetReportInto(buffer);
+    return;
+  }
   memset(buffer, 0, 63);
   buffer[0] = 5;
   buffer[1] = tud_mounted();
@@ -148,7 +152,6 @@ void setup() {
 void loop() {
   const uint32_t now = millis();
   networkLoop();
-  cloudLoop();
   if (networkWakeRequested) {
     networkWakeRequested = false;
     requestWake();

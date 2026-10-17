@@ -69,6 +69,8 @@ extern "C" void tud_hid_set_report_cb(uint8_t, uint8_t reportId,
       networkWakeRequested = true;
     } else if (buffer[0] == 253) {
       receiveNetworkConfig(buffer + 1, length - 1);
+    } else if (buffer[0] == 252) {
+      receiveTargetMac(buffer + 1, length - 1);
     } else {
       pageRequested = buffer[0];
     }
