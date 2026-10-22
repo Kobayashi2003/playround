@@ -55,7 +55,8 @@ slot, two apps in one slot, a port claimed twice, and overlapping `basePath` pre
 
 ## Adding an app
 
-1. Take the next free slot in [PORTS.md](../../PORTS.md) and make it the app's default.
+1. Take the lowest free slot in the README of the app's category (ranges in
+   [PORTS.md](../../PORTS.md)) and make it the app's default.
 2. If it is routed, make it serve under a path prefix: relative asset URLs, API calls resolved
    against the document, and a redirect from the bare prefix to the trailing-slash form. Bind
    `127.0.0.1`.
