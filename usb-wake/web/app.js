@@ -54,6 +54,8 @@ function render(state) {
     ? "Device online"
     : "Device offline";
   const pending = state.command?.status === "pending";
+  $("controlPanel").dataset.state = state.online ? "online" : "offline";
+  $("commandResult").dataset.status = state.command?.status ?? "none";
   $("wakeButton").disabled = !state.online || pending || busy;
   $("wakeButton").dataset.pending = String(pending || busy);
   $("buttonLabel").textContent = busy
@@ -93,6 +95,7 @@ async function refresh() {
       return;
     }
     $("connection").dataset.state = "offline";
+    $("controlPanel").dataset.state = "connecting";
     $("connectionText").textContent = "Reconnecting";
     $("wakeButton").disabled = true;
   } finally {

@@ -3,7 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="theme-color" content="#f5f8fc" />
+    <meta
+      name="theme-color"
+      content="#e6e9ed"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#15181c"
+      media="(prefers-color-scheme: dark)"
+    />
     <title>Remote Wake</title>
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
@@ -13,7 +22,10 @@
     <main class="controller">
       <header class="header">
         <a class="brand" href="./"
-          ><span class="brand-icon" aria-hidden="true">↟</span>
+          ><span class="brand-icon" aria-hidden="true"
+            ><svg viewBox="0 0 64 64">
+              <path d="M32 12v20M20 19a19 19 0 1 0 24 0" /></svg
+          ></span>
           <h1>Remote Wake</h1></a
         >
         <button id="settingsButton" class="icon-button" aria-label="Settings">
@@ -36,7 +48,12 @@
           <p id="loginError" class="form-message" role="alert"></p>
         </form>
       </section>
-      <section id="controlPanel" class="control-panel" aria-label="PC control">
+      <section
+        id="controlPanel"
+        class="control-panel"
+        data-state="connecting"
+        aria-label="PC control"
+      >
         <div
           id="connection"
           class="connection"
