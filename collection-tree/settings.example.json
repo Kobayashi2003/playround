@@ -1,0 +1,24 @@
+{
+  "roots": [
+    "D:\\Collection\\Partially sorted",
+    "D:\\Collection\\Fully sorted"
+  ],
+  "targets": [
+    "*/2. *",
+    "*/3. *",
+    "*/4. *",
+    "*/5. *"
+  ],
+  "exclude": [
+    "D:\\Collection\\Fully sorted\\Lose"
+  ],
+  "backend": "everything",
+  "everything_url": "http://127.0.0.1:8081",
+  "everything_username": "",
+  "everything_password": "",
+  "output": "HTML",
+  "port": 16040,
+  "workers": 4,
+  "page_size": 10000,
+  "timeout": 60
+}
