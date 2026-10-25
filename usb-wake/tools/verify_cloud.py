@@ -1,16 +1,16 @@
-"""Verify HTTPS and optional access protection without sending wake commands."""
+"""Verify HTTPS and access protection without sending any command."""
 
+import argparse
 import json
-import sys
 from urllib.error import HTTPError
 
-from cloud_client import Client
+from cloud_client import RELAY_URL, Client, Json
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit("Usage: uv run verify_cloud.py https://deployed-host")
-    client = Client(sys.argv[1])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("url", nargs="?", default=RELAY_URL, help="Relay origin")
+    client = Client(parser.parse_args().url)
     for path, marker in (
         ("/", b"./app.js"),
         ("/app.js", b"api/status"),
@@ -20,24 +20,23 @@ def main() -> None:
             assert response.status == 200
             assert marker in response.read()
     state = client.call("/api/status", owner=True)
-    try:
-        public = client.call("/api/status")
-    except HTTPError as error:
-        assert error.code == 401 and state["passwordRequired"] is True
-    else:
-        assert public["passwordRequired"] is False
-    for path, body in (
-        ("/api/settings", {}),
+    unauthenticated: tuple[tuple[str, dict[str, Json] | None], ...] = (
+        ("/api/status", None),
+        ("/api/wake", {}),
+        ("/api/action", {"action": "shutdown"}),
         ("/device/poll", {}),
         ("/device/socket", None),
-    ):
+    )
+    for path, body in unauthenticated:
         try:
             client.call(path, body)
         except HTTPError as error:
             assert error.code == 401, error.code
         else:
             raise AssertionError("Privileged request accepted without authentication")
-    print("Verified HTTPS, assets, access mode, owner and device authentication.")
+    print(
+        "Verified HTTPS, assets, password protection, owner and device authentication."
+    )
     print(json.dumps(state))
 
 

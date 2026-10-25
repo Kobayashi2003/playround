@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import re
 import shutil
 import sys
@@ -30,6 +31,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import parsers  # noqa: E402
+import relocate  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -42,8 +44,32 @@ CACHE_VERSION = 4
 STORE_FILE = ROOT / "store.json"
 STORE_VERSION = 1
 TRASH_DIR = ROOT / ".trash"
+# Logs as they were before a move rewrote them, one timestamped folder per move.
+BACKUP_DIR = ROOT / ".backup"
 
 SEARCH_BUDGET = 30000  # chars of user text kept per session for search
+
+# A log written to this recently probably belongs to a running session, which would
+# keep appending to the old file after a move.
+ACTIVE_SECONDS = 120
+
+# Folder existence is checked on every list; a short cache keeps that to one stat per
+# folder per few seconds however many sessions share it.
+_FOLDER_TTL = 5.0
+_folder_cache: dict[str, tuple[float, bool]] = {}
+
+
+def folder_missing(cwd):
+    if not cwd:
+        return False
+    now = time.monotonic()
+    hit = _folder_cache.get(cwd)
+    if hit and now - hit[0] < _FOLDER_TTL:
+        return hit[1]
+    missing = not Path(cwd).is_dir()
+    _folder_cache[cwd] = (now, missing)
+    return missing
+
 
 # Public path prefix the viewer answers under, "" at the origin root. Set by
 # --base-path, because a shared edge may front several apps on one
@@ -149,6 +175,13 @@ class Store:
             if self.items.pop(path, None) is not None:
                 self.save()
 
+    def rekey(self, old, new):
+        with self.lock:
+            item = self.items.pop(old, None)
+            if item is not None:
+                self.items[new] = item
+                self.save()
+
 
 STORE = Store()
 
@@ -218,6 +251,7 @@ class Index:
         item["star"] = bool(flags.get("star"))
         item["archived"] = bool(flags.get("archived"))
         item["note"] = flags.get("note") or ""
+        item["cwd_missing"] = folder_missing(entry.get("cwd"))
         if flags.get("title"):
             item["title_auto"] = item["title"]
             item["title"] = flags["title"]
@@ -231,6 +265,14 @@ class Index:
     def drop(self, path):
         self.entries.pop(path, None)
         self.save_cache()
+
+    def replace(self, old, new):
+        """Re-index a log that a move rewrote, possibly under a new path."""
+        source = self.entries.pop(old)["source"]
+        path = Path(new)
+        self.entries[new] = summarize(path, source, path.stat())
+        self.save_cache()
+        return self.entries[new]
 
     def search(self, query, limit=400):
         q = query.lower().strip()
@@ -346,6 +388,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._manage(body)
             if path == "/api/delete":
                 return self._delete(body)
+            if path == "/api/move":
+                return self._move(body)
             return self._send(404, {"error": "unknown endpoint"})
         except Exception as exc:
             traceback.print_exc()
@@ -377,6 +421,65 @@ class Handler(BaseHTTPRequestHandler):
         STORE.forget(path)
         INDEX.drop(path)
         return self._send(200, {"ok": True, "trash": str(dest)})
+
+    def _move(self, body):
+        """Move sessions to another working folder, so they resume from there.
+
+        Refuses, with 409 and `active`, while any of the logs looks like it is still
+        being written, unless `force` is set.
+        """
+        paths = body.get("paths") or []
+        target = os.path.normpath((body.get("to") or "").strip().strip('"'))
+        if not os.path.isabs(target):
+            return self._send(400, {"error": "the target must be an absolute path"})
+        if not os.path.isdir(target):
+            return self._send(400, {"error": f"folder does not exist: {target}"})
+        entries = [INDEX.entries.get(p) for p in paths]
+        if not paths or not all(entries):
+            return self._send(404, {"error": "unknown session"})
+
+        if not body.get("force"):
+            now = time.time()
+            active = [
+                e for e in entries if e and now - Path(e["path"]).stat().st_mtime < ACTIVE_SECONDS
+            ]
+            if active:
+                return self._send(
+                    409,
+                    {
+                        "error": f"{len(active)} of these logs changed in the last "
+                        f"{ACTIVE_SECONDS // 60} minutes; close those sessions first",
+                        "active": True,
+                    },
+                )
+
+        backup = BACKUP_DIR / time.strftime("%Y%m%d-%H%M%S")
+        moved, failed, warnings = [], [], []
+        for e in entries:
+            assert e is not None
+            old_path, old_cwd = e["path"], e["cwd"]
+            try:
+                if not old_cwd:
+                    raise relocate.RelocateError("the log records no folder")
+                if relocate.same_folder(old_cwd, target):
+                    raise relocate.RelocateError("already in that folder")
+                if e["source"] == "claude":
+                    new_path = str(relocate.move_claude(Path(old_path), old_cwd, target, backup))
+                else:
+                    new_path = old_path
+                    warnings += relocate.move_codex(
+                        Path(old_path), old_cwd, target, e["id"], backup
+                    )
+            except (OSError, ValueError, relocate.RelocateError) as exc:
+                failed.append({"path": old_path, "error": str(exc)})
+                continue
+            STORE.rekey(old_path, new_path)
+            INDEX.replace(old_path, new_path)
+            moved.append({"from": old_path, "to": new_path})
+        code = 200 if moved or not failed else 500
+        return self._send(
+            code, {"moved": moved, "failed": failed, "warnings": warnings, "backup": str(backup)}
+        )
 
     def _peek(self, q):
         """Cheap change check for the open session: stat only, no parsing."""

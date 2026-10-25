@@ -89,17 +89,20 @@ input:focus-visible {
 .controller {
   width: min(100%, 460px);
   margin: 0 auto;
-  padding: 28px 16px 24px;
+  /* Clear the notch and home bar when installed as an app. */
+  padding: max(28px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
 }
 .header,
-.activity-heading,
-.dialog-heading {
+.activity-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 .header {
-  padding: 0 8px 20px;
+  min-height: 64px;
+  padding: 0 0 20px 8px;
 }
 .brand {
   display: flex;
@@ -138,30 +141,6 @@ h2 {
   font-weight: 600;
   font-stretch: 87.5%;
 }
-.icon-button {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 28px;
-  line-height: 1;
-}
-.icon-button:hover {
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
-  color: var(--ink);
-}
-.icon-button svg {
-  width: 22px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-}
-
 /* One faceplate holds the light, the key and the readout. */
 .control-panel,
 .login-panel {
@@ -173,6 +152,8 @@ h2 {
 .control-panel {
   --led: var(--key-off);
   --led-text: var(--muted);
+  /* Follows width and height, so a landscape phone still sees the panel. */
+  --key-size: clamp(112px, min(42vw, 30vh), 168px);
   padding: 20px 20px 4px;
 }
 .control-panel[data-state="online"] {
@@ -210,14 +191,14 @@ h2 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 40px 0 34px;
+  padding: calc(var(--key-size) * 0.24) 0 calc(var(--key-size) * 0.2);
 }
 .power-button {
   position: relative;
   display: grid;
   place-items: center;
-  width: 168px;
-  height: 168px;
+  width: var(--key-size);
+  height: var(--key-size);
   border: 0;
   border-radius: 50%;
   background: radial-gradient(
@@ -240,16 +221,18 @@ h2 {
     box-shadow 0.12s;
 }
 .power-button svg {
-  width: 64px;
-  height: 64px;
+  width: calc(var(--key-size) * 0.38);
+  height: calc(var(--key-size) * 0.38);
   fill: none;
   stroke: currentColor;
   stroke-width: 4.5;
   stroke-linecap: round;
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--led) 60%, transparent));
 }
-.power-button:not(:disabled):hover {
-  transform: translateY(-1px);
+@media (hover: hover) {
+  .power-button:not(:disabled):hover {
+    transform: translateY(-1px);
+  }
 }
 .power-button:not(:disabled):active {
   transform: translateY(2px);
@@ -263,6 +246,13 @@ h2 {
 }
 .power-button:disabled svg {
   filter: none;
+}
+/* Already on: stays lit like the PC's own power LED, but cannot be pressed. */
+.power-button[data-awake="true"] {
+  --led: var(--on);
+  --ring: var(--on);
+  color: var(--on);
+  cursor: default;
 }
 .power-button[data-pending="true"] {
   --led: var(--busy);
@@ -281,7 +271,7 @@ h2 {
   }
 }
 .button-label {
-  margin-top: 34px;
+  margin-top: calc(var(--key-size) * 0.2);
   font-size: 17px;
   font-weight: 600;
 }
@@ -297,8 +287,81 @@ h2 {
   margin: 0;
 }
 
-.activity {
+/* Actions offered by the PC agent: quieter keys than the wake button, since
+   they act on a machine that is already running. */
+.pc-panel {
   margin: 20px -20px 0;
+  border-top: 1px solid var(--line);
+  padding: 16px 20px 18px;
+}
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pc-panel h2,
+.panel h2 {
+  font-size: 17px;
+}
+.pc-state {
+  color: var(--muted);
+  font-size: 13px;
+}
+.pc-state[data-state="on"] {
+  color: var(--on-text);
+}
+/* The board's LED blinks blue while the PC sleeps; the page matches it. */
+.pc-state[data-state="sleep"] {
+  color: var(--busy-text);
+}
+.pc-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.pc-actions:empty {
+  display: none;
+}
+.action-button {
+  display: grid;
+  place-content: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--case);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+@media (hover: hover) {
+  .action-button:not(:disabled):hover {
+    border-color: color-mix(in srgb, var(--ink) 35%, var(--line));
+  }
+}
+.action-button:disabled {
+  color: var(--key-off);
+}
+.action-button[data-armed="true"] {
+  border-color: var(--fail);
+  background: var(--fail);
+  color: #fff;
+}
+.action-button small {
+  font-size: 12px;
+  font-weight: 400;
+}
+.hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.activity {
+  margin: 0 -20px;
   border-top: 1px solid var(--line);
   padding: 16px 20px 18px;
 }
@@ -321,18 +384,14 @@ h2 {
 #commandResult[data-status="failed"] {
   color: var(--fail-text);
 }
-#commandResult[data-status="expired"] {
+#commandResult[data-status="expired"],
+#commandResult[data-status="unreachable"] {
   color: var(--off-text);
 }
 #commandResult[data-status="pending"] {
   color: var(--busy-text);
 }
 
-footer {
-  display: flex;
-  justify-content: center;
-  margin-top: 16px;
-}
 .text-button {
   min-height: 44px;
   border: 0;
@@ -342,8 +401,10 @@ footer {
   color: var(--muted);
   font-size: 15px;
 }
-.text-button:hover {
-  color: var(--ink);
+@media (hover: hover) {
+  .text-button:hover {
+    color: var(--ink);
+  }
 }
 
 .login-panel {
@@ -356,70 +417,13 @@ footer {
   text-align: left;
 }
 
-dialog {
-  width: min(420px, calc(100% - 32px));
-  max-height: calc(100dvh - 48px);
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 20px 22px 24px;
-  color: inherit;
-  background: var(--plate);
-  box-shadow: 0 24px 70px color-mix(in srgb, #000 30%, transparent);
-}
-dialog::backdrop {
-  background: color-mix(in srgb, var(--case) 55%, #000 30%);
-  backdrop-filter: blur(3px);
-}
-dialog .form-message {
-  text-align: left;
-}
-
-.toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 18px 0 4px;
-  padding: 14px 0;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  font-size: 17px;
-}
-.toggle-row input {
-  appearance: none;
-  flex: none;
-  width: 46px;
-  height: 28px;
-  margin: 0;
-  padding: 3px;
-  border-radius: 14px;
-  background: var(--key-off);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.toggle-row input::before {
-  content: "";
-  display: block;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.15s;
-}
-.toggle-row input:checked {
-  background: var(--on);
-}
-.toggle-row input:checked::before {
-  transform: translateX(18px);
-}
 label {
   display: block;
   margin: 18px 0 8px;
   font-size: 15px;
   color: var(--muted);
 }
-.toggle-row {
-  color: var(--ink);
-}
+
 input:not([type="checkbox"]) {
   width: 100%;
   min-height: 48px;
@@ -453,13 +457,263 @@ input:not([type="checkbox"]):focus-visible {
   opacity: 0.55;
 }
 
-@media (max-width: 380px) {
-  .power-button {
-    width: 148px;
-    height: 148px;
+/* Secondary plates below the faceplate. */
+.panel {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 16px 20px 18px;
+  background: var(--plate);
+}
+.panel .text-button {
+  min-height: 36px;
+  padding: 6px 8px;
+  margin: -6px -8px;
+}
+.events {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.event {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  font-size: 15px;
+  line-height: 1.4;
+}
+.event:first-child {
+  border-top: 0;
+}
+.event time {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+}
+.event[data-level="good"] span {
+  color: var(--on-text);
+}
+.event[data-level="warn"] span {
+  color: var(--fail-text);
+}
+
+.schedules {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.schedule {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.schedule-text {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.schedule-text strong {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.schedule-text span {
+  color: var(--muted);
+  font-size: 15px;
+}
+.schedule .text-button {
+  margin: 0 -8px 0 0;
+}
+input[role="switch"] {
+  appearance: none;
+  flex: none;
+  width: 42px;
+  height: 26px;
+  margin: 0;
+  padding: 3px;
+  border-radius: 13px;
+  background: var(--key-off);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+input[role="switch"]::before {
+  content: "";
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+input[role="switch"]:checked {
+  background: var(--on);
+}
+input[role="switch"]:checked::before {
+  transform: translateX(16px);
+}
+.schedule-form {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "time . add" "days days days";
+  align-items: center;
+  gap: 10px 8px;
+  margin-top: 12px;
+}
+.schedule-form input[type="time"] {
+  grid-area: time;
+}
+.schedule-form .secondary-button {
+  grid-area: add;
+}
+.schedule-form input[type="time"] {
+  width: 112px;
+  min-height: 44px;
+  padding: 8px 10px;
+  font-variant-numeric: tabular-nums;
+}
+.chip-picker {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.day-picker {
+  grid-area: days;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.led-picker {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 16px;
+}
+.led-picker legend {
+  margin-bottom: 6px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.chip {
+  position: relative;
+  margin: 0;
+  color: var(--ink);
+}
+.chip input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.chip input:disabled {
+  cursor: progress;
+}
+.chip span {
+  display: grid;
+  place-items: center;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--case);
+  font-size: 13px;
+}
+.chip input:checked + span {
+  border-color: var(--key);
+  background: var(--key);
+  color: #fff;
+}
+.chip input:focus-visible + span {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.secondary-button {
+  min-height: 44px;
+  padding: 8px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--case);
+  font-weight: 600;
+}
+.panel .form-message,
+.panel .hint {
+  text-align: left;
+  font-size: 13px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin: 12px 0 0;
+}
+.stats dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+.stats dd {
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* Very narrow phones: event times above their text, smaller day chips. */
+@media (max-width: 360px) {
+  .event {
+    grid-template-columns: 1fr;
+    gap: 0;
   }
-  .power-area {
-    padding: 34px 0 30px;
+  .chip span {
+    font-size: 12px;
+  }
+}
+
+/* Tablets, desktops and landscape phones: the faceplate on the left, the
+   secondary panels beside it. */
+@media (min-width: 760px) {
+  .controller:not([data-locked="true"]) {
+    display: grid;
+    grid-template-columns: min(420px, calc(55% - 10px)) minmax(0, 1fr);
+    column-gap: 20px;
+    align-items: start;
+    width: min(100%, 1000px);
+  }
+  .controller:not([data-locked="true"]) .header {
+    grid-column: 1 / -1;
+  }
+  .side > .panel:first-child {
+    margin-top: 0;
+  }
+}
+/* Short screens (landscape phones): a slimmer header leaves room for the key. */
+@media (max-height: 500px) {
+  .controller {
+    padding-top: max(12px, env(safe-area-inset-top));
+  }
+  .header {
+    min-height: 48px;
+    padding-bottom: 12px;
+  }
+}
+/* Keep the key in view while scrolling, when the faceplate fits the screen. */
+@media (min-width: 760px) and (min-height: 760px) {
+  .control-panel {
+    position: sticky;
+    top: 20px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -1,11 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
+import { nextFire, parseSchedules } from "../cloud/src/schedule.js";
 
 const owner = "owner-fixture-".repeat(4);
 const device = "device-fixture-".repeat(4);
+const password = "fixture-password";
+const catalogue = [
+  { id: "shutdown", label: "Shut down", confirm: true },
+  { id: "start-notes", label: "Open notes" },
+];
 
-async function fixture(t, { open = true } = {}) {
+async function fixture(t, { accessPassword = password } = {}) {
   const mf = new Miniflare(
     convertV4MiniflareOptions({
       workers: [
@@ -21,7 +28,11 @@ async function fixture(t, { open = true } = {}) {
           modules: true,
           scriptPath: "cloud/dist/index.js",
           compatibilityDate: "2026-10-15",
-          bindings: { ADMIN_TOKEN: owner, DEVICE_TOKEN: device },
+          bindings: {
+            ADMIN_TOKEN: owner,
+            DEVICE_TOKEN: device,
+            ...(accessPassword ? { ACCESS_PASSWORD: accessPassword } : {}),
+          },
           durableObjects: {
             WAKE_STATE: { className: "WakeState", useSQLite: true },
           },
@@ -32,12 +43,17 @@ async function fixture(t, { open = true } = {}) {
     }),
   );
   t.after(() => mf.dispose());
+  let session;
+  // Signed in as the web page unless a test passes its own token or cookie;
+  // `cookie: false` sends no credentials at all. `rawBody` is sent as is.
   const call = (
     path,
     {
       token,
       body,
-      cookie,
+      rawBody,
+      headers = {},
+      cookie = token ? undefined : session,
       origin,
       method = body === undefined ? "GET" : "POST",
     } = {},
@@ -49,8 +65,9 @@ async function fixture(t, { open = true } = {}) {
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
         ...(cookie ? { Cookie: cookie } : {}),
         ...(origin ? { Origin: origin } : {}),
+        ...headers,
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)),
     });
   call.socket = async (token = device) => {
     const response = await mf.dispatchFetch("https://wake.test/device/socket", {
@@ -81,42 +98,68 @@ async function fixture(t, { open = true } = {}) {
           : new Promise((resolve) => waiting.push(resolve)),
     };
   };
-  if (open)
-    assert.equal(
-      (await call("/api/settings", { token: owner, body: { enabled: false } }))
-        .status,
-      200,
-    );
+  if (accessPassword) {
+    const login = await call("/api/login", {
+      body: { password: accessPassword },
+      cookie: false,
+    });
+    assert.equal(login.status, 200);
+    session = login.headers.get("Set-Cookie").split(";")[0];
+  }
   return call;
 }
 
-test("fresh deployments require a password the owner has not yet set", async (t) => {
-  const call = await fixture(t, { open: false });
-  assert.equal((await call("/api/status")).status, 401);
-  assert.equal((await call("/api/wake", { body: {} })).status, 401);
-  const login = await call("/api/login", { body: { password: "anything" } });
+test("without a configured password the page stays locked", async (t) => {
+  const call = await fixture(t, { accessPassword: null });
+  const status = await call("/api/status", { cookie: false });
+  assert.equal(status.status, 401);
+  assert.equal((await status.json()).error, "password_not_set");
+  const login = await call("/api/login", {
+    body: { password: "anything" },
+    cookie: false,
+  });
   assert.equal(login.status, 409);
-  assert.equal((await login.json()).error, "password_not_set");
-  const status = await call("/api/status", { token: owner });
-  assert.equal(status.status, 200);
-  assert.equal((await status.json()).passwordRequired, true);
+  assert.equal((await call("/api/status", { token: owner })).status, 200);
 });
 
-test("open access preserves device and owner authentication", async (t) => {
+test("the configured password unlocks a session; guessing is throttled", async (t) => {
   const call = await fixture(t);
-  assert.equal(
-    (await (await call("/api/status")).json()).passwordRequired,
-    false,
-  );
+  assert.equal((await call("/api/status", { cookie: false })).status, 401);
   assert.equal((await call("/api/status")).status, 200);
+  assert.equal(
+    (await call("/api/status", { cookie: "wake_session=X.1.Y" })).status,
+    401,
+  );
+  assert.equal((await call("/api/status", { token: device })).status, 401);
+  assert.equal((await call("/api/settings", { body: {} })).status, 404);
+  const login = await call("/api/login", {
+    body: { password },
+    cookie: false,
+  });
+  const cookie = login.headers.get("Set-Cookie");
+  assert.match(cookie, /HttpOnly; SameSite=Strict/);
+  assert.match(cookie, /Secure/);
+  for (let i = 0; i < 8; i++)
+    assert.equal(
+      (
+        await call("/api/login", {
+          body: { password: "wrong" },
+          cookie: false,
+        })
+      ).status,
+      401,
+    );
+  assert.equal(
+    (await call("/api/login", { body: { password }, cookie: false })).status,
+    429,
+  );
+});
+
+test("device and owner credentials stay separate; requests are validated", async (t) => {
+  const call = await fixture(t);
   assert.equal((await call("/device/poll", { body: {} })).status, 401);
   assert.equal(
     (await call("/device/poll", { body: {}, token: owner })).status,
-    401,
-  );
-  assert.equal(
-    (await call("/api/settings", { body: { enabled: false }, token: device }))
-      .status,
     401,
   );
   assert.equal(
@@ -139,71 +182,6 @@ test("open access preserves device and owner authentication", async (t) => {
       })
     ).status,
     400,
-  );
-});
-
-test("password can be enabled, changed and disabled by owner; sessions are invalidated", async (t) => {
-  const call = await fixture(t);
-  const settings = (body) => call("/api/settings", { token: owner, body });
-  assert.equal(
-    (await settings({ enabled: true, password: "short" })).status,
-    400,
-  );
-  assert.equal(
-    (await settings({ enabled: true, password: "correct-password" })).status,
-    200,
-  );
-  assert.equal((await call("/api/status")).status, 401);
-  assert.equal((await call("/api/status", { token: device })).status, 401);
-  assert.equal((await call("/api/status", { token: owner })).status, 200);
-  assert.equal(
-    (await call("/api/login", { body: { password: "wrong" } })).status,
-    401,
-  );
-  const login = await call("/api/login", {
-    body: { password: "correct-password" },
-  });
-  assert.equal(login.status, 200);
-  const cookie = login.headers.get("Set-Cookie");
-  assert.match(cookie, /HttpOnly; SameSite=Strict/);
-  assert.match(cookie, /Secure/);
-  assert.equal((await call("/api/status", { cookie })).status, 200);
-  assert.equal(
-    (await call("/api/settings", { cookie, body: { enabled: false } })).status,
-    401,
-  );
-  assert.equal(
-    (
-      await call("/api/status", {
-        cookie: cookie.replace(/wake_session=./, "wake_session=X"),
-      })
-    ).status,
-    401,
-  );
-  await settings({ enabled: true, password: "another-password" });
-  assert.equal((await call("/api/status", { cookie })).status, 401);
-  for (let i = 0; i < 8; i++)
-    assert.equal(
-      (await call("/api/login", { body: { password: "wrong" } })).status,
-      401,
-    );
-  assert.equal(
-    (await call("/api/login", { body: { password: "wrong" } })).status,
-    429,
-  );
-  await settings({ enabled: false });
-  assert.equal((await call("/api/status")).status, 200);
-  await settings({ enabled: true, password: "correct-password" });
-  for (let i = 0; i < 8; i++)
-    assert.equal(
-      (await call("/api/login", { body: { password: "wrong" } })).status,
-      401,
-    );
-  // Settings changes reset the limiter, so the owner is never locked out.
-  await settings({ enabled: false });
-  assert.equal(
-    (await (await call("/api/status")).json()).passwordRequired,
-    false,
   );
 });
 
@@ -285,4 +263,205 @@ test("a reconnecting board replaces its old socket and receives pending work", a
   second.send({ lastHandled: "older-command", lastResult: "sent" });
   assert.equal((await second.next()).command.id, command.id);
   assert.equal((await (await call("/api/status")).json()).online, true);
+});
+
+test("PC actions come from the agent's catalogue and reach the board", async (t) => {
+  const call = await fixture(t);
+  const board = await call.socket();
+  board.send({ pc: { online: false, actions: catalogue } });
+  await board.next();
+  let status = await (await call("/api/status")).json();
+  assert.equal(status.pc.agent, false);
+  assert.deepEqual(status.pc.actions, [
+    { id: "shutdown", label: "Shut down", confirm: true },
+    { id: "start-notes", label: "Open notes", confirm: false },
+  ]);
+  const offline = await call("/api/action", { body: { action: "shutdown" } });
+  assert.equal(offline.status, 409);
+  assert.equal((await offline.json()).error, "pc_offline");
+  // Online updates without a catalogue keep the one already stored.
+  board.send({ pc: { online: true } });
+  await board.next();
+  status = await (await call("/api/status")).json();
+  assert.equal(status.pc.agent, true);
+  assert.equal(status.pc.actions.length, 2);
+  assert.equal(
+    (await call("/api/action", { body: { action: "format-disk" } })).status,
+    404,
+  );
+  assert.equal(
+    (await call("/api/action", { body: { action: "Bad Id" } })).status,
+    400,
+  );
+  const created = await call("/api/action", { body: { action: "shutdown" } });
+  assert.equal(created.status, 201);
+  const { command } = await created.json();
+  assert.equal(command.label, "Shut down");
+  assert.deepEqual((await board.next()).command, {
+    id: command.id,
+    expiresAt: command.expiresAt,
+    action: "shutdown",
+  });
+  board.send({ lastHandled: command.id, lastResult: "unreachable" });
+  await board.next();
+  status = await (await call("/api/status")).json();
+  assert.equal(status.command.kind, "action");
+  assert.equal(status.command.status, "unreachable");
+  board.send({ pc: { online: true, actions: [{ id: "x", label: "" }] } });
+  assert.equal(await board.closed, 1008);
+});
+
+test("power reports are logged and a wake is tracked until the PC is on", async (t) => {
+  const call = await fixture(t);
+  const board = await call.socket();
+  const state = async (body) => {
+    board.send(body);
+    return board.next();
+  };
+  await state({ pc: { online: false, power: "off" } });
+  const { command } = await (await call("/api/wake", { body: {} })).json();
+  await board.next();
+  await state({ lastHandled: command.id, lastResult: "sent" });
+  let status = await (await call("/api/status")).json();
+  assert.ok(status.wake.deadline > status.wake.sentAt);
+  assert.equal(status.events[0].text, "Wake packets sent");
+  await state({
+    lastHandled: command.id,
+    lastResult: "sent",
+    pc: { online: false, power: "on" },
+  });
+  status = await (await call("/api/status")).json();
+  assert.equal(status.pc.power, "on");
+  assert.equal(status.wake, null);
+  assert.equal(status.events[0].type, "pc_woke");
+  board.send({ pc: { online: false, power: "sideways" } });
+  assert.equal(await board.closed, 1008);
+});
+
+test("an off-on cycle without a page action is reported as a restart", async (t) => {
+  const call = await fixture(t);
+  const board = await call.socket();
+  for (const power of ["on", "off", "on"]) {
+    board.send({ pc: { online: false, power } });
+    await board.next();
+  }
+  const types = (await (await call("/api/status")).json()).events.map(
+    (event) => event.type,
+  );
+  assert.deepEqual(types, ["pc_restarted", "pc_off"]);
+});
+
+test("board telemetry is stored and invalid fields are dropped", async (t) => {
+  const call = await fixture(t);
+  const board = await call.socket();
+  board.send({
+    board: {
+      temperature: 40.5,
+      rssi: -52,
+      uptime: 120,
+      firmware: "zz",
+      build: "2026-10-23 07:32",
+    },
+  });
+  await board.next();
+  const status = await (await call("/api/status")).json();
+  assert.equal(status.board.build, "2026-10-23 07:32");
+  assert.equal(status.board.temperature, 40.5);
+  assert.equal(status.board.rssi, -52);
+  assert.equal(status.board.firmware, undefined);
+  board.send({ board: "hot" });
+  assert.equal(await board.closed, 1008);
+});
+
+test("the LED level is pushed, repeated in replies and echoed back", async (t) => {
+  const call = await fixture(t);
+  assert.equal(
+    (await call("/api/board", { body: { led: "blinding" } })).status,
+    400,
+  );
+  const board = await call.socket();
+  board.send({});
+  assert.equal((await board.next()).settings, undefined);
+  const saved = await call("/api/board", { body: { led: "off" } });
+  assert.equal(saved.status, 200);
+  assert.deepEqual((await board.next()).settings, { led: "off" });
+  board.send({ board: { led: "off" } });
+  assert.deepEqual((await board.next()).settings, { led: "off" });
+  const status = await (await call("/api/status")).json();
+  assert.deepEqual(status.settings, { led: "off" });
+  assert.equal(status.board.led, "off");
+});
+
+test("firmware uploads need the management key and reach the board intact", async (t) => {
+  const call = await fixture(t);
+  const body = new Uint8Array(300_000).map((_, i) => (i * 7) % 251);
+  const digest = createHash("sha256").update(body).digest();
+  const image = new Uint8Array([...body, ...digest]);
+  const hex = digest.toString("hex");
+  const upload = (token, data = image, header = hex) =>
+    call("/api/firmware", {
+      token,
+      method: "PUT",
+      rawBody: data,
+      headers: { "X-Firmware-Digest": header },
+    });
+  assert.equal((await upload(undefined)).status, 401);
+  assert.equal((await upload(device)).status, 401);
+  assert.equal((await upload(owner, image, "0".repeat(64))).status, 400);
+  assert.equal((await upload(owner, image.slice(0, -1))).status, 400);
+  assert.equal((await upload(owner)).status, 201);
+  const download = await call("/device/firmware", { token: device });
+  assert.equal(download.headers.get("X-Firmware-Digest"), hex);
+  assert.deepEqual(new Uint8Array(await download.arrayBuffer()), image);
+  const board = await call.socket();
+  board.send({ board: { firmware: hex } });
+  assert.equal((await board.next()).firmware.digest, hex);
+  const status = await (await call("/api/status")).json();
+  assert.equal(status.events[0].type, "firmware_updated");
+  assert.equal(
+    (await call("/api/firmware", { token: owner, method: "DELETE" })).status,
+    200,
+  );
+  assert.equal((await call("/device/firmware", { token: device })).status, 404);
+});
+
+test("schedules are validated and fire at the next matching local time", async (t) => {
+  const call = await fixture(t);
+  const weekdays = { time: "08:00", days: [1, 2, 3, 4, 5], enabled: true };
+  assert.equal(
+    (
+      await call("/api/schedules", {
+        body: { schedules: [{ ...weekdays, time: "25:00" }] },
+      })
+    ).status,
+    400,
+  );
+  const saved = await call("/api/schedules", {
+    body: { schedules: [weekdays] },
+  });
+  assert.equal(saved.status, 200);
+  const status = await (await call("/api/status")).json();
+  assert.equal(status.schedules.length, 1);
+  assert.ok(status.nextWake > status.serverTime);
+  // Friday 23 Oct 2026, 09:00 in Shanghai: next is Monday 08:00 (00:00 UTC).
+  assert.equal(
+    nextFire(weekdays, Date.UTC(2026, 9, 23, 1), "Asia/Shanghai"),
+    Date.UTC(2026, 9, 26, 0),
+  );
+  // Same day when the time is still ahead.
+  assert.equal(
+    nextFire(weekdays, Date.UTC(2026, 9, 22, 23), "Asia/Shanghai"),
+    Date.UTC(2026, 9, 23, 0),
+  );
+  // Across a DST change: 08:00 EDT on Sunday 8 Mar 2026 is 12:00 UTC.
+  assert.equal(
+    nextFire(
+      { time: "08:00", days: [0], enabled: true },
+      Date.UTC(2026, 2, 7, 12),
+      "America/New_York",
+    ),
+    Date.UTC(2026, 2, 8, 12),
+  );
+  assert.equal(nextFire({ ...weekdays, enabled: false }, 0, "UTC"), null);
+  assert.equal(parseSchedules([{ ...weekdays, days: [7] }]), null);
 });

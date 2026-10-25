@@ -4,6 +4,8 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-15",
   "workers_dev": false,
+  // Scheduled wakes use this IANA time zone.
+  "vars": { "TIMEZONE": "Asia/Shanghai" },
   "durable_objects": {
     "bindings": [{ "name": "WAKE_STATE", "class_name": "WakeState" }],
   },

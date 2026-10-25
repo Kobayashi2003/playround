@@ -1,91 +1,119 @@
 # Remote Wake
 
-ESP32-S3-Zero controller powered by USB. It connects to 2.4 GHz Wi-Fi, holds a
-WebSocket to a Cloudflare relay, and sends Wake-on-LAN packets to the PC's wired
-adapter as soon as a command arrives.
+An ESP32-S3-Zero on USB power keeps a WebSocket open to a Cloudflare relay and
+sends Wake-on-LAN packets to the PC's wired adapter when the web page asks. It
+also watches its USB link to tell whether the PC is on, asleep or off. An agent
+on the awake PC runs further actions (shut down, sleep, lock, or your own)
+through the same board.
+
+```
+browser ─ Pages entry ─ Worker + Durable Object ═ WebSocket ═ board ─ Wake-on-LAN ─ PC
+                                                               └── USB HID ── tools/agent.py
+```
 
 ## Use
 
-Open <https://personal-usb-wake-entry.pages.dev/> and select **Wake PC**.
-The board, router and Ethernet adapter must stay powered during hibernation.
-BOOT also sends a wake request; RESET preserves saved settings.
+Open <https://personal-usb-wake-entry.pages.dev/> and sign in with
+`ACCESS_PASSWORD`. On a phone, add it to the home screen to use it like an app.
 
-A fresh deployment requires a password but has none, so nobody can wake the PC
-until the owner sets one: **Settings** enables, changes or disables the password
-using the management key in `cloud/CONTROL-ACCESS.txt`. The production relay is
-currently set to passwordless. Settings changes invalidate sessions and reset
-login throttling. “Wake packets sent” confirms transmission, not PC resume.
+- **Wake PC** sends the packets and follows the wake until the PC reports on
+  (or two minutes pass).
+- **PC** shows the power state and one button per agent action; actions marked
+  `confirm` need a second tap.
+- **Activity** lists recent events, including a PC restart that did not come
+  from the page and the board going offline.
+- **Scheduled wake** wakes the PC at set times (in `TIMEZONE`, default
+  Asia/Shanghai, set in `cloud/wrangler.jsonc`) unless it is already on.
+- **Wake board** shows temperature, Wi-Fi signal, uptime and firmware build,
+  and sets the LED brightness (Off still flashes when the BOOT button wakes).
+
+The board, router and Ethernet adapter must stay powered while the PC sleeps.
+The board's BOOT button also wakes the PC. Set `NOTIFY_URL` (see Deploy) to get
+wakes, failed actions, unexpected restarts and board outages on your phone.
+
+## Layout
+
+| Path           | Contents                                                        |
+| -------------- | --------------------------------------------------------------- |
+| `cloud/`       | Worker and Durable Object (`src/`), secrets template, root CAs  |
+| `pages-entry/` | Pages proxy that forwards everything to the Worker              |
+| `web/`         | The page and app icons; bundled by `scripts/build.mjs`          |
+| `firmware/`    | PlatformIO project; tunables in `src/config.h`                  |
+| `tools/`       | Python: board protocol, agent, status, OTA, Wi-Fi setup, deploy |
+| `agent.toml`   | Actions the PC agent offers                                     |
+| `test/`        | Node relay tests and pytest suites                              |
+
+## PC agent
+
+```powershell
+uv run tools/agent.py --check     # Validate agent.toml
+./install_agent.ps1               # Logon task for this user; starts it now
+./install_agent.ps1 -Uninstall
+```
+
+Add an action by appending an `[[action]]` to `agent.toml` (the file documents
+each field), then rerun `./install_agent.ps1`. The agent uses only USB. It runs in
+the signed-in session, so after a restart only waking works until you sign in.
+Hibernate needs `powercfg /h on` once. Log: `.logs/agent.log`.
+
+## Board
+
+```powershell
+uv run tools/status.py                    # Network, cloud, target, board, agent
+uv run tools/status.py --target-mac 58:11:22:AB:1C:C8
+uv run tools/status.py --wake
+./start.ps1 -Mode Setup                   # Wi-Fi setup page on http://127.0.0.1:16032/
+```
+
+Build with `uvx --from platformio platformio run` in `firmware/`; each build is
+stamped with its UTC time. Update the board over the air with:
+
+```powershell
+uv run tools/ota.py               # Uploads the build, waits for the board, withdraws the offer
+```
+
+The board verifies the image's SHA-256, and a new build that cannot reach the
+relay within five minutes rolls back to the previous one. To flash over USB
+instead, run `uv run tools/status.py --bootloader`, then
+`uvx --from platformio platformio run --target upload --upload-port <COM port>`.
+Saved Wi-Fi and target MAC survive both. For recovery, hold BOOT, tap RESET,
+release BOOT. `backups/` holds flash images, including Wi-Fi credentials; keep
+them private.
 
 ## Develop
 
 ```powershell
-pnpm install
-uv sync
-./start.ps1 -Build          # http://127.0.0.1:16030/; drop -Build once the assets are built
+pnpm install; uv sync
+./start.ps1 -Build      # Local relay on http://127.0.0.1:16030/
 ./stop.ps1
+pnpm lint; pnpm format:check; pnpm test
+uv run ruff check; uv run ruff format --check; uv run basedpyright; uv run pytest
 ```
 
-The board stays on production; local development state is separate. Logs are in
-`.logs/`. Tests use fixture credentials and do not contact the real board.
-
-```powershell
-pnpm lint
-pnpm format:check
-pnpm test                  # Includes build and 30-second command expiry
-uv run ruff check
-uv run ruff format --check
-uv run basedpyright
-uv run pytest
-```
-
-## Board tools
-
-```powershell
-uv run status.py
-uv run status.py --wake
-uv run status.py --target-mac 58:11:22:AB:1C:C8
-./start.ps1 -Mode Setup     # http://127.0.0.1:16032/; closes after setup
-```
-
-Wi-Fi credentials and the target MAC are written over USB and stored on the
-board. Firmware runs the cloud link in its own task over a verified-TLS
-WebSocket (`/device/socket`), pings every 20 seconds and reconnects after 50
-seconds of silence. Commands expire after 30 seconds and persisted command IDs
-prevent duplicate sends. The relay still accepts the older `/device/poll`
-firmware.
-
-To build firmware, run `uvx --from platformio platformio run` inside `firmware/`.
-`uv run status.py --bootloader` enters the ROM downloader. Upload with PlatformIO's
-`run --target upload --upload-port <COM port>`. For physical recovery, hold BOOT,
-press and release RESET, then release BOOT.
+The local relay has its own state; the board always talks to production.
 
 ## Deploy
 
-```powershell
-pnpm deploy
-uv run verify_cloud.py https://personal-usb-wake-entry.pages.dev
-# Sends one real wake request:
-uv run remote_test.py https://personal-usb-wake-entry.pages.dev
-```
-
-Worker `personal-usb-wake` owns the SQLite Durable Object and secrets; its
-`workers.dev` route is disabled. Pages `personal-usb-wake-entry` forwards
-requests, including the board's WebSocket, through the RELAY service binding.
-Both use the Free plan. To update that proxy, run `pnpm exec wrangler pages deploy
-public --project-name personal-usb-wake-entry` from `pages-entry/`.
-
-For initial provisioning or credential rotation, place ADMIN_TOKEN and
-DEVICE_TOKEN in `cloud/.dev.vars`, then run:
+Secrets live in `cloud/.dev.vars` (gitignored; see `cloud/.dev.vars.example`):
+ADMIN_TOKEN, DEVICE_TOKEN, ACCESS_PASSWORD and the optional NOTIFY_URL. After
+changing them:
 
 ```powershell
-uv run prepare_cloud.py https://personal-usb-wake-entry.pages.dev cloud/root-ca.pem
+uv run tools/prepare_cloud.py     # Writes cloud/.secrets.json and the firmware's cloud_settings.h
 pnpm exec wrangler secret bulk cloud/.secrets.json --config cloud/wrangler.jsonc
 ```
 
-The first key manages access settings; the second authenticates the board.
-Rebuild and flash after changing the firmware endpoint, device key or CA bundle.
-Regular cloud deployments retain secrets and need no firmware update.
+Then deploy and check:
 
-Private files and generated firmware are ignored by Git. `backups/` contains
-factory and working flash backups, including saved Wi-Fi credentials; retain
-them for recovery and do not publish them.
+```powershell
+pnpm deploy
+uv run tools/verify_cloud.py      # No commands sent
+uv run tools/remote_test.py       # Sends one real wake
+```
+
+A new password or NOTIFY_URL needs only the secret upload. A new device token,
+relay URL or CA bundle also needs a firmware rebuild and USB flash. The Worker
+has no `workers.dev` route; to update the Pages proxy, run
+`pnpm exec wrangler pages deploy public --project-name personal-usb-wake-entry`
+in `pages-entry/`. The relay still accepts HTTP polling (`/device/poll`) so that
+older firmware, such as a restored backup, keeps working.

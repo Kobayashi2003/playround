@@ -9,15 +9,17 @@ dev = ["ruff", "basedpyright", "pytest"]
 
 [tool.ruff]
 target-version = "py314"
+src = ["tools"]
 exclude = ["node_modules", "firmware", ".wrangler", "cloud/.wrangler"]
 
 [tool.basedpyright]
 typeCheckingMode = "standard"
-include = ["*.py", "tests"]
+include = ["tools", "test"]
 stubPath = "typings"
+extraPaths = ["tools"]
 venvPath = "."
 venv = ".venv"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]
+testpaths = ["test"]
+pythonpath = ["tools"]

@@ -1,3 +1,5 @@
 .cache/
 .trash/
 store.json
+.backup/
+.running.json

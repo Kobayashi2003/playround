@@ -1,17 +1,17 @@
-"""Send one real wake command and wait for the board's acknowledgement."""
+"""Send one real wake through the relay and wait for the board's result."""
 
-import sys
+import argparse
 import time
 
-from cloud_client import Client
+from cloud_client import RELAY_URL, Client
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit("Usage: uv run remote_test.py https://deployed-host")
-    client = Client(sys.argv[1])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("url", nargs="?", default=RELAY_URL, help="Relay origin")
+    client = Client(parser.parse_args().url)
     if not client.call("/api/status", owner=True)["online"]:
-        raise SystemExit("Device is offline; no wake command sent.")
+        raise SystemExit("Board is offline; no wake command sent.")
     command = client.call("/api/wake", {}, owner=True)["command"]
     if not isinstance(command, dict):
         raise TypeError("Missing command in relay response.")
@@ -25,7 +25,7 @@ def main() -> None:
             and result["id"] == command["id"]
             and result["status"] != "pending"
         ):
-            print("Cloud device acknowledgement:", result["status"], flush=True)
+            print("Board result:", result["status"], flush=True)
             if result["status"] != "sent":
                 raise SystemExit(1)
             return

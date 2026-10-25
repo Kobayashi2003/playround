@@ -1,0 +1,16 @@
+# Copy to cloud/.dev.vars (gitignored). wrangler dev reads it locally;
+# tools/prepare_cloud.py turns it into cloud/.secrets.json for
+# `wrangler secret bulk`. Empty values are left out.
+
+# Management key: owner scripts in tools/ and the key that signs web sessions.
+# At least 32 characters.
+ADMIN_TOKEN=
+# Board credential, compiled into the firmware. At least 32 characters.
+DEVICE_TOKEN=
+# Web page password. Without it the page stays locked. Changing it signs
+# every session out.
+ACCESS_PASSWORD=
+# Optional push notifications: an ntfy topic URL (https://ntfy.sh/<topic>),
+# Bark (https://api.day.app/<key>) or ServerChan
+# (https://sctapi.ftqq.com/<key>.send).
+NOTIFY_URL=

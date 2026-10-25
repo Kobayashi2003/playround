@@ -1,4 +1,7 @@
-"""Local CLI client; keep credentials out of terminal output."""
+"""HTTPS client for the relay, authenticated with the management key.
+
+Never print what secrets() returns.
+"""
 
 import json
 import ssl
@@ -8,7 +11,8 @@ from urllib.parse import urlparse
 from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
+RELAY_URL = "https://personal-usb-wake-entry.pages.dev"
 
 
 def secrets() -> dict[str, str]:
@@ -23,7 +27,7 @@ def secrets() -> dict[str, str]:
 
 
 class Client:
-    def __init__(self, base: str) -> None:
+    def __init__(self, base: str = RELAY_URL) -> None:
         parsed = urlparse(base)
         if (
             parsed.scheme != "https"
@@ -52,7 +56,24 @@ class Client:
             data=None if body is None else json.dumps(body).encode(),
             headers=headers,
         )
-        with self.opener.open(request, timeout=15) as response:
+        return self._send(request)
+
+    def send_firmware(self, image: bytes | None, digest: str = "") -> dict[str, Json]:
+        """Offer an image to the board (PUT), or withdraw the offer (None)."""
+        request = Request(
+            self.base + "/api/firmware",
+            data=image,
+            method="PUT" if image is not None else "DELETE",
+            headers={
+                "Authorization": "Bearer " + self.owner,
+                "Content-Type": "application/octet-stream",
+                "X-Firmware-Digest": digest,
+            },
+        )
+        return self._send(request, timeout=120)
+
+    def _send(self, request: Request, timeout: float = 15) -> dict[str, Json]:
+        with self.opener.open(request, timeout=timeout) as response:
             result: object = json.load(response)
         if not isinstance(result, dict):
             raise TypeError("Expected a JSON object from relay.")

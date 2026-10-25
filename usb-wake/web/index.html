@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
     <meta
       name="theme-color"
       content="#e6e9ed"
@@ -15,11 +18,15 @@
     />
     <title>Remote Wake</title>
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Wake" />
     <link rel="stylesheet" href="./styles.css" />
     <script src="./app.js" defer></script>
   </head>
   <body>
-    <main class="controller">
+    <main id="controller" class="controller">
       <header class="header">
         <a class="brand" href="./"
           ><span class="brand-icon" aria-hidden="true"
@@ -28,11 +35,7 @@
           ></span>
           <h1>Remote Wake</h1></a
         >
-        <button id="settingsButton" class="icon-button" aria-label="Settings">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 7h16M4 17h16M8 4v6m8 4v6" />
-          </svg>
-        </button>
+        <button id="logoutButton" class="text-button" hidden>Lock</button>
       </header>
       <section id="loginPanel" class="login-panel" hidden>
         <h2>Unlock</h2>
@@ -79,6 +82,16 @@
           >
         </div>
         <p id="actionError" class="form-message" role="alert"></p>
+        <section class="pc-panel" aria-labelledby="pcTitle">
+          <div class="section-heading">
+            <h2 id="pcTitle">PC</h2>
+            <span id="pcState" class="pc-state" data-state="unknown"
+              >Unknown</span
+            >
+          </div>
+          <div id="pcActions" class="pc-actions"></div>
+          <p id="pcHint" class="hint" hidden></p>
+        </section>
         <section class="activity" aria-label="Last request">
           <div class="activity-heading">
             <span>Last request</span><time id="commandTime">—</time>
@@ -86,44 +99,64 @@
           <p id="commandResult" role="status">No requests yet</p>
         </section>
       </section>
-      <footer id="sessionControls" hidden>
-        <button id="logoutButton" class="text-button">Lock</button>
-      </footer>
-    </main>
-    <dialog id="settingsDialog" aria-labelledby="settingsTitle">
-      <div class="dialog-heading">
-        <h2 id="settingsTitle">Settings</h2>
-        <button
-          id="closeSettings"
-          class="icon-button"
-          aria-label="Close settings"
+      <div class="side">
+        <section id="eventsPanel" class="panel" aria-labelledby="eventsTitle">
+          <div class="section-heading">
+            <h2 id="eventsTitle">Activity</h2>
+            <button id="moreEvents" class="text-button" type="button" hidden>
+              Show all
+            </button>
+          </div>
+          <ol id="events" class="events"></ol>
+          <p id="eventsEmpty" class="hint">Nothing has happened yet.</p>
+        </section>
+        <section
+          id="schedulePanel"
+          class="panel"
+          aria-labelledby="scheduleTitle"
         >
-          ×
-        </button>
+          <div class="section-heading">
+            <h2 id="scheduleTitle">Scheduled wake</h2>
+            <span id="nextWake" class="pc-state"></span>
+          </div>
+          <ul id="schedules" class="schedules"></ul>
+          <form id="scheduleForm" class="schedule-form">
+            <label class="visually-hidden" for="scheduleTime">Time</label>
+            <input id="scheduleTime" type="time" value="08:00" required />
+            <fieldset id="scheduleDays" class="chip-picker day-picker">
+              <legend class="visually-hidden">Days</legend>
+            </fieldset>
+            <button class="secondary-button" type="submit">Add</button>
+          </form>
+          <p id="scheduleError" class="form-message" role="alert"></p>
+          <p id="timeZone" class="hint"></p>
+        </section>
+        <section id="boardPanel" class="panel" aria-labelledby="boardTitle">
+          <h2 id="boardTitle">Wake board</h2>
+          <dl class="stats">
+            <div>
+              <dt>Temperature</dt>
+              <dd id="boardTemperature">—</dd>
+            </div>
+            <div>
+              <dt>Wi-Fi</dt>
+              <dd id="boardSignal">—</dd>
+            </div>
+            <div>
+              <dt>Uptime</dt>
+              <dd id="boardUptime">—</dd>
+            </div>
+            <div>
+              <dt>Firmware</dt>
+              <dd id="boardFirmware">—</dd>
+            </div>
+          </dl>
+          <fieldset id="ledPicker" class="chip-picker led-picker">
+            <legend>LED</legend>
+          </fieldset>
+          <p id="ledHint" class="hint" hidden></p>
+        </section>
       </div>
-      <form id="settingsForm">
-        <label class="toggle-row" for="passwordEnabled"
-          ><span>Require password</span
-          ><input id="passwordEnabled" type="checkbox" role="switch"
-        /></label>
-        <div id="newPasswordField" hidden>
-          <label for="newPassword">New password</label>
-          <input
-            id="newPassword"
-            type="password"
-            minlength="8"
-            autocomplete="new-password"
-            placeholder="At least 8 characters"
-            disabled
-          />
-        </div>
-        <label for="managementKey">Management key</label>
-        <input id="managementKey" type="password" autocomplete="off" required />
-        <button id="saveSettings" class="primary-button" type="submit">
-          Save
-        </button>
-        <p id="settingsMessage" class="form-message" role="alert"></p>
-      </form>
-    </dialog>
+    </main>
   </body>
 </html>

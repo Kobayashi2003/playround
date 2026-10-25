@@ -8,6 +8,7 @@ dependencies = []
 [dependency-groups]
 dev = [
     "basedpyright>=1.40.2",
+    "pytest>=9.1.1",
     "ruff>=0.17.0",
 ]
 
@@ -21,5 +22,9 @@ line-length = 100
 select = ["E4", "E7", "E9", "F", "W", "I", "B", "UP"]
 
 [tool.basedpyright]
-include = ["server.py", "parsers.py"]
+include = ["server.py", "parsers.py", "relocate.py", "tests"]
 typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

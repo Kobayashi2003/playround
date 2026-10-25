@@ -30,7 +30,7 @@ function Start-Owned([string]$Tool, [string[]]$Arguments, [string]$Log, [string]
 }
 try {
     if ($Mode -eq 'Setup') {
-        $started += Start-Owned 'uv' @('run', 'configure.py') 'setup'
+        $started += Start-Owned 'uv' @('run', 'tools/wifi_setup.py') 'setup'
     } else {
         $started += Start-Owned 'node' @('node_modules/wrangler/bin/wrangler.js', 'dev', '--config', 'cloud/wrangler.jsonc', '--ip', '127.0.0.1', '--port', '16030', '--inspector-port', '16034') 'worker'
     }

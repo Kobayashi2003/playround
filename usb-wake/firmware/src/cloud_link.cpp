@@ -1,5 +1,5 @@
+#include "cloud_link.h"
 #include <Arduino.h>
-#include "cloud_wake.h"
 
 #if __has_include("cloud_settings.h")
 #include "cloud_settings.h"
@@ -9,20 +9,22 @@
 #include <esp_websocket_client.h>
 #include <time.h>
 #include <atomic>
-#include "network_wake.h"
+#include "config.h"
+#include "led.h"
+#include "network.h"
+#include "ota.h"
+#include "pc_link.h"
+#include "status.h"
 
 namespace {
-constexpr uint32_t kPingMs = 20000;
-// The relay answers "ping" without waking; silence this long means the TCP
-// link is half-open, which the client's own reconnect would never notice.
-constexpr uint32_t kSilenceMs = 50000;
 constexpr size_t kMessageSize = 512;
 struct Message {
   char data[kMessageSize];
 };
 struct CommandRecord {
   char id[37];
-  char result[7];
+  // Longest value is "unreachable".
+  char result[12];
 };
 
 Preferences state;
@@ -37,6 +39,16 @@ esp_websocket_client_handle_t socket = nullptr;
 std::atomic<bool> connected{false};
 std::atomic<bool> helloNeeded{false};
 std::atomic<uint32_t> lastHeard{0};
+// Last valid action catalogue from the PC agent, resent on every reconnect.
+String catalogue;
+bool reportedPcOnline = false;
+bool reportedPowerKnown = false;
+HostPower reportedPower = HostPower::Off;
+// Firmware the relay offers; installed between commands, retried sparingly.
+String offeredDigest;
+uint32_t offeredSize = 0;
+String attemptedDigest;
+uint32_t attemptedAt = 0;
 
 bool persistCommand() {
   CommandRecord record{};
@@ -59,15 +71,33 @@ void sendText(const char *text, size_t length) {
   }
 }
 
-// Tells the relay what was handled last; it replies with any command the
-// board has not yet acknowledged.
-void sendState() {
+// Tells the relay what was handled last, the PC's state and the board's own
+// health; it replies with any command the board has not yet acknowledged.
+void sendState(bool withCatalogue = false) {
   JsonDocument body;
   body["lastHandled"] = lastHandled;
   if (!lastResult.isEmpty()) body["lastResult"] = lastResult;
-  char text[128];
-  const size_t length = serializeJson(body, text, sizeof(text));
-  sendText(text, length);
+  reportedPcOnline = pcAgentOnline();
+  body["pc"]["online"] = reportedPcOnline;
+  reportedPowerKnown = hostPowerKnown();
+  reportedPower = hostPower();
+  if (reportedPowerKnown) body["pc"]["power"] = hostPowerName(reportedPower);
+  if (withCatalogue && !catalogue.isEmpty()) {
+    body["pc"]["actions"] = serialized(catalogue);
+  }
+  const float temperature = chipTemperature();
+  if (!isnan(temperature)) {
+    body["board"]["temperature"] = roundf(temperature * 10) / 10;
+  }
+  body["board"]["rssi"] = WiFi.RSSI();
+  body["board"]["uptime"] = millis() / 1000;
+  body["board"]["heap"] = ESP.getFreeHeap();
+  if (*otaRunningDigest()) body["board"]["firmware"] = otaRunningDigest();
+  body["board"]["build"] = otaBuild();
+  body["board"]["led"] = ledName();
+  String text;
+  serializeJson(body, text);
+  sendText(text.c_str(), text.length());
 }
 
 void onSocketEvent(void *, esp_event_base_t, int32_t eventId, void *raw) {
@@ -106,13 +136,23 @@ void handleMessage(const char *text) {
     setStatus("invalid-response");
     return;
   }
+  otaConfirm();
+  const char *offered = data["firmware"]["digest"] | "";
+  if (strlen(offered) == 64) {
+    offeredDigest = offered;
+    offeredSize = data["firmware"]["size"] | 0;
+  }
+  // Every reply carries the page's settings; report back only on a change.
+  const char *led = data["settings"]["led"] | "";
+  if (*led && ledSet(led)) sendState();
   const char *id = data["command"]["id"] | "";
   if (!*id) {
     return;
   }
   const uint64_t expires = data["command"]["expiresAt"] | uint64_t(0);
   const uint64_t serverNow = data["serverTime"] | uint64_t(0);
-  if (strlen(id) != 36 || expires <= serverNow || expires - serverNow > 30000 ||
+  if (strlen(id) != 36 || expires <= serverNow ||
+      expires - serverNow > config::kMaxCommandLifetimeMs ||
       expires <= static_cast<uint64_t>(time(nullptr)) * 1000) {
     setStatus("expired-or-invalid-command");
     return;
@@ -122,7 +162,7 @@ void handleMessage(const char *text) {
     sendState();
     return;
   }
-  // Persist before sending. A reset must never replay an old wake command.
+  // Persist before acting. A reset must never replay an old command.
   lastHandled = id;
   lastResult = "failed";
   if (!persistCommand()) {
@@ -130,10 +170,24 @@ void handleMessage(const char *text) {
     sendState();
     return;
   }
+  const char *action = data["command"]["action"] | "";
+  if (*action) {
+    const PcResult result = pcRun(id, action);
+    lastResult = result == PcResult::Sent     ? "sent"
+                 : result == PcResult::Failed ? "failed"
+                                              : "unreachable";
+    persistCommand();
+    setStatus(result == PcResult::Sent     ? "pc-action-sent"
+              : result == PcResult::Failed ? "pc-action-failed"
+                                           : "pc-unreachable");
+    sendState();
+    return;
+  }
   bool ok = false;
   if (const uint32_t ticket = requestNetworkWake()) {
     const uint32_t started = millis();
-    while (!networkWakeFinished(ticket, &ok) && millis() - started < 2000) {
+    while (!networkWakeFinished(ticket, &ok) &&
+           millis() - started < config::kWakeResultTimeoutMs) {
       vTaskDelay(pdMS_TO_TICKS(10));
     }
   }
@@ -144,18 +198,19 @@ void handleMessage(const char *text) {
 }
 
 bool startSocket() {
-  esp_websocket_client_config_t config{};
-  config.uri = socketUri.c_str();
-  config.cert_pem = WAKE_CA_CERT;
-  config.headers = socketHeaders.c_str();
-  config.user_agent = "USB-Wake/2.0";
-  config.task_stack = 10240;
+  esp_websocket_client_config_t options{};
+  options.uri = socketUri.c_str();
+  options.cert_pem = WAKE_CA_CERT;
+  options.headers = socketHeaders.c_str();
+  options.user_agent = config::kUserAgent;
+  options.task_stack = config::kSocketTaskStack;
+  options.buffer_size = config::kSocketBufferSize;
   // Liveness is judged by application pings, which the relay can answer
   // while hibernating; protocol pings only keep NAT mappings warm.
-  config.ping_interval_sec = 60;
-  config.disable_pingpong_discon = true;
-  config.keep_alive_enable = true;
-  socket = esp_websocket_client_init(&config);
+  options.ping_interval_sec = config::kSocketProtocolPingSec;
+  options.disable_pingpong_discon = true;
+  options.keep_alive_enable = true;
+  socket = esp_websocket_client_init(&options);
   if (!socket) {
     return false;
   }
@@ -166,6 +221,7 @@ bool startSocket() {
 
 void cloudTask(void *) {
   uint32_t lastPing = 0;
+  uint32_t lastTelemetry = 0;
   Message message;
   for (;;) {
     if (!socket) {
@@ -184,20 +240,49 @@ void cloudTask(void *) {
     }
     if (xQueueReceive(inbox, &message, pdMS_TO_TICKS(200)) == pdTRUE) {
       handleMessage(message.data);
+      continue;
     }
+    otaLoop();
     if (!connected) {
       continue;
     }
     const uint32_t now = millis();
+    if (!offeredDigest.isEmpty() && offeredDigest != otaRunningDigest() &&
+        (offeredDigest != attemptedDigest ||
+         now - attemptedAt >= config::kOtaRetryMs)) {
+      attemptedDigest = offeredDigest;
+      attemptedAt = now;
+      setStatus("updating-firmware");
+      setStatus(otaInstall(offeredDigest.c_str(), offeredSize));
+    }
+    String received;
+    if (pcTakeCatalogue(received)) {
+      JsonDocument parsed;
+      if (deserializeJson(parsed, received) || !parsed.is<JsonArray>()) {
+        setStatus("catalogue-invalid");
+      } else {
+        catalogue = received;
+        sendState(true);
+      }
+    }
     if (helloNeeded.exchange(false)) {
       lastPing = now;
+      lastTelemetry = now;
+      sendState(true);
+    } else if (pcAgentOnline() != reportedPcOnline ||
+               hostPowerKnown() != reportedPowerKnown ||
+               hostPower() != reportedPower ||
+               now - lastTelemetry >= config::kTelemetryMs) {
+      lastTelemetry = now;
       sendState();
     }
-    if (now - lastPing >= kPingMs) {
+    if (now - lastPing >= config::kCloudPingMs) {
       lastPing = now;
       sendText("ping", 4);
     }
-    if (now - lastHeard.load() >= kSilenceMs) {
+    // Silence means a half-open TCP link, which the client's own reconnect
+    // would never notice.
+    if (now - lastHeard.load() >= config::kCloudSilenceMs) {
       setStatus("silent-reconnecting");
       connected = false;
       esp_websocket_client_stop(socket);
@@ -213,7 +298,7 @@ void cloudBegin() {
   if (state.getBytesLength("command") == sizeof(record)) {
     state.getBytes("command", &record, sizeof(record));
     record.id[36] = '\0';
-    record.result[6] = '\0';
+    record.result[sizeof(record.result) - 1] = '\0';
     lastHandled = record.id;
     lastResult = record.result;
   }
@@ -223,10 +308,12 @@ void cloudBegin() {
   }
   socketUri = base + "/device/socket";
   socketHeaders = String("Authorization: Bearer ") + WAKE_DEVICE_TOKEN + "\r\n";
-  configTime(0, 0, "ntp.aliyun.com", "time.cloudflare.com", "pool.ntp.org");
+  configTime(0, 0, config::kNtpServers[0], config::kNtpServers[1],
+             config::kNtpServers[2]);
   inbox = xQueueCreate(4, sizeof(Message));
   // Its own task: TLS handshakes must never stall the button, LED or USB.
-  xTaskCreatePinnedToCore(cloudTask, "cloud", 8192, nullptr, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(cloudTask, "cloud", config::kCloudTaskStack, nullptr,
+                          1, nullptr, 1);
 }
 
 void cloudReport(uint8_t *buffer) {

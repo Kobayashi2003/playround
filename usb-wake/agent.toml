@@ -1,0 +1,81 @@
+# Actions the web page can run on this PC. The agent sends this list to the
+# board on start, and the page shows one button per action. Restart the agent
+# (or sign out and in) after editing.
+#
+# Each [[action]] takes:
+#   id       lowercase letters, digits and hyphens, up to 32 characters
+#   label    button text, up to 40 characters
+#   command  program and arguments, run without a shell; for shell features
+#            use ["cmd", "/c", ...] or ["powershell", "-NoProfile", "-Command", ...]
+#   confirm  ask for a second tap before running (default false)
+#   delay    seconds to wait before running (default 0); gives the board time
+#            to report success before the PC goes down
+#
+# At most 16 actions; the whole list must fit in 1024 bytes of JSON.
+
+[agent]
+# Seconds between polls of the board. The board reports the PC as gone after
+# 5 seconds without a poll (kAgentTimeoutMs in firmware/src/config.h).
+poll_interval = 1.0
+
+[[action]]
+id = "shutdown"
+label = "Shut down"
+command = ["shutdown", "/s", "/t", "0"]
+confirm = true
+delay = 3
+
+[[action]]
+id = "hibernate"
+label = "Hibernate"
+# Needs hibernation enabled once: `powercfg /h on` in an elevated prompt.
+command = ["shutdown", "/h"]
+confirm = true
+delay = 3
+
+[[action]]
+id = "restart"
+label = "Restart"
+command = ["shutdown", "/r", "/t", "0"]
+confirm = true
+delay = 3
+
+[[action]]
+id = "sleep"
+label = "Sleep"
+# A true sleep (S3) even with hibernation on; wake events stay enabled so
+# Wake-on-LAN still works.
+command = [
+  "powershell", "-NoProfile", "-NonInteractive", "-Command",
+  "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Application]::SetSuspendState('Suspend', $false, $false)",
+]
+confirm = true
+delay = 3
+
+[[action]]
+id = "lock"
+label = "Lock"
+command = ["rundll32.exe", "user32.dll,LockWorkStation"]
+
+[[action]]
+id = "screen-off"
+label = "Screen off"
+# Broadcasts SC_MONITORPOWER; any mouse or key input turns the screens back on.
+command = [
+  "powershell", "-NoProfile", "-NonInteractive", "-Command",
+  "(Add-Type -MemberDefinition '[DllImport(\"user32.dll\")] public static extern int SendMessage(int h, int m, int w, int l);' -Name M -PassThru)::SendMessage(0xFFFF, 0x0112, 0xF170, 2)",
+]
+
+[[action]]
+id = "mute"
+label = "Mute or unmute"
+command = [
+  "powershell", "-NoProfile", "-NonInteractive", "-Command",
+  "(New-Object -ComObject WScript.Shell).SendKeys([char]173)",
+]
+
+# Example: open a program or link in the signed-in session.
+# [[action]]
+# id = "open-steam"
+# label = "Open Steam"
+# command = ["cmd", "/c", "start", "", "steam://open/main"]

@@ -6,7 +6,7 @@ from contextlib import closing
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs
 
-from board import config_reports, open_board, text_report
+from board import PAGE_NETWORK, open_board, send, text_report, wifi_reports
 
 csrf_token = secrets.token_urlsafe(32)
 finished = False
@@ -14,13 +14,13 @@ finished = False
 
 def network_status() -> str:
     with closing(open_board()) as device:
-        return text_report(device, 200)
+        return text_report(device, PAGE_NETWORK)
 
 
 def write_config(ssid: str, password: str) -> None:
     with closing(open_board()) as device:
-        for report in config_reports(ssid, password):
-            device.send_feature_report(report)
+        for report in wifi_reports(ssid, password):
+            send(device, report)
 
 
 class Handler(BaseHTTPRequestHandler):

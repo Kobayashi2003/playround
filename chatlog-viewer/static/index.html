@@ -2,55 +2,82 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Chat Log Viewer</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%97%A8%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="topbar">
-  <button id="side-toggle" class="icon-btn" title="Hide the sidebar (Ctrl+B)">◀</button>
+  <button id="side-toggle" class="icon-btn menu-btn" title="Show or hide the session list (Ctrl+B)" aria-label="Toggle the session list">☰</button>
   <div class="brand">Chat Log<span>Viewer</span></div>
 
   <div class="searchbox">
-    <input id="search" type="search" placeholder="Search what I said…   ( / to focus )" autocomplete="off">
+    <input id="search" type="search" placeholder="Search what I said…" autocomplete="off" aria-label="Search my messages">
+    <kbd class="search-key">/</kbd>
     <span id="search-count" class="search-count"></span>
   </div>
 
-  <div class="chips" id="source-chips">
-    <button class="chip on" data-source="all">All</button>
-    <button class="chip" data-source="claude">Claude Code</button>
-    <button class="chip" data-source="codex">Codex</button>
-  </div>
-
-  <div class="spacer"></div>
   <span id="status" class="status"></span>
-  <button id="reindex" class="ghost" title="Re-scan the log folders">Reindex</button>
+  <button id="reindex" class="ghost reindex" title="Re-scan the log folders"><span class="reindex-icon">⟳</span><span class="reindex-text">Reindex</span></button>
 </header>
 
 <main>
-  <aside class="sidebar" id="sidebar">
-    <div class="side-head">
-      <div class="control">
-        <span class="control-label">Group</span>
-        <div class="seg" id="group-chips">
-          <button class="seg-btn on" data-group="cwd">Folder</button>
-          <button class="seg-btn" data-group="date">Time</button>
-          <button class="seg-btn" data-group="none">Flat</button>
-        </div>
-      </div>
-      <div class="control">
-        <span class="control-label">Show</span>
-        <div class="seg" id="view-chips">
-          <button class="seg-btn on" data-view="all">All</button>
-          <button class="seg-btn" data-view="star" title="Starred">★</button>
-          <button class="seg-btn" data-view="archived">Archived</button>
-        </div>
-      </div>
-      <label class="tick"><input type="checkbox" id="hide-empty" checked> Hide sessions I never spoke in</label>
+  <aside class="sidebar" id="sidebar" aria-label="Sessions">
+    <button class="rail" id="side-rail" title="Show the session list (Ctrl+B)">
+      <span class="rail-arrow">»</span><span class="rail-text">Sessions</span>
+    </button>
+
+    <div class="side-top">
+      <input id="side-filter" type="search" placeholder="Filter by folder or title" autocomplete="off" aria-label="Filter sessions by folder or title">
+      <button id="groups-toggle" class="icon-btn" title="Collapse all groups">⊟</button>
+      <button id="side-close" class="icon-btn" title="Hide the session list (Ctrl+B)" aria-label="Hide the session list">«</button>
     </div>
+
+    <details class="side-opts" id="side-opts">
+      <summary><span class="opts-title">View</span><span id="opts-summary" class="opts-summary"></span></summary>
+      <div class="opts-body">
+        <div class="control">
+          <span class="control-label">Source</span>
+          <div class="seg" id="source-chips">
+            <button class="seg-btn on" data-source="all">All</button>
+            <button class="seg-btn" data-source="claude"><span class="dot claude"></span>Claude</button>
+            <button class="seg-btn" data-source="codex"><span class="dot codex"></span>Codex</button>
+          </div>
+        </div>
+        <div class="control">
+          <span class="control-label">Group</span>
+          <div class="seg" id="group-chips">
+            <button class="seg-btn on" data-group="cwd">Folder</button>
+            <button class="seg-btn" data-group="date">Time</button>
+            <button class="seg-btn" data-group="none">Flat</button>
+          </div>
+        </div>
+        <div class="control">
+          <span class="control-label">Show</span>
+          <div class="seg" id="view-chips">
+            <button class="seg-btn on" data-view="all">All</button>
+            <button class="seg-btn" data-view="star" title="Starred">★<span class="n"></span></button>
+            <button class="seg-btn" data-view="archived" title="Archived">Archived<span class="n"></span></button>
+            <button class="seg-btn" data-view="missing" title="Sessions whose working folder no longer exists">Missing<span class="n"></span></button>
+          </div>
+        </div>
+        <div class="control-row">
+          <label class="sort" id="sort-wrap">Sort folders
+            <select id="sort">
+              <option value="recent">by latest activity</option>
+              <option value="count">by session count</option>
+              <option value="name">by name</option>
+            </select>
+          </label>
+          <label class="tick"><input type="checkbox" id="hide-empty" checked> Hide sessions I never spoke in</label>
+        </div>
+      </div>
+    </details>
+
     <div id="session-list" class="session-list"></div>
   </aside>
+  <div class="backdrop" id="backdrop"></div>
 
   <div class="resizer" id="resizer" title="Drag to resize · double-click to reset"></div>
 
@@ -60,6 +87,7 @@
       <p>Every Claude Code and Codex session, grouped by working folder or by time.<br>
          <b>User messages are shown in full</b>; assistant replies, reasoning and tool
          calls are collapsed by default.</p>
+      <button class="ghost browse-btn" data-open-side>Browse sessions</button>
     </div>
   </section>
 </main>

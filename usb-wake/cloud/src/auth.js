@@ -14,11 +14,15 @@ export async function ownerAuthorized(request, expected) {
   if (typeof expected !== "string" || expected.length < 32) return false;
   const received = request.headers.get("Authorization") ?? "";
   if (received.length > 512) return false;
-  const [left, right] = await Promise.all([
-    crypto.subtle.digest("SHA-256", encode(received)),
-    crypto.subtle.digest("SHA-256", encode(`Bearer ${expected}`)),
+  return digestsEqual(received, `Bearer ${expected}`);
+}
+
+async function digestsEqual(left, right) {
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encode(left)),
+    crypto.subtle.digest("SHA-256", encode(right)),
   ]);
-  return equal(new Uint8Array(left), new Uint8Array(right));
+  return equal(new Uint8Array(a), new Uint8Array(b));
 }
 
 function equal(left, right) {
@@ -28,38 +32,18 @@ function equal(left, right) {
   return mismatch === 0;
 }
 
-async function derive(password, salt) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  return crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
-    key,
-    256,
-  );
+// The password is the ACCESS_PASSWORD secret, set from cloud/.dev.vars before
+// deployment; there is deliberately no way to change it from the web page.
+export function configuredPassword(env) {
+  const value = env.ACCESS_PASSWORD;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-export async function createAccess(password) {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  return {
-    enabled: true,
-    version: crypto.randomUUID(),
-    salt: base64(salt),
-    hash: base64(await derive(password, salt)),
-  };
-}
-
-export async function passwordMatches(password, access) {
-  if (typeof password !== "string" || encode(password).length > 256)
-    return false;
-  return equal(
-    new Uint8Array(await derive(password, unbase64(access.salt))),
-    unbase64(access.hash),
-  );
+export async function passwordMatches(password, env) {
+  const expected = configuredPassword(env);
+  if (!expected || typeof password !== "string") return false;
+  if (encode(password).length > 256) return false;
+  return digestsEqual(password, expected);
 }
 
 async function sessionKey(secret) {
@@ -72,16 +56,31 @@ async function sessionKey(secret) {
   );
 }
 
-export async function makeSession(access, secret, secure) {
-  const content = `${access.version}.${Date.now() + SESSION_MS}`;
+// Derived from the password, so changing it signs every session out.
+async function accessVersion(env) {
+  const mac = await crypto.subtle.sign(
+    "HMAC",
+    await sessionKey(env.ADMIN_TOKEN),
+    encode(`access:${configuredPassword(env)}`),
+  );
+  return base64(mac).slice(0, 22);
+}
+
+export async function makeSession(env, secure) {
+  const content = `${await accessVersion(env)}.${Date.now() + SESSION_MS}`;
   const signature = base64(
-    await crypto.subtle.sign("HMAC", await sessionKey(secret), encode(content)),
+    await crypto.subtle.sign(
+      "HMAC",
+      await sessionKey(env.ADMIN_TOKEN),
+      encode(content),
+    ),
   );
   return `wake_session=${content}.${signature}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${secure ? "; Secure" : ""}`;
 }
 
-export async function controlAuthorized(request, access, secret) {
-  if (!access.enabled || (await ownerAuthorized(request, secret))) return true;
+export async function controlAuthorized(request, env) {
+  if (await ownerAuthorized(request, env.ADMIN_TOKEN)) return true;
+  if (!configuredPassword(env)) return false;
   const value = request.headers
     .get("Cookie")
     ?.split(";")
@@ -92,7 +91,7 @@ export async function controlAuthorized(request, access, secret) {
   const [version, expires, signature, extra] = value.split(".");
   if (
     extra ||
-    version !== access.version ||
+    version !== (await accessVersion(env)) ||
     Number(expires) <= Date.now() ||
     !signature
   )
@@ -100,7 +99,7 @@ export async function controlAuthorized(request, access, secret) {
   try {
     return await crypto.subtle.verify(
       "HMAC",
-      await sessionKey(secret),
+      await sessionKey(env.ADMIN_TOKEN),
       unbase64(signature),
       encode(`${version}.${expires}`),
     );

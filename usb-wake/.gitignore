@@ -14,4 +14,4 @@ cloud/src/generated-assets.js
 .running.json
 .logs/
 cloud/.dev.vars
-cloud/CONTROL-ACCESS.txt
+.agent-state.json
