@@ -1,7 +1,6 @@
 {
   "roots": [
-    "D:\\Collection\\Partially sorted",
-    "D:\\Collection\\Fully sorted"
+    "example"
   ],
   "targets": [
     "*/2. *",
@@ -9,9 +8,7 @@
     "*/4. *",
     "*/5. *"
   ],
-  "exclude": [
-    "D:\\Collection\\Fully sorted\\Lose"
-  ],
+  "exclude": [],
   "backend": "everything",
   "everything_url": "http://127.0.0.1:8081",
   "everything_username": "",

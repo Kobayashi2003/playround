@@ -24,10 +24,10 @@ Copy `settings.example.json` to `settings.json` (git-ignored) and edit it, then 
 `settings.json` beside the script is loaded automatically; without it the defaults in
 `collection_tree.py` apply. Main fields:
 
-- `roots`: collection roots.
+- `roots`: collection roots; defaults to the included `example` folder. Relative paths use the configuration directory (or the script directory without a configuration file).
 - `targets`: default `*/2. *`, `*/3. *`, `*/4. *`, `*/5. *` selects publisher-level categories. A name alone matches at any depth; a path selects a specific subtree. `*` stays within a segment; `**` crosses segments.
 - `everything_url`: default `http://127.0.0.1:8081`. Optional username/password fields are available.
-- `exclude`: excluded subtrees; Lose is excluded by default.
+- `exclude`: excluded subtrees; empty by default.
 - `output`, `port`: default `HTML`, `16040`.
 
 Credentials, if used, are saved locally in `settings.json` and `HTML/build-config.json`; keep them private.

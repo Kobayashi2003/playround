@@ -40,12 +40,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # Edit these defaults, or override them with --config JSON / command-line options.
 DEFAULT_CONFIG = {
-    "roots": [
-        r"I:\コレクション - ギャルゲー - 部分整理",
-        r"I:\コレクション - ギャルゲー - 完全整理",
-    ],
+    "roots": ["example"],
     "targets": ["*/2. *", "*/3. *", "*/4. *", "*/5. *"],
-    "exclude": [r"I:\コレクション - ギャルゲー - 完全整理\Lose"],
+    "exclude": [],
     "backend": "everything",
     "everything_url": "http://127.0.0.1:8081",
     "everything_username": "",
