@@ -16,13 +16,13 @@ No app knows about the gateway: it starts each one exactly as it would run on it
 Requires PowerShell 7 and Caddy on `PATH`.
 
 ```powershell
-.\gateway.ps1                              # every enabled app
-.\gateway.ps1 -App hearth,chatlog-viewer   # just these, enabled or not
-.\gateway.ps1 -List                        # the registry
-.\gateway.ps1 -ConfigOnly                  # generate and validate config, launch nothing
-.\gateway.ps1 -Bind :8080                  # move the public port for this run
-.\gateway.ps1 -Port hearth:backend=17019   # move an app's port for this run (within its slot)
-.\gateway.ps1 -Enable tmw-downloader       # / -Disable: written back to apps/tmw-downloader.json
+.\start.ps1                                # every enabled app
+.\start.ps1 -App hearth,chatlog-viewer     # just these, enabled or not
+.\start.ps1 -List                          # the registry
+.\start.ps1 -ConfigOnly                    # generate and validate config, launch nothing
+.\start.ps1 -Bind :8080                    # move the public port for this run
+.\start.ps1 -Port hearth:backend=17019     # move an app's port for this run (within its slot)
+.\start.ps1 -Enable tmw-downloader         # / -Disable: written back to apps/tmw-downloader.json
 ```
 
 Ctrl+C stops everything; `.\stop.ps1` does the same from another window. The landing page opens in
@@ -50,12 +50,13 @@ Strings expand `${id}`, `${root}`, `${basePath}`, `${bind}`, `${paths.NAME}` and
 `${ports.NAME}`; an unknown name is an error. `gateway.json` holds the gateway's own settings:
 bind address, landing page text, named `paths`, and where [PORTS.md](../../PORTS.md) is.
 
-Ports follow PORTS.md. Before launching, the gateway rejects a port outside the app's range or
-slot, two apps in one slot, a port claimed twice, and overlapping `basePath` prefixes.
+Ports follow PORTS.md. An app takes every slot from its lowest port to its highest. Before
+launching, the gateway rejects a port outside the app's range or slots, two apps in one slot,
+a port claimed twice, and overlapping `basePath` prefixes.
 
 ## Adding an app
 
-1. Take the lowest free slot in the README of the app's category (ranges in
+1. Take the lowest free slot in the `PORTS.md` of the app's directory (ranges in the root
    [PORTS.md](../../PORTS.md)) and make it the app's default.
 2. If it is routed, make it serve under a path prefix: relative asset URLs, API calls resolved
    against the document, and a redirect from the bare prefix to the trailing-slash form. Bind

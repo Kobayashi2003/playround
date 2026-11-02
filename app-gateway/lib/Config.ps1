@@ -204,8 +204,8 @@ function Resolve-GatewayApps {
                 $ports[$p.Name] = [int]$p.Value
             }
         }
-        # What the file says, before -Port: the slot these fall in is the app's own,
-        # and an override has to stay inside it.
+        # What the file says, before -Port: the slots these fall in are the app's
+        # own, and an override has to stay inside them.
         $declaredPorts = $ports.Clone()
         if ($PortOverride.ContainsKey($id)) {
             foreach ($o in $PortOverride[$id].GetEnumerator()) {
@@ -344,12 +344,14 @@ function Assert-GatewayApps {
 
         # A slot belongs to one app even where the numbers inside it do not meet:
         # the spare ports in it are that app's room to grow.
-        $slot = Assert-AppPortRange -App $app -PortRanges $PortRanges -PortSlot $PortSlot
-        if ($slot) {
-            if ($seenSlot.ContainsKey($slot.Key)) {
-                throw "Apps '$($seenSlot[$slot.Key])' and '$($app.Id)' both take the slot $($slot.From)-$($slot.To). One app, one slot. See PORTS.md."
+        $slots = Assert-AppPortRange -App $app -PortRanges $PortRanges -PortSlot $PortSlot
+        if ($slots) {
+            foreach ($key in $slots.Keys) {
+                if ($seenSlot.ContainsKey($key)) {
+                    throw "Apps '$($seenSlot[$key])' and '$($app.Id)' both take a slot in $($slots.From)-$($slots.To). A slot belongs to one app. See PORTS.md."
+                }
+                $seenSlot[$key] = $app.Id
             }
-            $seenSlot[$slot.Key] = $app.Id
         }
 
         if ($app.Routes.Kind -eq 'snippet') {
@@ -419,15 +421,15 @@ function Read-PortConvention {
 
 function Assert-AppPortRange {
     <# The port convention (PORTS.md): every directory of apps owns a range, and
-       every app one slot of $PortSlot ports inside it. Checked here because this
-       registry is where an app's ports are written down next to where it lives —
-       a number from another directory's range, or one straddling two slots, is a
-       collision waiting for the app that owns it to start.
+       every app one slot of $PortSlot ports inside it, or consecutive slots when
+       it needs more. Checked here because this registry is where an app's ports
+       are written down next to where it lives — a number from another
+       directory's range is a collision waiting for the app that owns it to start.
 
-       The slot is the one the app's own file puts it in; a -Port override has to
-       land inside it too, so trying a port for one run never borrows another
-       app's. Returns @{ Key; From; To } for that slot, or nothing for an app whose
-       root is under no ranged directory, which is not checked. #>
+       The slots are the ones the app's own file puts it in; a -Port override has
+       to land inside them too, so trying a port for one run never borrows another
+       app's. Returns @{ Keys; From; To } for those slots, or nothing for an app
+       whose root is under no ranged directory, which is not checked. #>
     param([hashtable] $App, [hashtable[]] $PortRanges, [int] $PortSlot)
 
     if (-not $App.Ports.Count -or -not $PortRanges.Count) { return }
@@ -454,22 +456,20 @@ function Assert-AppPortRange {
         }
     }
 
-    $declared = @{}
-    foreach ($p in $App.DeclaredPorts.GetEnumerator()) { $declared[(& $slotOf $p.Value)] = $true }
-    if ($declared.Count -gt 1) {
-        $list = ($App.DeclaredPorts.GetEnumerator() | Sort-Object Value | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', '
-        throw "App '$($App.Id)' spreads its ports over $($declared.Count) slots of $PortSlot ($list). One app, one slot. See PORTS.md."
-    }
-
-    $index = @($declared.Keys)[0]
-    $from  = $range.From + $index * $PortSlot
-    $to    = $from + $PortSlot - 1
+    # An app that needs more than one slot takes consecutive ones: every slot from
+    # its lowest declared port to its highest, the gaps included.
+    $indexes = @($App.DeclaredPorts.Values | ForEach-Object { & $slotOf $_ })
+    $first = ($indexes | Measure-Object -Minimum).Minimum
+    $last  = ($indexes | Measure-Object -Maximum).Maximum
+    $from  = $range.From + $first * $PortSlot
+    $to    = $range.From + ($last + 1) * $PortSlot - 1
     foreach ($p in $App.Ports.GetEnumerator()) {
-        if ((& $slotOf $p.Value) -ne $index) {
-            throw "App '$($App.Id)' port '$($p.Key)' is $($p.Value), outside its own slot $from-$to. See PORTS.md."
+        $index = & $slotOf $p.Value
+        if ($index -lt $first -or $index -gt $last) {
+            throw "App '$($App.Id)' port '$($p.Key)' is $($p.Value), outside its own slots $from-$to. See PORTS.md."
         }
     }
-    return @{ Key = "${owner}:$index"; From = $from; To = $to }
+    return @{ Keys = @($first..$last | ForEach-Object { "${owner}:$_" }); From = $from; To = $to }
 }
 
 function Get-MergedRouteEnv {

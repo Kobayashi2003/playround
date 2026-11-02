@@ -6,13 +6,13 @@ Log files are only read, except by Move (below).
 
 ## Run
 
-Requires Python 3.14; standard library only.
+Requires [uv](https://docs.astral.sh/uv/); standard library only.
 
 ```bash
-python server.py                      # http://127.0.0.1:16010, opens a browser
-python server.py --port 16011 --no-open
-python server.py --reindex            # drop the cache and re-parse every log
-python server.py --base-path /chatlog # serve under a path prefix
+uv run server.py                      # http://127.0.0.1:16010, opens a browser
+uv run server.py --port 16011 --no-open
+uv run server.py --reindex            # drop the cache and re-parse every log
+uv run server.py --base-path /chatlog # serve under a path prefix
 ```
 
 On Windows, `start.ps1` / `stop.ps1` start and stop the server.
@@ -26,6 +26,8 @@ On Windows, `start.ps1` / `stop.ps1` start and stop the server.
 
 The first run indexes every session into `.cache/index.json` (safe to delete); later runs
 re-parse only changed files. An open session is re-read when its log changes.
+`CHATLOG_CACHE_DIR` moves `.cache/`, and `CHATLOG_DATA_DIR` moves `store.json`, `.trash/` and
+`.backup/` (this folder by default); a relative path is relative to this folder.
 
 ## Search
 

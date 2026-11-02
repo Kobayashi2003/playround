@@ -36,16 +36,21 @@ import relocate  # noqa: E402
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 
-CACHE_FILE = ROOT / ".cache" / "index.json"
+# State and the rebuildable index can each be moved; a relative path is relative to
+# this folder.
+DATA_DIR = ROOT / os.environ.get("CHATLOG_DATA_DIR", ".")
+CACHE_DIR = ROOT / os.environ.get("CHATLOG_CACHE_DIR", ".cache")
+
+CACHE_FILE = CACHE_DIR / "index.json"
 CACHE_VERSION = 4
 
 # User-authored state (stars, notes, renames). Held outside .cache because, unlike
 # the index, it cannot be regenerated; indexing never writes to it.
-STORE_FILE = ROOT / "store.json"
+STORE_FILE = DATA_DIR / "store.json"
 STORE_VERSION = 1
-TRASH_DIR = ROOT / ".trash"
+TRASH_DIR = DATA_DIR / ".trash"
 # Logs as they were before a move rewrote them, one timestamped folder per move.
-BACKUP_DIR = ROOT / ".backup"
+BACKUP_DIR = DATA_DIR / ".backup"
 
 SEARCH_BUDGET = 30000  # chars of user text kept per session for search
 
@@ -140,6 +145,7 @@ class Store:
             self.items = {}
 
     def save(self):
+        STORE_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = STORE_FILE.with_suffix(".tmp")
         tmp.write_text(
             json.dumps(

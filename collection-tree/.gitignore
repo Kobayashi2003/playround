@@ -3,3 +3,6 @@ HTML/
 
 # Local configuration (real paths, optional Everything credentials); see settings.example.json
 settings.json
+
+# Launcher state
+.running.json

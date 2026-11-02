@@ -211,7 +211,7 @@ def cmd_delete(a):
         print(f"removed {res['done']} of {res['total']} book(s)  ({where})")
         for f in res["failures"]:
             print(f"  ! [{f['id']}] {f['reason']}")
-        print("  restore with: python main.py trash, then python main.py restore <id> …")
+        print("  restore with: uv run main.py trash, then uv run main.py restore <id> …")
     return _out(res, a.json)
 
 
@@ -397,7 +397,7 @@ def build_parser():
 
     s = sub.add_parser("restore", help="put trashed books back")
     s.add_argument(
-        "ids", type=int, nargs="+", metavar="ID", help="trash ids, from `python main.py trash`"
+        "ids", type=int, nargs="+", metavar="ID", help="trash ids, from `uv run main.py trash`"
     )
     s.set_defaults(fn=cmd_restore)
 

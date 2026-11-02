@@ -5,11 +5,10 @@ chapter with the hit highlighted.
 
 ## Run
 
-Requires Python 3.14 with Tkinter; standard library only.
+Requires [uv](https://docs.astral.sh/uv/); standard library only (uv's Python includes Tkinter).
 
 ```bash
-pythonw main.pyw    # Windows, without a console window
-python main.pyw
+uv run main.pyw    # runs without a console window
 ```
 
 Choosing a folder indexes it; **Update Index** picks up added, changed or deleted books. Search
@@ -17,5 +16,6 @@ is a case-insensitive literal match (characters, Chinese phrases, short English 
 first 500 hits are shown. Only visible XHTML/HTML text in spine order is searched — not images,
 not DRM-protected books, and not books with a content file over 25 MB.
 
-The index and settings live in `%LOCALAPPDATA%\EpubFinder` (the platform's app-data directory
-elsewhere). Nothing is uploaded.
+Settings live in `data/` and the search index in `cache/` (safe to delete; the next scan
+rebuilds it). `EPUB_FINDER_DATA_DIR` and `EPUB_FINDER_CACHE_DIR` move them; a relative path is
+relative to this folder. Nothing is uploaded.

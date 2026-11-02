@@ -26,7 +26,7 @@
     "enabled": {
       "type": "boolean",
       "default": true,
-      "description": "Whether a bare gateway.ps1 includes this app. False means registered but dormant: not launched, not routed, no card. -Enable / -Disable flip this and rewrite this file alone; -App overrides it for one run. Deleting the file is the other way to unregister."
+      "description": "Whether a bare start.ps1 includes this app. False means registered but dormant: not launched, not routed, no card. -Enable / -Disable flip this and rewrite this file alone; -App overrides it for one run. Deleting the file is the other way to unregister."
     },
     "hidden": {
       "type": "boolean",
@@ -51,7 +51,7 @@
 
     "ports": {
       "type": "object",
-      "description": "Ports this app listens on, named by role. This is where the gateway places an app rather than discovering it: a number written here is handed to the app (through env or a launch argument) and to the route that proxies to it, so the two cannot drift. Two enabled apps claiming the same number is a load error, which is the collision separate projects could not see. The numbers follow PORTS.md: inside the range of the directory the root lives in, all within one slot — the same numbers the app's own configuration already defaults to.",
+      "description": "Ports this app listens on, named by role. This is where the gateway places an app rather than discovering it: a number written here is handed to the app (through env or a launch argument) and to the route that proxies to it, so the two cannot drift. Two enabled apps claiming the same number is a load error, which is the collision separate projects could not see. The numbers follow PORTS.md: inside the range of the directory the root lives in, within one slot or consecutive slots — the same numbers the app's own configuration already defaults to.",
       "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 65535 }
     },
 

@@ -13,8 +13,10 @@ from dataclasses import fields as dataclass_fields
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(PROJECT_DIR, "config.json")
-DATA_DIR = os.path.join(PROJECT_DIR, "data")
-CACHE_DIR = os.path.join(DATA_DIR, "covers")
+# The library database and the rebuildable cover cache can each be moved; a relative
+# path is relative to the project.
+DATA_DIR = os.path.join(PROJECT_DIR, os.environ.get("LNLIB_DATA_DIR", "data"))
+CACHE_DIR = os.path.join(PROJECT_DIR, os.environ.get("LNLIB_CACHE_DIR", "cache"), "covers")
 DB_PATH = os.path.join(DATA_DIR, "library.db")
 
 BOOK_EXT = {

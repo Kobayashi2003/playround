@@ -1,4 +1,4 @@
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
@@ -42,7 +42,7 @@ async function fixture(t, { accessPassword = password } = {}) {
       port: 16033,
     }),
   );
-  t.after(() => mf.dispose());
+  t.onTestFinished(() => mf.dispose());
   let session;
   // Signed in as the web page unless a test passes its own token or cookie;
   // `cookie: false` sends no credentials at all. `rawBody` is sent as is.
@@ -86,7 +86,7 @@ async function fixture(t, { accessPassword = password } = {}) {
       ws.addEventListener("close", ({ code }) => resolve(code)),
     );
     ws.accept();
-    t.after(() => ws.close());
+    t.onTestFinished(() => ws.close());
     return {
       status: 101,
       closed,
@@ -221,7 +221,7 @@ test("expired commands cannot wake after delayed reconnection", async (t) => {
     (await (await call("/api/status")).json()).command.status,
     "expired",
   );
-});
+}, 60_000);
 
 test("socket delivers commands immediately and accepts acknowledgements", async (t) => {
   const call = await fixture(t);

@@ -35,7 +35,7 @@
     "ports": {
       "type": "string",
       "default": "../../PORTS.md",
-      "description": "The port convention the gateway follows, relative to this file. Its Ranges table gives each directory's range and the slot size; every app whose root lies under a ranged directory must declare its ports inside that range, all within one slot. Checked at launch, after -Port, so an override cannot leave the app's own slot either. An app under no ranged directory is not checked."
+      "description": "The port convention the gateway follows, relative to this file. Its Ranges table gives each directory's range and the slot size; every app whose root lies under a ranged directory must declare its ports inside that range, in one slot or in consecutive slots when it needs more than one. Checked at launch, after -Port, so an override cannot leave the app's own slots either. An app under no ranged directory is not checked."
     }
   }
 }

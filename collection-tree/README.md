@@ -6,17 +6,26 @@ output folder is written.
 
 ## Run
 
-Requires Python 3.10+; standard library only.
+Requires [uv](https://docs.astral.sh/uv/); the script uses the standard library only.
 
 ```powershell
-python collection_tree.py                      # build, serve http://127.0.0.1:16040, open a browser
-python collection_tree.py --build              # build only
-python collection_tree.py --serve              # serve existing HTML without rebuilding
-python collection_tree.py --config other.json
+.\start.ps1 -Build      # build, serve http://127.0.0.1:16040, open a browser
+.\start.ps1             # serve the pages already built (-NoBrowser to skip the browser)
+.\stop.ps1              # stop it from another window
 ```
 
-Keep the terminal running for **Rebuild all** and **Show in Explorer**; Ctrl+C stops the
-service. Offline entry: `HTML/index.html`.
+Without the launcher:
+
+```powershell
+uv run collection_tree.py                      # build, serve and open a browser
+uv run collection_tree.py --build              # build only
+uv run collection_tree.py --serve              # serve existing HTML without rebuilding
+uv run collection_tree.py --config other.json
+```
+
+Keep the service running for **Rebuild all** and **Show in Explorer**; Ctrl+C stops it.
+Offline entry: `HTML/index.html`. Before handing off a change, run `uvx ruff check`,
+`uvx ruff format --check` and `uvx basedpyright`; `pyproject.toml` holds only their settings.
 
 ## Configure
 

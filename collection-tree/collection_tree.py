@@ -1,14 +1,14 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.14"
 # dependencies = []
 # ///
 """Collection Tree: a single-file, standard-library Everything HTTP / filesystem viewer.
 
-Run: python collection_tree.py  (build, start the local service, open the browser)
-Build only: python collection_tree.py --build
-Serve existing pages: python collection_tree.py --serve
-Create configuration: python collection_tree.py --init-config settings.json
-Use configuration: python collection_tree.py --config settings.json
+Run: uv run collection_tree.py  (build, start the local service, open the browser)
+Build only: uv run collection_tree.py --build
+Serve existing pages: uv run collection_tree.py --serve
+Create configuration: uv run collection_tree.py --init-config settings.json
+Use configuration: uv run collection_tree.py --config settings.json
 
 Only indexes and generated files are changed. Collection files are read-only. See --help.
 """
@@ -24,8 +24,6 @@ import hashlib
 import html
 import json
 import os
-from functools import lru_cache
-from pathlib import Path
 import re
 import secrets
 import subprocess
@@ -35,8 +33,9 @@ import traceback
 import urllib.parse
 import urllib.request
 import webbrowser
+from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-
+from pathlib import Path
 
 # Edit these defaults, or override them with --config JSON / command-line options.
 DEFAULT_CONFIG = {
@@ -68,7 +67,11 @@ def key(path: str | Path) -> str:
 
 def natural(name: str) -> list:
     """Sort key that orders embedded numbers numerically: 2 before 10."""
-    return [(0, int(t), t) if t[0] in "0123456789" else (1, 0, t) for t in re.split(r"([0-9]+)", name.casefold()) if t]
+    return [
+        (0, int(t), t) if t[0] in "0123456789" else (1, 0, t)
+        for t in re.split(r"([0-9]+)", name.casefold())
+        if t
+    ]
 
 
 def glob_match(candidate: str, pattern: str) -> bool:
@@ -82,7 +85,12 @@ def glob_match(candidate: str, pattern: str) -> bool:
             return i == len(parts)
         if patterns[j] == "**":
             return match(i, j + 1) or (i < len(parts) and match(i + 1, j))
-        return i < len(parts) and fnmatch.fnmatchcase(parts[i], patterns[j]) and match(i + 1, j + 1)
+        return (
+            i < len(parts)
+            and fnmatch.fnmatchcase(parts[i], patterns[j])
+            and match(i + 1, j + 1)
+        )
+
     return match(0, 0)
 
 
@@ -102,15 +110,32 @@ def atomic_write(path: Path, text: str) -> None:
 
 
 def js_json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+    return (
+        json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        .replace("<", "\\u003c")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
 
 
 def index_order(item: dict) -> tuple:
-    return item["title"].split(" - ")[0].casefold(), " - " in item["title"], item["title"].casefold()
+    return (
+        item["title"].split(" - ")[0].casefold(),
+        " - " in item["title"],
+        item["title"].casefold(),
+    )
 
 
 def command(config: dict) -> str:
-    args = [sys.executable, str(SCRIPT), "--serve", "--output", str(config["output"]), "--port", str(config["port"])]
+    args = [
+        sys.executable,
+        str(SCRIPT),
+        "--serve",
+        "--output",
+        str(config["output"]),
+        "--port",
+        str(config["port"]),
+    ]
     # Rebuilds in this service use this exact saved configuration.
     args += ["--config", str(Path(config["output"]) / "build-config.json")]
     return subprocess.list2cmdline(args)
@@ -126,35 +151,73 @@ def load_config(args: argparse.Namespace) -> dict:
             raise ValueError("Configuration must be a JSON object")
         unknown = set(loaded) - set(DEFAULT_CONFIG)
         if unknown:
-            raise ValueError("Unknown configuration fields: " + ", ".join(sorted(unknown)))
+            raise ValueError(
+                "Unknown configuration fields: " + ", ".join(sorted(unknown))
+            )
         config.update(loaded)
         base = source.parent
-    for arg, field in [("root", "roots"), ("target", "targets"), ("exclude", "exclude"), ("backend", "backend"), ("everything", "everything_url"), ("output", "output"), ("port", "port")]:
+    for arg, field in [
+        ("root", "roots"),
+        ("target", "targets"),
+        ("exclude", "exclude"),
+        ("backend", "backend"),
+        ("everything", "everything_url"),
+        ("output", "output"),
+        ("port", "port"),
+    ]:
         value = getattr(args, arg, None)
         if value is not None:
             config[field] = value
     for field in ("roots", "targets", "exclude"):
-        if not isinstance(config[field], list) or any(not isinstance(v, str) or not v.strip() or '"' in v for v in config[field]):
-            raise ValueError(field + " must be a list of non-empty strings without double quotes")
+        if not isinstance(config[field], list) or any(
+            not isinstance(v, str) or not v.strip() or '"' in v for v in config[field]
+        ):
+            raise ValueError(
+                field + " must be a list of non-empty strings without double quotes"
+            )
     if not config["roots"] or not config["targets"]:
         raise ValueError("roots and targets must not be empty")
     for field in ("roots", "exclude"):
-        config[field] = list(dict.fromkeys(str((base / p).resolve()) for p in config[field]))
+        config[field] = list(
+            dict.fromkeys(str((base / p).resolve()) for p in config[field])
+        )
     config["output"] = str((base / config["output"]).resolve())
     if any(inside(config["output"], r) for r in config["roots"]):
-        raise ValueError("Output must be outside all collection roots to avoid indexing generated files")
+        raise ValueError(
+            "Output must be outside all collection roots to avoid indexing generated files"
+        )
     for i, a in enumerate(config["roots"]):
-        for b in config["roots"][i + 1:]:
+        for b in config["roots"][i + 1 :]:
             if inside(a, b) or inside(b, a):
-                raise ValueError("Collection roots must not contain each other: " + a + " / " + b)
+                raise ValueError(
+                    "Collection roots must not contain each other: " + a + " / " + b
+                )
     if config["backend"] not in ("everything", "filesystem"):
         raise ValueError("backend must be everything or filesystem")
-    for field, lo, hi in [("port", 0, 65535), ("workers", 1, 16), ("page_size", 1, 10000), ("timeout", 1, 600)]:
-        if isinstance(config[field], bool) or not isinstance(config[field], int) or not lo <= config[field] <= hi:
+    for field, lo, hi in [
+        ("port", 0, 65535),
+        ("workers", 1, 16),
+        ("page_size", 1, 10000),
+        ("timeout", 1, 600),
+    ]:
+        if (
+            isinstance(config[field], bool)
+            or not isinstance(config[field], int)
+            or not lo <= config[field] <= hi
+        ):
             raise ValueError(f"{field} must be an integer between {lo} and {hi}")
     url = urllib.parse.urlsplit(config["everything_url"])
-    if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password or url.query or url.fragment:
-        raise ValueError("everything_url must be an HTTP(S) URL; use the separate username/password fields")
+    if (
+        url.scheme not in ("http", "https")
+        or not url.hostname
+        or url.username
+        or url.password
+        or url.query
+        or url.fragment
+    ):
+        raise ValueError(
+            "everything_url must be an HTTP(S) URL; use the separate username/password fields"
+        )
     return config
 
 
@@ -167,7 +230,9 @@ class Builder:
         self.headers = {}
         if config["everything_username"]:
             pair = config["everything_username"] + ":" + config["everything_password"]
-            self.headers["Authorization"] = "Basic " + base64.b64encode(pair.encode()).decode()
+            self.headers["Authorization"] = (
+                "Basic " + base64.b64encode(pair.encode()).decode()
+            )
 
     def excluded(self, path: str | Path) -> bool:
         return any(inside(path, e) for e in self.config["exclude"])
@@ -177,7 +242,13 @@ class Builder:
         absolute = str(path).replace("\\", "/")
         for target in self.config["targets"]:
             pattern = target.replace("\\", "/")
-            candidate = absolute if Path(target).is_absolute() else rel if "/" in pattern or pattern == "." else path.name
+            candidate = (
+                absolute
+                if Path(target).is_absolute()
+                else rel
+                if "/" in pattern or pattern == "."
+                else path.name
+            )
             if glob_match(candidate, pattern):
                 return True
         return False
@@ -188,27 +259,63 @@ class Builder:
         offset = 0
         seen: set[str] = set()
         while total is None or offset < total:
-            params = {"search": search, "json": 1, "count": self.config["page_size"], "offset": offset, "path_column": 1, "size_column": 1, "sort": "path", "ascending": 1}
-            url = self.config["everything_url"].rstrip("/") + "/?" + urllib.parse.urlencode(params)
+            params = {
+                "search": search,
+                "json": 1,
+                "count": self.config["page_size"],
+                "offset": offset,
+                "path_column": 1,
+                "size_column": 1,
+                "sort": "path",
+                "ascending": 1,
+            }
+            url = (
+                self.config["everything_url"].rstrip("/")
+                + "/?"
+                + urllib.parse.urlencode(params)
+            )
             try:
-                with urllib.request.urlopen(urllib.request.Request(url, headers=self.headers), timeout=self.config["timeout"]) as response:
+                with urllib.request.urlopen(
+                    urllib.request.Request(url, headers=self.headers),
+                    timeout=self.config["timeout"],
+                ) as response:
                     result = json.load(response)
             except Exception as exc:
-                raise RuntimeError(f"Everything query failed: {exc}. Check the HTTP server, URL and authentication. No filesystem fallback was used.") from exc
-            if not isinstance(result, dict) or not isinstance(result.get("totalResults"), int) or not isinstance(result.get("results"), list):
-                raise RuntimeError("Everything did not return the expected JSON. Check that its HTTP server is enabled.")
+                raise RuntimeError(
+                    f"Everything query failed: {exc}. Check the HTTP server, URL and authentication. No filesystem fallback was used."
+                ) from exc
+            if (
+                not isinstance(result, dict)
+                or not isinstance(result.get("totalResults"), int)
+                or not isinstance(result.get("results"), list)
+            ):
+                raise RuntimeError(
+                    "Everything did not return the expected JSON. Check that its HTTP server is enabled."
+                )
             if total is not None and total != result["totalResults"]:
-                raise RuntimeError("Everything result count changed during pagination. Wait for indexing to finish and retry.")
+                raise RuntimeError(
+                    "Everything result count changed during pagination. Wait for indexing to finish and retry."
+                )
             total = result["totalResults"]
             page = result["results"]
             if not page and offset < total:
-                raise RuntimeError("Incomplete Everything pagination; existing HTML is preserved")
+                raise RuntimeError(
+                    "Incomplete Everything pagination; existing HTML is preserved"
+                )
             for row in page:
-                if row.get("type") not in ("file", "folder") or not isinstance(row.get("name"), str) or not isinstance(row.get("path"), str):
-                    raise RuntimeError("An Everything result is missing its type, name or path")
+                if (
+                    row.get("type") not in ("file", "folder")
+                    or not isinstance(row.get("name"), str)
+                    or not isinstance(row.get("path"), str)
+                ):
+                    raise RuntimeError(
+                        "An Everything result is missing its type, name or path"
+                    )
                 identity = key(Path(row["path"]) / row["name"])
                 if identity in seen:
-                    raise RuntimeError("Duplicate Everything pagination entries. The index may be changing; please retry.")
+                    raise RuntimeError(
+                        "Duplicate Everything pagination entries. The index may be changing; please retry."
+                    )
                 seen.add(identity)
             rows.extend(page)
             offset += len(page)
@@ -218,11 +325,17 @@ class Builder:
 
     def walk(self, top: Path, files: bool = True):
         """Filesystem backend: yield (path, kind, size) below top, skipping links, junctions and exclusions."""
+
         def failed(error):
             raise error
 
         def keep(path: Path) -> bool:
-            return not self.excluded(path) and not path.is_symlink() and not getattr(path, "is_junction", lambda: False)()
+            return (
+                not self.excluded(path)
+                and not path.is_symlink()
+                and not getattr(path, "is_junction", lambda: False)()
+            )
+
         for parent, dirs, names in os.walk(top, followlinks=False, onerror=failed):
             base = Path(parent)
             dirs[:] = [d for d in dirs if keep(base / d)]
@@ -237,7 +350,9 @@ class Builder:
         found: dict[str, tuple[Path, Path]] = {}
         for root in self.roots:
             if not root.is_dir():
-                raise FileNotFoundError("Collection root does not exist or is inaccessible: " + str(root))
+                raise FileNotFoundError(
+                    "Collection root does not exist or is inaccessible: " + str(root)
+                )
             if self.excluded(root):
                 continue
             if self.matches(root, root):
@@ -245,26 +360,38 @@ class Builder:
             self.progress("Finding selected folders: " + str(root))
             if self.config["backend"] == "everything":
                 # Folder metadata comes entirely from Everything, not os.walk.
-                paths = [Path(r["path"]) / r["name"] for r in self.query('folder: "' + str(root) + os.sep + '"')]
+                paths = [
+                    Path(r["path"]) / r["name"]
+                    for r in self.query('folder: "' + str(root) + os.sep + '"')
+                ]
             else:
                 paths = [path for path, _, _ in self.walk(root, files=False)]
             for path in paths:
                 if not inside(path, root):
-                    raise RuntimeError("Index result is outside the requested folder: " + str(path))
+                    raise RuntimeError(
+                        "Index result is outside the requested folder: " + str(path)
+                    )
                 if self.matches(path, root) and not self.excluded(path):
                     found[key(path)] = (root, path)
         return sorted(found.values(), key=lambda pair: key(pair[1]))
 
-    def fetch(self, pair: tuple[Path, Path]) -> tuple[Path, Path, list[tuple[Path, str, int]]]:
+    def fetch(
+        self, pair: tuple[Path, Path]
+    ) -> tuple[Path, Path, list[tuple[Path, str, int]]]:
         root, target = pair
         if not target.is_dir():
-            raise FileNotFoundError("An Everything target no longer exists; the index may be stale: " + str(target))
+            raise FileNotFoundError(
+                "An Everything target no longer exists; the index may be stale: "
+                + str(target)
+            )
         entries = [(target, "folder", 0)]
         if self.config["backend"] == "everything":
             for row in self.query('"' + str(target) + os.sep + '"'):
                 path = Path(row["path"]) / row["name"]
                 if not inside(path, target):
-                    raise RuntimeError("Index result is outside the requested folder: " + str(path))
+                    raise RuntimeError(
+                        "Index result is outside the requested folder: " + str(path)
+                    )
                 if not self.excluded(path):
                     entries.append((path, row["type"], int(row.get("size") or 0)))
         else:
@@ -272,7 +399,12 @@ class Builder:
         self.progress("Read: " + str(target))
         return root, target, entries
 
-    def tree(self, title: str, results: list[tuple[Path, Path, list[tuple[Path, str, int]]]], targets: set[str]) -> dict:
+    def tree(
+        self,
+        title: str,
+        results: list[tuple[Path, Path, list[tuple[Path, str, int]]]],
+        targets: set[str],
+    ) -> dict:
         """Merge fetched entries into one compact tree.
 
         Folders are [name, files, bytes, children, isTarget]; files are [name, size].
@@ -281,13 +413,19 @@ class Builder:
         tops: dict[str, dict] = {}
         seen: dict[str, tuple[str, int]] = {}
         for root, _, entries in results:
-            top = tops.setdefault(key(root), {"name": root.name or str(root), "kind": "folder", "children": {}})
+            top = tops.setdefault(
+                key(root),
+                {"name": root.name or str(root), "kind": "folder", "children": {}},
+            )
             for path, kind, size in entries:
                 if seen.setdefault(key(path), (kind, size)) != (kind, size):
                     raise RuntimeError("Conflicting index entries: " + str(path))
                 node = top
                 for part in path.relative_to(root).parts:
-                    node = node["children"].setdefault(os.path.normcase(part), {"name": part, "kind": "folder", "size": 0, "children": {}})
+                    node = node["children"].setdefault(
+                        os.path.normcase(part),
+                        {"name": part, "kind": "folder", "size": 0, "children": {}},
+                    )
                 if node is not top:
                     node["kind"], node["size"] = kind, size
         stats = {"depth": 1, "folders": 0}
@@ -298,12 +436,20 @@ class Builder:
                 return [node["name"], node["size"]], 1, node["size"]
             stats["folders"] += 1
             children, files, total = [], 0, 0
-            for child in sorted(node["children"].values(), key=lambda c: (c["kind"] != "folder", natural(c["name"]))):
+            for child in sorted(
+                node["children"].values(),
+                key=lambda c: (c["kind"] != "folder", natural(c["name"])),
+            ):
                 packed, f, b = pack(child, path / child["name"], depth + 1)
                 children.append(packed)
                 files += f
                 total += b
-            return [node["name"], files, total, children, int(key(path) in targets)], files, total
+            return (
+                [node["name"], files, total, children, int(key(path) in targets)],
+                files,
+                total,
+            )
+
         roots, files, total = [], 0, 0
         for root in self.roots:
             if key(root) in tops:
@@ -313,45 +459,116 @@ class Builder:
                 total += b
         if files != sum(kind == "file" for kind, _ in seen.values()):
             raise RuntimeError("Tree file-count verification failed")
-        return {"categoryName": title, "generatedAt": stamp(), "roots": roots, "categoryCount": len(targets), "fileCount": files,
-                "folderCount": stats["folders"], "bytes": total, "maxDepth": stats["depth"], "source": self.config["backend"],
-                "selectors": self.config["targets"], "excluded": self.config["exclude"]}
+        return {
+            "categoryName": title,
+            "generatedAt": stamp(),
+            "roots": roots,
+            "categoryCount": len(targets),
+            "fileCount": files,
+            "folderCount": stats["folders"],
+            "bytes": total,
+            "maxDepth": stats["depth"],
+            "source": self.config["backend"],
+            "selectors": self.config["targets"],
+            "excluded": self.config["exclude"],
+        }
 
     def build(self, service: dict) -> list[dict]:
         selected = self.discover()
         if not selected:
-            raise RuntimeError("No folders matched. Check targets or the Everything index. Existing HTML is unchanged.")
+            raise RuntimeError(
+                "No folders matched. Check targets or the Everything index. Existing HTML is unchanged."
+            )
         groups: dict[str, list[tuple[Path, Path]]] = {}
         for pair in selected:
             groups.setdefault(pair[1].name, []).append(pair)
         # Query only outermost matches in each index; retain nested matches as tags.
-        outer = {title: [p for p in pairs if not any(p[1] != o[1] and inside(p[1], o[1]) for o in pairs)] for title, pairs in groups.items()}
+        outer = {
+            title: [
+                p
+                for p in pairs
+                if not any(p[1] != o[1] and inside(p[1], o[1]) for o in pairs)
+            ]
+            for title, pairs in groups.items()
+        }
         jobs = [p for pairs in outer.values() for p in pairs]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.config["workers"]) as pool:
-            fetched = {key(p[1]): result for p, result in zip(jobs, pool.map(self.fetch, jobs))}
-        data = [self.tree(title, [fetched[key(p[1])] for p in outer[title]], {key(p[1]) for p in groups[title]})
-                for title in sorted(groups, key=str.casefold)]
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=self.config["workers"]
+        ) as pool:
+            fetched = {
+                key(p[1]): result
+                for p, result in zip(jobs, pool.map(self.fetch, jobs), strict=True)
+            }
+        data = [
+            self.tree(
+                title,
+                [fetched[key(p[1])] for p in outer[title]],
+                {key(p[1]) for p in groups[title]},
+            )
+            for title in sorted(groups, key=str.casefold)
+        ]
         self.output.mkdir(parents=True, exist_ok=True)
         live = []
         used = set()
         for snapshot in data:
-            safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", snapshot["categoryName"]).strip(". ")[:100] or "Folder"
+            safe = (
+                re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", snapshot["categoryName"]).strip(
+                    ". "
+                )[:100]
+                or "Folder"
+            )
             filename = safe + " Tree.html"
             if filename.casefold() in used:
-                filename = safe + "_" + hashlib.sha256(snapshot["categoryName"].encode()).hexdigest()[:8] + " Tree.html"
+                filename = (
+                    safe
+                    + "_"
+                    + hashlib.sha256(snapshot["categoryName"].encode()).hexdigest()[:8]
+                    + " Tree.html"
+                )
             used.add(filename.casefold())
-            live.append({"title": snapshot["categoryName"], "href": filename, "files": snapshot["fileCount"], "bytes": snapshot["bytes"],
-                         "targets": snapshot["categoryCount"], "generatedAt": snapshot["generatedAt"]})
+            live.append(
+                {
+                    "title": snapshot["categoryName"],
+                    "href": filename,
+                    "files": snapshot["fileCount"],
+                    "bytes": snapshot["bytes"],
+                    "targets": snapshot["categoryCount"],
+                    "generatedAt": snapshot["generatedAt"],
+                }
+            )
         live_names = {i["href"] for i in live}
-        indexes = sorted(live + [i for i in discover_indexes(self.output) if i["href"] not in live_names], key=index_order)
+        indexes = sorted(
+            live
+            + [i for i in discover_indexes(self.output) if i["href"] not in live_names],
+            key=index_order,
+        )
         # No output is replaced until every query and count check has succeeded.
-        for snapshot, entry in zip(data, live):
-            atomic_write(self.output / entry["href"], render(snapshot, entry, indexes, service))
-        atomic_write(self.output / "index.html", render(None, {"title": "Collection Tree", "href": "index.html"}, indexes, service))
-        atomic_write(self.output / "indexes.json", json.dumps(indexes, ensure_ascii=False, indent=2))
+        for snapshot, entry in zip(data, live, strict=True):
+            atomic_write(
+                self.output / entry["href"], render(snapshot, entry, indexes, service)
+            )
+        atomic_write(
+            self.output / "index.html",
+            render(
+                None,
+                {"title": "Collection Tree", "href": "index.html"},
+                indexes,
+                service,
+            ),
+        )
+        atomic_write(
+            self.output / "indexes.json",
+            json.dumps(indexes, ensure_ascii=False, indent=2),
+        )
         atomic_write(self.output / "indexes.js", indexes_script(indexes, service))
-        atomic_write(self.output / "build-config.json", json.dumps(self.config, ensure_ascii=False, indent=2))
-        self.progress("Build complete: " + ", ".join(f'{i["title"]} {i["files"]:,} files' for i in live))
+        atomic_write(
+            self.output / "build-config.json",
+            json.dumps(self.config, ensure_ascii=False, indent=2),
+        )
+        self.progress(
+            "Build complete: "
+            + ", ".join(f"{i['title']} {i['files']:,} files" for i in live)
+        )
         return indexes
 
 
@@ -368,25 +585,43 @@ def discover_indexes(output: Path) -> list[dict]:
                 item = json.loads(html.unescape(match.group(1)))
                 item["href"] = path.name
                 indexes.append(item)
-        except (OSError, ValueError):
+        except OSError, ValueError:
             continue
     return sorted(indexes, key=index_order)
 
 
 def indexes_script(indexes: list[dict], service: dict) -> str:
-    return "window.COLLECTION_INDEXES=" + js_json(indexes) + ";window.COLLECTION_SERVICE=" + js_json(service) + ";"
+    return (
+        "window.COLLECTION_INDEXES="
+        + js_json(indexes)
+        + ";window.COLLECTION_SERVICE="
+        + js_json(service)
+        + ";"
+    )
 
 
 def service_info(config: dict, token: str) -> dict:
-    return {"url": f'http://127.0.0.1:{config["port"]}', "token": token, "script": str(SCRIPT), "scriptURL": SCRIPT.as_uri(),
-            "command": command(config), "reveal": os.name == "nt"}
+    return {
+        "url": f"http://127.0.0.1:{config['port']}",
+        "token": token,
+        "script": str(SCRIPT),
+        "scriptURL": SCRIPT.as_uri(),
+        "command": command(config),
+        "reveal": os.name == "nt",
+    }
 
 
 def render(data: dict | None, entry: dict, indexes: list[dict], service: dict) -> str:
     values = {
         "TITLE": html.escape(entry["title"]),
-        "PAGETITLE": html.escape(entry["title"] if data is None else entry["title"] + " · Collection Tree"),
-        "META": '<meta name="' + MARKER + '" content="' + html.escape(json.dumps(entry, ensure_ascii=False), quote=True) + '">',
+        "PAGETITLE": html.escape(
+            entry["title"] if data is None else entry["title"] + " · Collection Tree"
+        ),
+        "META": '<meta name="'
+        + MARKER
+        + '" content="'
+        + html.escape(json.dumps(entry, ensure_ascii=False), quote=True)
+        + '">',
         "DATA": js_json(data),
         "INDEXES": js_json(indexes),
         "SERVICE": js_json(service),
@@ -400,7 +635,13 @@ class BuildService:
         self.config = config
         self.info = service_info(config, token)
         self.lock = threading.Lock()
-        self.state: dict = {"running": False, "message": "Service is ready", "error": None, "revision": 0, "log": []}
+        self.state: dict = {
+            "running": False,
+            "message": "Service is ready",
+            "error": None,
+            "revision": 0,
+            "log": [],
+        }
 
     def progress(self, message: str) -> None:
         print(message, flush=True)
@@ -412,7 +653,9 @@ class BuildService:
         with self.lock:
             if self.state["running"]:
                 return False
-            self.state.update(running=True, error=None, message="Starting a rebuild", log=[])
+            self.state.update(
+                running=True, error=None, message="Starting a rebuild", log=[]
+            )
 
         def work():
             try:
@@ -423,10 +666,13 @@ class BuildService:
                 traceback.print_exc()
                 with self.lock:
                     self.state["error"] = str(exc)
-                    self.state["message"] = "Build failed. Previous pages are still available."
+                    self.state["message"] = (
+                        "Build failed. Previous pages are still available."
+                    )
             finally:
                 with self.lock:
                     self.state["running"] = False
+
         threading.Thread(target=work, daemon=True).start()
         return True
 
@@ -434,10 +680,18 @@ class BuildService:
         """Select a collection path in Windows Explorer. Only paths inside the configured roots are accepted."""
         if not self.info["reveal"]:
             return 501, "Show in Explorer is only available on Windows"
-        if not isinstance(raw, str) or not raw or '"' in raw or "\x00" in raw or not Path(raw).is_absolute():
+        if (
+            not isinstance(raw, str)
+            or not raw
+            or '"' in raw
+            or "\x00" in raw
+            or not Path(raw).is_absolute()
+        ):
             return 400, "Invalid path"
         path = os.path.abspath(raw)
-        if not any(inside(path, r) for r in self.config["roots"]) or any(inside(path, e) for e in self.config["exclude"]):
+        if not any(inside(path, r) for r in self.config["roots"]) or any(
+            inside(path, e) for e in self.config["exclude"]
+        ):
             return 403, "Path is outside the collection roots"
         if not os.path.exists(path):
             return 404, "Path no longer exists"
@@ -449,10 +703,10 @@ def handler_for(service: BuildService):
     output = Path(service.config["output"])
 
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, fmt, *args):
+        def log_message(self, format: str, *args: object) -> None:
             if self.path.startswith("/__tree/status"):
                 return
-            super().log_message(fmt, *args)
+            super().log_message(format, *args)
 
         def allowed_origin(self) -> bool:
             return self.headers.get("Origin") in (None, "null", service.info["url"])
@@ -466,7 +720,7 @@ def handler_for(service: BuildService):
             self.send_response(status)
             origin = self.headers.get("Origin")
             # Only the API answers offline file:// pages (Origin: null); pages and scripts never do.
-            if cors and origin in ("null", service.info["url"]):
+            if cors and origin is not None and origin in ("null", service.info["url"]):
                 self.send_header("Access-Control-Allow-Origin", origin)
                 self.send_header("Vary", "Origin")
             self.send_header("Content-Type", kind)
@@ -478,19 +732,31 @@ def handler_for(service: BuildService):
             self.wfile.write(body)
 
         def respond(self, value: object, status=200):
-            self.send(json.dumps(value, ensure_ascii=False).encode(), "application/json; charset=utf-8", status)
+            self.send(
+                json.dumps(value, ensure_ascii=False).encode(),
+                "application/json; charset=utf-8",
+                status,
+            )
 
         def valid_host(self) -> bool:
-            return self.headers.get("Host") == urllib.parse.urlsplit(service.info["url"]).netloc
+            return (
+                self.headers.get("Host")
+                == urllib.parse.urlsplit(service.info["url"]).netloc
+            )
 
         def do_OPTIONS(self):
             if not self.valid_host() or not self.allowed_origin():
                 self.respond({"error": "Origin is not allowed"}, 403)
                 return
             self.send_response(204)
-            self.send_header("Access-Control-Allow-Origin", self.headers.get("Origin") or service.info["url"])
+            self.send_header(
+                "Access-Control-Allow-Origin",
+                self.headers.get("Origin") or service.info["url"],
+            )
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Tree-Token")
+            self.send_header(
+                "Access-Control-Allow-Headers", "Content-Type, X-Tree-Token"
+            )
             self.send_header("Access-Control-Allow-Private-Network", "true")
             self.end_headers()
 
@@ -502,7 +768,12 @@ def handler_for(service: BuildService):
             if route == "/__tree/status":
                 with service.lock:
                     # Features let pages built by a newer script hide actions an older running service lacks.
-                    self.respond(dict(service.state, features=["rebuild"] + ["reveal"] * service.info["reveal"]))
+                    self.respond(
+                        dict(
+                            service.state,
+                            features=["rebuild"] + ["reveal"] * service.info["reveal"],
+                        )
+                    )
                 return
             if self.cross_site():
                 self.respond({"error": "Cross-site request is not allowed"}, 403)
@@ -516,7 +787,11 @@ def handler_for(service: BuildService):
             name = route.lstrip("/") or "index.html"
             path = (output / name).resolve()
             # Serve only generated public artifacts, never configs or credentials.
-            if path.parent != output.resolve() or not (path.suffix == ".html" or path.name == "indexes.js") or not path.is_file():
+            if (
+                path.parent != output.resolve()
+                or not (path.suffix == ".html" or path.name == "indexes.js")
+                or not path.is_file()
+            ):
                 self.respond({"error": "Page not found"}, 404)
                 return
             if path.suffix == ".html":
@@ -524,10 +799,20 @@ def handler_for(service: BuildService):
                 self.send(path.read_bytes(), "text/html; charset=utf-8", cors=False)
             else:
                 # The runtime URL can change when a user selects another port.
-                self.send(indexes_script(discover_indexes(output), service.info).encode(), "text/javascript; charset=utf-8", cors=False)
+                self.send(
+                    indexes_script(discover_indexes(output), service.info).encode(),
+                    "text/javascript; charset=utf-8",
+                    cors=False,
+                )
 
         def do_POST(self):
-            if not self.valid_host() or not self.allowed_origin() or not secrets.compare_digest(self.headers.get("X-Tree-Token", ""), service.info["token"]):
+            if (
+                not self.valid_host()
+                or not self.allowed_origin()
+                or not secrets.compare_digest(
+                    self.headers.get("X-Tree-Token", ""), service.info["token"]
+                )
+            ):
                 self.respond({"error": "Invalid local request"}, 403)
                 return
             route = urllib.parse.urlsplit(self.path).path
@@ -545,17 +830,28 @@ def handler_for(service: BuildService):
             if route == "/__tree/reveal":
                 try:
                     raw = json.loads(body or b"{}").get("path")
-                except (ValueError, AttributeError):
+                except ValueError, AttributeError:
                     raw = None
                 status, text = service.reveal(raw)
-                self.respond({"message": text} if status == 200 else {"error": text}, status)
+                self.respond(
+                    {"message": text} if status == 200 else {"error": text}, status
+                )
                 return
             started = service.start()
-            self.respond({"started": started, "message": "Rebuild started" if started else "A rebuild is already running"}, 202)
+            self.respond(
+                {
+                    "started": started,
+                    "message": "Rebuild started"
+                    if started
+                    else "A rebuild is already running",
+                },
+                202,
+            )
+
     return Handler
 
 
-TEMPLATE = r'''<!doctype html>
+TEMPLATE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 @@META@@
 <title>@@PAGETITLE@@</title>
@@ -835,24 +1131,61 @@ $('rebuild').onclick=async()=>{
    if(!state.running){if(state.error)throw new Error(state.error);message('Build complete. Opening the updated index…',{busy:true});if(location.protocol==='file:')location.href=SERVICE.url+'/'+encodeURIComponent(page);else location.reload();break}}
  }catch(e){message('Rebuild failed: '+e.message+'. If the service is stopped, open “Service & configuration” in the sidebar and run the launch command, or use Open in local service.',{error:true})}finally{busy=false;$('rebuild').disabled=false}
 };
-</script></body></html>'''
+</script></body></html>"""
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--build", action="store_true", help="Build static HTML without starting the service")
-    mode.add_argument("--serve", action="store_true", help="Serve existing HTML without an immediate rebuild")
-    parser.add_argument("--config", help="JSON configuration; relative paths use the configuration directory")
-    parser.add_argument("--init-config", metavar="FILE", help="Write a default configuration and exit; never overwrite an existing file")
-    parser.add_argument("--root", action="append", help="Collection root; repeat to replace roots")
-    parser.add_argument("--target", action="append", help="Folder name wildcard, root-relative path or absolute path; repeat to replace targets")
-    parser.add_argument("--exclude", action="append", help="Excluded subtree; repeat to replace exclude")
-    parser.add_argument("--backend", choices=("everything", "filesystem"), help="Everything by default; only filesystem mode traverses folders")
+    mode.add_argument(
+        "--build",
+        action="store_true",
+        help="Build static HTML without starting the service",
+    )
+    mode.add_argument(
+        "--serve",
+        action="store_true",
+        help="Serve existing HTML without an immediate rebuild",
+    )
+    parser.add_argument(
+        "--config",
+        help="JSON configuration; relative paths use the configuration directory",
+    )
+    parser.add_argument(
+        "--init-config",
+        metavar="FILE",
+        help="Write a default configuration and exit; never overwrite an existing file",
+    )
+    parser.add_argument(
+        "--root", action="append", help="Collection root; repeat to replace roots"
+    )
+    parser.add_argument(
+        "--target",
+        action="append",
+        help="Folder name wildcard, root-relative path or absolute path; repeat to replace targets",
+    )
+    parser.add_argument(
+        "--exclude", action="append", help="Excluded subtree; repeat to replace exclude"
+    )
+    parser.add_argument(
+        "--backend",
+        choices=("everything", "filesystem"),
+        help="Everything by default; only filesystem mode traverses folders",
+    )
     parser.add_argument("--everything", help="Everything HTTP URL")
-    parser.add_argument("--output", help="Output directory; defaults to HTML beside the script")
-    parser.add_argument("--port", type=int, help="Local port, default 16040; 0 chooses a free port")
-    parser.add_argument("--no-browser", action="store_true", help="Do not automatically open the browser")
+    parser.add_argument(
+        "--output", help="Output directory; defaults to HTML beside the script"
+    )
+    parser.add_argument(
+        "--port", type=int, help="Local port, default 16040; 0 chooses a free port"
+    )
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Do not automatically open the browser",
+    )
     args = parser.parse_args()
     if args.init_config:
         path = Path(args.init_config).resolve()
@@ -870,29 +1203,49 @@ def main() -> int:
         token = json.loads(runtime_path.read_text(encoding="utf-8"))["token"]
         if not isinstance(token, str) or len(token) < 32:
             raise ValueError("invalid token")
-    except (OSError, ValueError, KeyError):
+    except OSError, ValueError, KeyError:
         token = secrets.token_urlsafe(32)
     if args.build:
         if not config["port"]:
-            raise ValueError("--build does not start a service; choose a fixed port instead of 0")
+            raise ValueError(
+                "--build does not start a service; choose a fixed port instead of 0"
+            )
         atomic_write(runtime_path, json.dumps({"token": token}, ensure_ascii=False))
         Builder(config).build(service_info(config, token))
         print("Home page: ", output / "index.html")
         return 0
     service = BuildService(config, token)
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", config["port"]), handler_for(service))
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", config["port"]), handler_for(service)
+        )
     except OSError as exc:
-        raise RuntimeError(f'Cannot listen on 127.0.0.1:{config["port"]}: {exc}. If this tool is already running, use its existing service; otherwise choose another --port.') from exc
+        raise RuntimeError(
+            f"Cannot listen on 127.0.0.1:{config['port']}: {exc}. If this tool is already running, use its existing service; otherwise choose another --port."
+        ) from exc
     config["port"] = server.server_address[1]
     service.info = service_info(config, token)
     try:
         if not args.serve or not (output / "index.html").exists():
             Builder(config, service.progress).build(service.info)
         else:
-            atomic_write(output / "indexes.js", indexes_script(discover_indexes(output), service.info))
-        atomic_write(runtime_path, json.dumps({"token": token, "url": service.info["url"], "pid": os.getpid()}, ensure_ascii=False))
-        print("\nCollection Tree service: " + service.info["url"] + "/\nKeep this window running to use the HTML Rebuild button. Press Ctrl+C to stop.", flush=True)
+            atomic_write(
+                output / "indexes.js",
+                indexes_script(discover_indexes(output), service.info),
+            )
+        atomic_write(
+            runtime_path,
+            json.dumps(
+                {"token": token, "url": service.info["url"], "pid": os.getpid()},
+                ensure_ascii=False,
+            ),
+        )
+        print(
+            "\nCollection Tree service: "
+            + service.info["url"]
+            + "/\nKeep this window running to use the HTML Rebuild button. Press Ctrl+C to stop.",
+            flush=True,
+        )
         if not args.no_browser:
             webbrowser.open(service.info["url"] + "/")
         server.serve_forever(poll_interval=0.3)
@@ -908,4 +1261,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except Exception as error:
         print("Error: " + str(error), file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from error

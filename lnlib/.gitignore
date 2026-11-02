@@ -1,9 +1,11 @@
-# Local state: the index, the cover cache and any backups. All of it is
-# rebuilt by `scan` and `covers` except reading progress, which is personal.
+# Local state: the index and any backups. All of it is rebuilt by `scan` except
+# reading progress, which is personal.
 data/
+# The cover cache, rebuilt by `covers`
+cache/
 
 # This machine's library folders. config.example.json shows the shape;
-# `python main.py config --add-root …` writes the real one.
+# `uv run main.py config --add-root …` writes the real one.
 config.json
 *.tmp
 

@@ -7,10 +7,16 @@ dependencies = ["hidapi>=0.14,<1"]
 [dependency-groups]
 dev = ["ruff", "basedpyright", "pytest"]
 
+[tool.uv]
+package = false
+
 [tool.ruff]
 target-version = "py314"
 src = ["tools"]
 exclude = ["node_modules", "firmware", ".wrangler", "cloud/.wrangler"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "W", "I", "B", "UP"]
 
 [tool.basedpyright]
 typeCheckingMode = "standard"

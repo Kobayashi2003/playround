@@ -6,18 +6,18 @@ browser.
 
 ## Run
 
-Requires Python 3.14 (standard library only) and, to build the interface once, Node.js with pnpm.
+Requires [uv](https://docs.astral.sh/uv/) (standard library only) and, to build the interface once, Node.js with pnpm.
 
 ```bash
 cd web && pnpm install && pnpm build && cd ..
 
-python main.py config --add-root "D:\Books\Novels"                    # shelves layout
-python main.py config --add-root "D:\Books\Calibre" --layout authors  # Calibre layout
-python main.py scan
-python main.py serve          # http://127.0.0.1:16020
+uv run main.py config --add-root "D:\Books\Novels"                    # shelves layout
+uv run main.py config --add-root "D:\Books\Calibre" --layout authors  # Calibre layout
+uv run main.py scan
+uv run main.py serve          # http://127.0.0.1:16020
 ```
 
-`python main.py --help` lists the other commands (`covers`, `trash`, `restore`, `delete`, …).
+`uv run main.py --help` lists the other commands (`covers`, `trash`, `restore`, `delete`, …).
 `serve` takes `--host`, `--port` and `--base-path /prefix`. `pnpm dev` in `web/` serves a
 hot-reloading interface on port 16021 against a running `serve`.
 
@@ -53,7 +53,8 @@ DRM-protected books are not opened.
 
 ## Data
 
-`config.json` holds the roots; `data/` holds the index, cover cache and reading progress (back
-up `data/library.db`). `scan` never deletes; removing a root keeps its files, and re-adding it
+`config.json` holds the roots; `data/` holds the index and reading progress (back up
+`data/library.db`), and `cache/covers/` the cover cache, which `covers` rebuilds.
+`LNLIB_DATA_DIR` and `LNLIB_CACHE_DIR` move them; a relative path is relative to this folder. `scan` never deletes; removing a root keeps its files, and re-adding it
 restores the books and their progress. Deleted books go to a `_trash` folder on the same drive
 and can be restored.

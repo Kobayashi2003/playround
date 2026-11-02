@@ -12,7 +12,10 @@ from tkinter import filedialog, messagebox, ttk
 
 from .index import Hit, SearchIndex
 
-APP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".local" / "share")) / "EpubFinder"
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+# Settings and the index can each be moved; a relative path is relative to the project.
+DATA_DIR = PROJECT_DIR / os.environ.get("EPUB_FINDER_DATA_DIR", "data")
+CACHE_DIR = PROJECT_DIR / os.environ.get("EPUB_FINDER_CACHE_DIR", "cache")
 PALETTES = {
     "light": {
         "canvas": "#f3f6f8",
@@ -57,7 +60,7 @@ class App(tk.Tk):
         self.title("EPUB Finder")
         self.geometry("1180x780")
         self.minsize(900, 620)
-        self.index = SearchIndex(APP_DIR / "index.sqlite3")
+        self.index = SearchIndex(CACHE_DIR / "index.sqlite3")
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.events: SimpleQueue[tuple] = SimpleQueue()
         self.hits: dict[str, Hit] = {}
@@ -498,7 +501,7 @@ class App(tk.Tk):
 
     def _load_settings(self) -> None:
         try:
-            settings = json.loads((APP_DIR / "settings.json").read_text(encoding="utf-8"))
+            settings = json.loads((DATA_DIR / "settings.json").read_text(encoding="utf-8"))
             self.theme = settings.get("theme") if settings.get("theme") in PALETTES else "light"
             self._apply_theme()
             value = settings.get("folder", "")
@@ -509,8 +512,8 @@ class App(tk.Tk):
             pass
 
     def _save_settings(self) -> None:
-        APP_DIR.mkdir(parents=True, exist_ok=True)
-        (APP_DIR / "settings.json").write_text(
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        (DATA_DIR / "settings.json").write_text(
             json.dumps({"folder": self.folder.get(), "theme": self.theme}, ensure_ascii=False),
             encoding="utf-8",
         )

@@ -1,4 +1,4 @@
-# Stops what .\gateway.ps1 started, from any window.
+# Stops what .\start.ps1 started, from any window.
 $ErrorActionPreference = 'Stop'
 $runFile = Join-Path $PSScriptRoot '.running.json'
 if (-not (Test-Path -LiteralPath $runFile)) { Write-Host 'Not running.'; return }
