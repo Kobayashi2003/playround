@@ -48,7 +48,8 @@ Each `apps/<id>.json` registers one app; `schema/app.schema.json` documents ever
 
 Strings expand `${id}`, `${root}`, `${basePath}`, `${bind}`, `${paths.NAME}` and
 `${ports.NAME}`; an unknown name is an error. `gateway.json` holds the gateway's own settings:
-bind address, landing page text, named `paths`, and where [PORTS.md](../../PORTS.md) is.
+bind address, landing page text, named `paths`, where [PORTS.md](../../PORTS.md) is, and
+`runtime`, the folder the generated Caddyfile and landing page go to (default `.runtime/`).
 
 Ports follow PORTS.md. An app takes every slot from its lowest port to its highest. Before
 launching, the gateway rejects a port outside the app's range or slots, two apps in one slot,

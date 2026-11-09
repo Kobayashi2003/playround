@@ -32,6 +32,12 @@
       "additionalProperties": { "type": "string" }
     },
 
+    "runtime": {
+      "type": "string",
+      "default": ".runtime",
+      "description": "Where the generated Caddyfile and landing page are written, relative to this file. Both are rewritten on every launch; nothing else in the folder is touched."
+    },
+
     "ports": {
       "type": "string",
       "default": "../../PORTS.md",

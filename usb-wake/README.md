@@ -54,7 +54,10 @@ uv run tools/agent.py --check     # Validate agent.toml
 Add an action by appending an `[[action]]` to `agent.toml` (the file documents
 each field), then rerun `./install_agent.ps1`. The agent uses only USB. It runs in
 the signed-in session, so after a restart only waking works until you sign in.
-Hibernate needs `powercfg /h on` once. Log: `.logs/agent.log`.
+Hibernate needs `powercfg /h on` once. Log: `.logs/agent.log`; the last handled command is
+kept in `.agent-state.json`. `USB_WAKE_LOG_DIR` and `USB_WAKE_STATE_FILE` move them (relative to
+this folder; set them as user environment variables, since the logon task does not see a
+shell's). `start.ps1` writes its logs to the same folder.
 
 ## Board
 

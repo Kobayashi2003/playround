@@ -20,12 +20,14 @@ if ($Mode -ne 'Setup') {
     }
     if (-not (Test-Path 'cloud/src/generated-assets.js')) { throw 'Web assets are not built. Run .\start.ps1 -Build.' }
 }
-New-Item -ItemType Directory -Path '.logs' -Force | Out-Null
+# $env:USB_WAKE_LOG_DIR moves the logs; a relative path is relative to this folder.
+$logDir = [IO.Path]::GetFullPath(($env:USB_WAKE_LOG_DIR ?? '.logs'), $PSScriptRoot)
+New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $started = @()
 function Start-Owned([string]$Tool, [string[]]$Arguments, [string]$Log, [string]$Directory = $PSScriptRoot) {
-    $process = Start-Process -FilePath (Get-Command $Tool).Source -ArgumentList $Arguments -WorkingDirectory $Directory -WindowStyle Hidden -PassThru -RedirectStandardOutput "$PSScriptRoot/.logs/$Log.out.log" -RedirectStandardError "$PSScriptRoot/.logs/$Log.err.log"
+    $process = Start-Process -FilePath (Get-Command $Tool).Source -ArgumentList $Arguments -WorkingDirectory $Directory -WindowStyle Hidden -PassThru -RedirectStandardOutput "$logDir/$Log.out.log" -RedirectStandardError "$logDir/$Log.err.log"
     $process.Refresh()
-    if ($process.HasExited) { throw "Startup failed; inspect .logs/$Log.err.log." }
+    if ($process.HasExited) { throw "Startup failed; inspect $logDir/$Log.err.log." }
     return [pscustomobject]@{ id = $process.Id; startedAt = $process.StartTime.ToUniversalTime().ToString('o') }
 }
 try {
@@ -35,7 +37,7 @@ try {
         $started += Start-Owned 'node' @('node_modules/wrangler/bin/wrangler.js', 'dev', '--config', 'cloud/wrangler.jsonc', '--ip', '127.0.0.1', '--port', '16030', '--inspector-port', '16034') 'worker'
     }
     $started | ConvertTo-Json -AsArray | Set-Content -LiteralPath $statePath
-    Write-Host "Running $Mode at http://127.0.0.1:$($ports[-1])/ . Logs: .logs/ . Stop with Ctrl+C or .\stop.ps1."
+    Write-Host "Running $Mode at http://127.0.0.1:$($ports[-1])/ . Logs: $logDir . Stop with Ctrl+C or .\stop.ps1."
     if (-not $NoBrowser) {
         # Open the page once it answers; the job ends with this script.
         $null = Start-ThreadJob -ArgumentList "http://127.0.0.1:$($ports[-1])/" -ScriptBlock {
@@ -52,7 +54,7 @@ try {
             $process = Get-Process -Id $entry.id -ErrorAction SilentlyContinue
             if (-not $process -or $process.StartTime.ToUniversalTime().ToString('o') -ne $entry.startedAt) {
                 if ($Mode -eq 'Setup' -or -not (Test-Path -LiteralPath $statePath)) { return }
-                throw 'A server exited; inspect .logs/. All app processes will stop.'
+                throw "A server exited; inspect $logDir. All app processes will stop."
             }
         }
         Start-Sleep -Milliseconds 500

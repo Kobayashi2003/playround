@@ -8,6 +8,7 @@ logon task) so launched programs appear on the desktop.
 import argparse
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -28,7 +29,9 @@ from board import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
-STATE = ROOT / ".agent-state.json"
+# Both can be moved; a relative path is relative to the project.
+STATE = ROOT / os.environ.get("USB_WAKE_STATE_FILE", ".agent-state.json")
+LOG_DIR = ROOT / os.environ.get("USB_WAKE_LOG_DIR", ".logs")
 ACTION_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 MAX_ACTIONS = 16
 MAX_LABEL = 40
@@ -179,9 +182,9 @@ def main() -> None:
     if args.check:
         print(f"{len(config.actions)} actions OK: {', '.join(config.actions)}")
         return
-    (ROOT / ".logs").mkdir(exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
-        filename=ROOT / ".logs" / "agent.log",
+        filename=LOG_DIR / "agent.log",
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )

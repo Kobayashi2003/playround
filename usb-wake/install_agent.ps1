@@ -26,4 +26,5 @@ $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -Ru
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 Start-ScheduledTask -TaskName $taskName
-Write-Host "Installed and started '$taskName'. Log: .logs/agent.log"
+$logDir = [IO.Path]::GetFullPath(($env:USB_WAKE_LOG_DIR ?? '.logs'), $PSScriptRoot)
+Write-Host "Installed and started '$taskName'. Log: $logDir\agent.log"

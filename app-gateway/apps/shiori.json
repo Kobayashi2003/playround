@@ -1,0 +1,23 @@
+{
+  "$schema": "../schema/app.schema.json",
+  "order": 20,
+  "name": "Shiori",
+  "description": "A phone reader for Shousetsuka ni Narou, with vertical text and EPUB export.",
+  "icon": "🔖",
+  "enabled": true,
+  "root": "${paths.project}/Shiori",
+  "basePath": "/shiori",
+  "ports": {
+    "backend": 17000
+  },
+  "env": {
+    "SHIORI_PORT": "${ports.backend}"
+  },
+  "routes": {
+    "snippet": "${root}/Caddyfile.snippet",
+    "env": "${root}/caddy-env.ps1"
+  },
+  "launch": {
+    "args": ["-NoCaddy"]
+  }
+}

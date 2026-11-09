@@ -65,9 +65,6 @@ $Disable = Split-List $Disable
 
 $root         = $PSScriptRoot
 $appsDir      = Join-Path $root 'apps'
-$runtimeDir   = Join-Path $root '.runtime'
-$webRoot      = Join-Path $runtimeDir 'web'
-$caddyfile    = Join-Path $runtimeDir 'Caddyfile'
 
 . (Join-Path $root 'lib\Config.ps1')
 . (Join-Path $root 'lib\CaddyBuilder.ps1')
@@ -76,6 +73,9 @@ $caddyfile    = Join-Path $runtimeDir 'Caddyfile'
 
 # --------------------------------------------------------------------- load
 $settings = Read-GatewaySettings -Path (Join-Path $root 'gateway.json')
+$runtimeDir = [IO.Path]::GetFullPath([string](Get-JsonProperty $settings 'runtime' '.runtime'), $root)
+$webRoot    = Join-Path $runtimeDir 'web'
+$caddyfile  = Join-Path $runtimeDir 'Caddyfile'
 $plugins  = @(Get-AppPlugin -Dir $appsDir)
 
 # ---------------------------------------------------------------- enable/disable
@@ -160,8 +160,11 @@ Assert-GatewayApps -Apps $selected -Bind $bind -PortRanges $convention.Ranges -P
 
 # --------------------------------------------------------------------- config
 # Regenerated every launch — the plugin files are the source of truth, and a stale
-# .runtime/ would serve the previous app set.
-if (Test-Path $runtimeDir) { Remove-Item -Recurse -Force $runtimeDir }
+# runtime folder would serve the previous app set. Only the gateway's own files go:
+# gateway.json's "runtime" may point at a folder that holds other things.
+foreach ($stale in $webRoot, $caddyfile) {
+    if (Test-Path $stale) { Remove-Item -Recurse -Force $stale }
+}
 
 $site = Get-JsonProperty $settings 'site'
 New-LandingPage -Apps $selected -WebRoot $webRoot `
