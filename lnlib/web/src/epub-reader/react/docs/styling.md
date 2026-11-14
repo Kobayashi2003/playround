@@ -42,7 +42,7 @@ same behavior. Otherwise keep it component-local.
 `styles.css` loads styles in this order:
 
 1. tokens;
-2. Showcase and source-selection presentation;
+2. source-selection presentation;
 3. Shell and persistent Chrome;
 4. Shell hosts and overlays;
 5. panel base and feature panels;
@@ -52,6 +52,19 @@ same behavior. Otherwise keep it component-local.
 
 Later layers intentionally adapt earlier component declarations. Reordering
 imports is a behavior change and requires browser and visual verification.
+
+Applications copy `styles.css` unchanged, so it holds nothing of the Component
+Atlas demo: `index.tsx` and the browser conformance page import
+`showcase/showcase.css` themselves, after it.
+
+## Tokens a host may set
+
+Hosts style the reader through themes and configuration, with one layout
+exception: `--epub-host-chrome-top`, the height of a host bar above the
+toolbar ([ADR 0003](../../docs/adr/0003-host-header-through-a-layout-token.md)).
+It is read with a `0px` fallback and never defined inside the Shell, so the
+value an ancestor sets comes through. `--epub-chrome-top` adds it to the
+toolbar height; anything that must keep clear of the chrome reads that.
 
 ## Selectors and state
 

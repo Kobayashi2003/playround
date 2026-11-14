@@ -1,6 +1,7 @@
 export * from './state/model';
 export * from './state/reading-session';
 export * from './state/browser-reading-session-storage';
+export * from './state/preference-storage';
 export * from './state/store';
 export * from './state/use-epub-reader';
 export type * from './configuration/model';

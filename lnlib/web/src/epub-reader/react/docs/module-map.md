@@ -16,7 +16,7 @@ reason to depend on the contract.
 
 | Area            | Responsibility                                                 | Main boundary                |
 | --------------- | -------------------------------------------------------------- | ---------------------------- |
-| `state`         | external store, hook, source and persistence adapters          | `use-epub-reader.ts`         |
+| `state`         | external store, hook, source, session and preference storage   | `use-epub-reader.ts`         |
 | `reader`        | React composition root, context, viewport, Shell coordination  | `EpubReader.tsx`             |
 | `chrome`        | toolbar controls, reader status, feedback, fullscreen behavior | built-in Chrome components   |
 | `panels`        | contents, search, marks, settings, and compatibility tools     | one component per panel      |

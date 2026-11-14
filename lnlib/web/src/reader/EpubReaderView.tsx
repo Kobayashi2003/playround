@@ -1,6 +1,7 @@
 /* The e-book reader.
 
-   The whole engine lives in `src/epub-reader`, copied from component-atlas: it
+   The whole engine lives in `src/epub-reader`, copied from
+   `components/data-display/epub-reader`: it
    opens the container, reads the package, paginates and renders, and there is
    no second e-book implementation anywhere in this project. It takes EPUB and
    Kindle KF8 (.azw3, and the KF8 part of a .mobi) alike, deciding which it was

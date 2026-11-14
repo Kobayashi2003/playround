@@ -60,7 +60,9 @@ Current examples:
 
 - `epub/publication/package-parser.ts` orchestrates OPF parsing.
 - `epub/archive/kf8-archive.ts` reassembles a Kindle KF8 book (Palm database,
-  decompression, index tables, resources) into an in-memory EPUB archive.
+  decompression, index tables, resources) into an in-memory EPUB archive. Only
+  `publication-format.ts` reaches it, through a dynamic import; keep it that
+  way, or every host bundles it.
 - `epub/content/xhtml-materializer.ts` orchestrates document hardening and
   reference rewriting.
 - `epub/content/preflight.ts` orchestrates presentation and image inspection.

@@ -42,7 +42,8 @@ abortable, staged pipeline:
 2. Detect the container format and open the archive under path and resource
    limits (`openPublicationArchive`). OCF ZIP is read directly; a Kindle KF8
    book is reassembled into an in-memory EPUB with a synthesized package and
-   navigation document, so every later stage is format-independent.
+   navigation document, so every later stage is format-independent. The KF8
+   adapter is imported dynamically, so it is fetched only for a Kindle file.
 3. Parse the container and package into a normalized `Publication`.
 4. Inspect the initial spine window for render-critical content hints.
 5. Create the publication resource session and content-document pipeline.
@@ -85,6 +86,14 @@ listeners, timers, and resource URLs through their owning session components.
 Rendition planning is pure policy: publication metadata, content hints,
 preferences, viewport metrics, and compatibility policies produce a
 `RenditionPlan`.
+
+Writing mode comes from the content unless the `writingMode` preference
+overrides it for reflowable items; page direction then follows the override
+when `pageProgression` is `auto`. The reflowable renderer applies the override
+with the preference stylesheet, before it inspects the computed presentation,
+so the page geometry it chooses is the overridden one. It does not report an
+imposed writing mode back as a content hint: a hint outlives the preference
+that produced it.
 
 `RendererHost` serializes presentation work. A newer generation supersedes an
 older one, and asynchronous renderer code must use the transaction context

@@ -1,44 +1,108 @@
 # Reading data
 
-The reader separates host-owned EPUB bytes from resumable Reading Session data. No book bytes are persisted or uploaded by the reader.
+The host owns the book's bytes; the reader never stores or uploads them. What
+the reader saves, so a book reopens where it was left, is the **Reading
+Session**: one record per book.
 
-## Session record
+## The record
 
-The framework-neutral `ReadingSessionRecord` contains:
+`ReadingSessionRecord` holds:
 
-- a resume Locator (the default React adapter stores the spine item and its progression);
-- reader preferences when preference persistence is enabled;
-- bookmarks, highlights, and annotations;
-- an update timestamp.
+- `locator`: where the reader was. The React adapter keeps the document and
+  the progression through it (not exact text anchors), so after a change of
+  type size or screen the same passage is near, not necessarily first.
+- `preferences`: the settings in force, when `persistPreferences` is on (the
+  default).
+- `marks`: bookmarks, highlights and notes, each with its own exact anchors.
+- `updatedAt`.
 
-The default React adapter saves `href`, `spineIndex`, and `locations.progression` for the resume position. It deliberately omits CFI, fragment, DOM-path, and text-quote anchors from that position. Reopening restores an approximate position within the section; changes in layout can change the visible passage. Bookmarks, highlights, and annotations retain their stored Locator anchors for precise navigation. This normalization happens before the storage port is called, so replacing storage alone does not change resume precision.
+The default storage accepts only a complete record of the current shape and
+drops a malformed one whole rather than guessing. One exception keeps saved
+places when the reader gains a setting: preferences saved before
+`writingMode` existed read it as `auto`.
 
-The React adapter derives a default key from publication bytes and an optional source name. Hosts may provide an explicit key when identity is already known.
-
-## Storage
-
-`ReadingSessionStorage` is a synchronous port with `load`, `save`, and `remove`. The default `BrowserReadingSessionStorage` uses `localStorage` on a best-effort basis and isolates storage or JSON failures from reading.
+## Options
 
 ```tsx
 <EpubReader
-  source={file}
+  source={book}
   readerOptions={{
     readingSession: {
-      key: publicationId,
-      storage: productReadingSessionStorage,
-      persistPreferences: true,
+      key: bookId,
+      storage: productStorage,
       saveDelayMs: 500,
+      preferenceScope: 'device',
     },
   }}
 />
 ```
 
-Pass `readingSession: false` to disable persistence. `reader.clearReadingSession()` removes the current persisted record without deleting the source. The complete settings tool exposes the equivalent local-data action.
+| `readingSession.`    | Default              | What it does                                                                                     |
+| -------------------- | -------------------- | ------------------------------------------------------------------------------------------------ |
+| `key`                | from the book's bytes | which record is this book's; give your own when the product already knows the book             |
+| `storage`            | `localStorage`        | a `ReadingSessionStorage`: synchronous `load`, `save`, `remove`                                 |
+| `persistPreferences` | `true`               | whether settings are saved in the record                                                         |
+| `preferenceScope`    | `'publication'`      | `'device'`: settings that describe the reader follow it from book to book (below)                |
+| `preferenceStorage`  | `localStorage`        | a `ReaderPreferenceStorage` (`load`, `save`) for device-scoped settings                         |
+| `saveDelayMs`        | `300`                | how long after the last change the record is saved                                               |
 
-This project is in development: persisted application records are disposable and are not migrated from older code schemas. Authored-book compatibility remains independent and is described in the [Core architecture](../core/docs/architecture.md).
+Pass `readingSession: false` to save nothing.
 
-The default browser adapter accepts only the complete current record shape. It rejects unknown fields, partial preferences or compatibility settings, malformed Locator channels, invalid mark variants, and invalid timestamps as one record rather than attempting partial recovery.
+The storage port is synchronous because the reader reads it while opening. A
+host that keeps sessions on a server fetches the record before opening, answers
+`load` from memory, and sends `save` on in the background.
 
-## Future data boundary
+Saving happens after `saveDelayMs`, and once more when the reader closes. A
+host that is about to read the session back (to open the same book in another
+edition, or before the page goes away) calls `saveReadingSession()` on the
+handle to save the latest position at once.
 
-Backup, restore, cross-device sync, reading statistics, and library metadata belong above the single-publication Reader. They should consume explicit Reader Events and storage ports rather than make Core depend on an account, network, or book-library service. The split is listed in [Roadmap](./roadmap.md).
+`clearReadingSession()` on the handle removes the record; the settings panel
+offers the same.
+
+## Settings: per book or per device
+
+With the default `preferenceScope: 'publication'`, every book keeps its own
+settings: a new book opens with the host's `preferences` and nothing else.
+
+With `preferenceScope: 'device'`, the settings that describe how this person
+reads are kept apart, in `preferenceStorage`, and laid over every book that
+opens. What belongs to one book stays in that book's record.
+
+| Follows the device (`DEVICE_PREFERENCE_KEYS`)                                         | Stays with the book                         |
+| ------------------------------------------------------------------------------------ | ------------------------------------------- |
+| `theme`, `fontSizePercent`, `fontFamily`, `lineHeight`, `pageMarginPercent`           | `writingMode`, `pageProgression`            |
+| `flow`, `spread`, `fixedLayoutFit`, `fixedLayoutGutter`                               | `compatibility`                             |
+| `touchNavigation`, `pageTurnZonePercent`                                              |                                             |
+
+A book opens with, from weakest to strongest: its saved settings, the host's
+`preferences`, the device's settings. So the host can still decide what belongs
+to the book (its `writingMode`, say), while what the reader chose on this
+device wins over the host's defaults.
+
+## Preferences
+
+| Preference                                 | Values                                                         |
+| ------------------------------------------ | -------------------------------------------------------------- |
+| `theme`                                    | a theme id: `publisher`, `light`, `dark`, `sepia`, … or a host theme |
+| `writingMode`                              | `auto` (as published), `horizontal-tb`, `vertical-rl`          |
+| `pageProgression`                          | `auto`, `ltr`, `rtl`                                           |
+| `flow`                                     | `auto`, `paginated`, `scrolled`                                |
+| `spread`                                   | `auto`, `single`, `double`                                     |
+| `fontSizePercent`                          | 50–300                                                         |
+| `fontFamily`, `lineHeight`                 | a family name or `null`; 0.8–3 or `null`                       |
+| `pageMarginPercent`                        | 0–18                                                           |
+| `fixedLayoutFit`, `fixedLayoutGutter`      | `contain`, `width`, `height`, `original`; `none`, `normal`     |
+| `touchNavigation`, `pageTurnZonePercent`   | `both`, `tap`, `swipe`, `off`; 10–40                           |
+| `compatibility`                            | switches for each built-in repair                              |
+
+`writingMode` re-sets reflowable text; fixed-layout pages are never changed.
+With `pageProgression` on `auto`, pages then turn the way the new mode reads:
+right to left for vertical text.
+
+## Above the reader
+
+Backups, sync across devices, statistics and libraries are a product's, not
+the reader's. They build on the storage ports and Reader Events, so Core never
+depends on an account, a network or a library (see the
+[roadmap](./roadmap.md)).

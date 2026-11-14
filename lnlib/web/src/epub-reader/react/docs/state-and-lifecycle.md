@@ -85,7 +85,15 @@ promises.
 Persistence is optional and injected through the Core `ReadingSessionStorage`
 port. The browser adapter uses local storage when enabled. The store resolves a
 stable key, restores locator/preferences/marks before opening, and debounces
-saves from committed snapshots.
+saves from committed snapshots. `flushReadingSession()` (the handle's
+`saveReadingSession()`) saves at once and cancels the pending save; closing the
+reader saves too.
+
+With `preferenceScope: 'device'` the store also loads a
+`ReaderPreferenceStorage` before opening, lays its `DEVICE_PREFERENCE_KEYS`
+over the host's preferences, and saves the preferences there whenever it saves
+the session and they have changed. Precedence and the key list are in
+[Reading data](../../docs/reading-data.md).
 
 Publication bytes, live documents, renderer objects, and transient surfaces are
 never persisted. Clearing the session prevents disposal from immediately

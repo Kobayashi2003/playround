@@ -72,7 +72,7 @@ See the detailed [module map](./docs/module-map.md) before placing new code.
 
 ## Verification
 
-Run commands from `src/library/data-display/epub-reader`:
+Run commands from `components/data-display/epub-reader`:
 
 ```sh
 pnpm boundaries:check

@@ -38,6 +38,10 @@ into the store or Core composition root.
 5. Render the fixed Shell frame, viewport, panel host, modal host, and transient
    surface host.
 
+Two props reach the host back: `readerRef` receives the handle (the same one
+the Shell uses), and `onChromeVisibilityChange` reports the Chrome visibility
+the Shell decided. Neither lets the host take over a Shell decision.
+
 Keep this file declarative. New orchestration details belong in a focused hook
 or Shell component when they can be named independently.
 

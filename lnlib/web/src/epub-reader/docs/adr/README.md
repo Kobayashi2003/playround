@@ -9,6 +9,8 @@ They supplement the current architecture guides; they do not replace them.
   phase-specific Core contribution points instead of a generic plugin pipeline.
 - [ADR 0002](./0002-controlled-react-ui-composition.md) keeps React composition
   inside the fixed Reader Shell.
+- [ADR 0003](./0003-host-header-through-a-layout-token.md) lets a host header
+  share the toolbar through a layout token rather than a render slot.
 
 New records use the next four-digit number and a short kebab-case title. Record
 the status, decision, considered alternatives, and consequences. Do not rewrite

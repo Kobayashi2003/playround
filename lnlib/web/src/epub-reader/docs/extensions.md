@@ -1,31 +1,22 @@
 # Extensions
 
-The reader exposes typed, bounded contribution points rather than a generic
-plugin pipeline. Every contribution has a fixed phase, input, output, authority
-boundary, validation rule, and lifecycle owner.
+The reader has five typed contribution points, not a plugin list. Each has a
+fixed phase, input, output, validation and owner.
 
-| Contribution         | Owner                   |
-| -------------------- | ----------------------- |
-| Compatibility Module | Core EPUB compatibility |
-| Input Binding        | Core interaction input  |
-| Theme                | Core appearance catalog |
-| React Tool Module    | React fixed Shell       |
-| Surface Renderer     | React semantic surfaces |
+| You want to                                       | Contribute a          | Owned by                      | Registered through               |
+| ------------------------------------------------- | --------------------- | ----------------------------- | -------------------------------- |
+| repair a known fault in how books are authored    | Compatibility Module  | Core, EPUB compatibility      | `configureReaderUi` / Core       |
+| map a key, tap, swipe or wheel to a command       | Input Binding         | Core, interaction input       | `configureReaderUi` / Core       |
+| add a reading appearance                          | Theme                 | Core, appearance catalog      | `configureReaderUi` / Core       |
+| add a panel of your own                           | Tool Module           | React, the fixed Shell        | `configureReaderUi`              |
+| draw a footnote, image or other surface your way  | Surface Renderer      | React, semantic surfaces      | `configureReaderUi`              |
 
-The complete checked example is
-[`examples/reader-extensions.ts`](../examples/reader-extensions.ts).
+Everything else (renderers, locator channels, the generic mechanisms under
+`core/extension`) is internal and changes with the reader.
 
-## Registration and implementation
-
-- [Core extension guide](../core/docs/extension-guide.md) covers compatibility
-  modules, input bindings, themes, internal renderers, and locator channels.
-- [React architecture](../react/docs/architecture.md) explains the fixed Shell
-  authority retained around Tool Modules and Surface Renderers.
-- [React module map](../react/docs/module-map.md) identifies the tool, surface,
-  configuration, and composition modules.
-- [UI configuration](./ui-configuration.md) shows host-facing registration.
-
-Only the contribution types listed above are public extension points. The
-decisions and rejected alternatives are recorded in
-[ADR 0001](./adr/0001-controlled-reader-extension-boundaries.md) and
-[ADR 0002](./adr/0002-controlled-react-ui-composition.md).
+- How to write each: the [Core extension guide](../core/docs/extension-guide.md)
+  and the [React architecture](../react/docs/architecture.md).
+- Registering them: [UI configuration](./ui-configuration.md).
+- Compiled examples: [`examples/reader-extensions.ts`](../examples/reader-extensions.ts).
+- Why it is bounded this way: [ADR 0001](./adr/0001-controlled-reader-extension-boundaries.md)
+  and [ADR 0002](./adr/0002-controlled-react-ui-composition.md).
