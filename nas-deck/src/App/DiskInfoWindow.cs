@@ -10,8 +10,9 @@ namespace NasDeck;
 /// </summary>
 internal sealed class DiskInfoWindow : Form
 {
-    private const float PanelWidth = 780, Pad = 20, Edge = PanelWidth - Pad, RowHeight = 22, ChipHeight = 42;
-    private const int VisibleRows = 20;
+    private const float PanelWidth = 780, Pad = 20, Edge = PanelWidth - Pad, RowHeight = 24, ChipHeight = 38;
+    private const int VisibleRows = 19;
+    private static readonly Font ModelFont = new("Segoe UI Semibold", 13f);
     private const TextFormatFlags TextBase = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine
         | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
     private static readonly TimeSpan RefreshEvery = TimeSpan.FromSeconds(30);
@@ -22,10 +23,10 @@ internal sealed class DiskInfoWindow : Form
     private readonly System.Windows.Forms.Timer clock = new() { Interval = 2000 };
     private readonly List<(RectangleF Bounds, string Serial)> chips = [];
     private readonly Dictionary<string, DiskDetail> details = [];
+    private readonly ThinScrollBar scrollBar = new();
     private string? selected;
     private DateTime fetchedAt;
     private bool fetching;
-    private float scroll;
     private float tableTop;
     private PointF? mouse;
     private Graphics? g;
@@ -70,7 +71,7 @@ internal sealed class DiskInfoWindow : Form
             ?? list.FirstOrDefault(candidate => candidate.Serial == selected)
             ?? list.FirstOrDefault();
         if (disk is null) return;
-        if (disk.Serial != selected) scroll = 0;
+        if (disk.Serial != selected) scrollBar.Offset = 0;
         selected = disk.Serial;
         Invalidate();
         if (!details.ContainsKey(disk.Serial)) _ = LoadAsync();
@@ -128,14 +129,12 @@ internal sealed class DiskInfoWindow : Form
         if (IsDisposed || !IsHandleCreated) return;
         Render(null);
         var limit = Screen.FromControl(this).WorkingArea.Height * 0.88f / DpiScale;
-        var height = Math.Min(tableTop + VisibleRows * RowHeight + 12, limit);
+        var height = Math.Min(tableTop + VisibleRows * RowHeight + 16, limit);
         var size = new Size((int)Math.Round(PanelWidth * DpiScale), (int)Math.Round(height * DpiScale));
         if (ClientSize != size) ClientSize = size;
-        scroll = Math.Clamp(scroll, 0, MaxScroll(Render(null)));
+        Render(null);
         Invalidate();
     }
-
-    private float MaxScroll(float content) => Math.Max(0, content - ClientSize.Height / DpiScale);
 
     protected override void OnPaintBackground(PaintEventArgs e) { }
 
@@ -145,7 +144,9 @@ internal sealed class DiskInfoWindow : Form
     {
         base.OnMouseMove(e);
         mouse = new PointF(e.X / DpiScale, e.Y / DpiScale);
-        Cursor = chips.Any(chip => chip.Bounds.Contains(mouse.Value)) ? Cursors.Hand : Cursors.Default;
+        scrollBar.OnMouseMove(mouse.Value);
+        Cursor = scrollBar.Dragging || scrollBar.HitTest(mouse.Value) || chips.Any(chip => chip.Bounds.Contains(mouse.Value))
+            ? Cursors.Hand : Cursors.Default;
         Invalidate();
     }
 
@@ -153,22 +154,40 @@ internal sealed class DiskInfoWindow : Form
     {
         base.OnMouseLeave(e);
         mouse = null;
+        scrollBar.OnMouseLeave();
+        Cursor = Cursors.Default;
         Invalidate();
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
+        if (e.Button != MouseButtons.Left) return;
         var point = new PointF(e.X / DpiScale, e.Y / DpiScale);
+        if (scrollBar.OnMouseDown(point))
+        {
+            Capture = true;
+            Invalidate();
+            return;
+        }
         var chip = chips.FirstOrDefault(candidate => candidate.Bounds.Contains(point));
-        if (e.Button == MouseButtons.Left && chip.Serial is not null) SelectSerial(chip.Serial);
+        if (chip.Serial is not null) SelectSerial(chip.Serial);
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (scrollBar.OnMouseUp())
+        {
+            Capture = false;
+            Invalidate();
+        }
     }
 
     protected override void OnMouseWheel(MouseEventArgs e)
     {
         base.OnMouseWheel(e);
-        scroll = Math.Clamp(scroll - e.Delta / 120f * RowHeight * 3, 0, MaxScroll(Render(null)));
-        Invalidate();
+        if (scrollBar.ScrollWheel(e.Delta, RowHeight * 3)) Invalidate();
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -221,7 +240,7 @@ internal sealed class DiskInfoWindow : Form
         }
         else
         {
-            Draw("The agent reports no disks.", DeckTheme.Body, DeckTheme.Muted, Pad, y, Edge - Pad, 30);
+            Draw("The agent reports no disks.", DeckTheme.Caption, DeckTheme.Muted, Pad, y, Edge - Pad, 30);
             y += 40;
         }
 
@@ -236,7 +255,7 @@ internal sealed class DiskInfoWindow : Form
         var list = disks();
         const float gap = 5;
         var perRow = Math.Min(Math.Max(list.Count, 1), 9);
-        var width = (Edge - Pad - gap * (perRow - 1)) / perRow;
+        var width = Math.Min(132f, (Edge - Pad - gap * (perRow - 1)) / perRow);
         for (var index = 0; index < list.Count; index++)
         {
             var disk = list[index];
@@ -244,14 +263,20 @@ internal sealed class DiskInfoWindow : Form
             chips.Add((bounds, disk.Serial));
             var active = disk.Serial == selected;
             var hot = mouse is { } point && bounds.Contains(point);
-            FillRound(bounds, active ? DeckTheme.Border : hot ? DeckTheme.Panel : DeckTheme.Mix(DeckTheme.Background, DeckTheme.Panel, 0.5f), 7);
+            FillRound(bounds, active ? DeckTheme.Mix(DeckTheme.Panel, DeckTheme.Accent, 0.25f) : hot ? DeckTheme.Panel : DeckTheme.Mix(DeckTheme.Background, DeckTheme.Panel, 0.55f), 7);
+            if (active && g is not null)
+            {
+                using var path = DeckTheme.RoundedRectangle(bounds, 7);
+                using var border = new Pen(DeckTheme.Accent, 1);
+                g.DrawPath(border, path);
+            }
             var (level, _) = DiskHealth.Of(disk);
             var color = level switch { HealthLevel.Bad => DeckTheme.Danger, HealthLevel.Warning => DeckTheme.Warning, _ => DeckTheme.Ready };
-            FillEllipse(new RectangleF(bounds.X + 9, bounds.Y + 10, 8, 8), color);
-            Draw(DiskHealth.Letters(disk), DeckTheme.Strong, DeckTheme.Text, bounds.X + 22, bounds.Y + 3, bounds.Width - 26, 22);
+            FillEllipse(new RectangleF(bounds.X + 9, bounds.Y + 9, 7, 7), color);
+            Draw(DiskHealth.Letters(disk), DeckTheme.Strong, DeckTheme.Text, bounds.X + 21, bounds.Y + 2, bounds.Width - 25, 19);
             var asleep = disk.Power == DiskPower.Standby;
             Draw(asleep ? "asleep" : disk.Smart?.TemperatureC is { } degrees ? $"{degrees} °C" : "—", DeckTheme.Small, DeckTheme.Muted,
-                bounds.X + 22, bounds.Y + 21, bounds.Width - 26, 16);
+                bounds.X + 21, bounds.Y + 19, bounds.Width - 25, 16);
         }
         var rows = (list.Count + perRow - 1) / perRow;
         return top + Math.Max(rows, 1) * (ChipHeight + gap) + 9;
@@ -259,8 +284,8 @@ internal sealed class DiskInfoWindow : Form
 
     private float Summary(float y, DiskInfo disk, DiskDetail? shown)
     {
-        Draw($"{shown?.Model ?? disk.Model}   {Format.Bytes(disk.SizeBytes)}", DeckTheme.Title, DeckTheme.Text, Pad, y, Edge - Pad, 36);
-        y += 46;
+        Draw($"{shown?.Model ?? disk.Model}   ·   {Format.Bytes(disk.SizeBytes)}", ModelFont, DeckTheme.Text, Pad, y, Edge - Pad, 28);
+        y += 36;
 
         var health = shown?.Health ?? disk.Health;
         var (healthText, healthColor) = health switch
@@ -295,8 +320,8 @@ internal sealed class DiskInfoWindow : Form
         ];
         for (var row = 0; row < left.Length; row++)
         {
-            Fact(Pad + 174, y + row * 24, 96, 170, left[row]);
-            Fact(Pad + 450, y + row * 24, 104, Edge - (Pad + 450) - 104, right[row]);
+            Fact(Pad + 172, y + row * 24, 92, 166, left[row]);
+            Fact(Pad + 448, y + row * 24, 104, Edge - (Pad + 448) - 104, right[row]);
         }
         return y + 132;
 
@@ -311,98 +336,118 @@ internal sealed class DiskInfoWindow : Form
 
     private void Card(RectangleF bounds, string label, string value, Color color)
     {
-        FillRound(bounds, DeckTheme.Mix(DeckTheme.Background, color, 0.16f), 8);
+        FillRound(bounds, DeckTheme.Mix(DeckTheme.Background, color, 0.14f), 8);
+        if (g is not null)
+        {
+            using var path = DeckTheme.RoundedRectangle(bounds, 8);
+            using var border = new Pen(DeckTheme.Mix(DeckTheme.Border, color, 0.3f), 1);
+            g.DrawPath(border, path);
+        }
         Draw(label, DeckTheme.Label, DeckTheme.Muted, bounds.X + 12, bounds.Y + 6, bounds.Width - 20, 16);
         Draw(value, DeckTheme.Heading, color, bounds.X + 12, bounds.Y + 22, bounds.Width - 20, 28);
     }
 
     private float Table(float y, DiskDetail? shown)
     {
-        tableTop = y + 26;
+        const float headerHeight = 26;
+        tableTop = y + headerHeight;
+        var view = ClientSize.Height / DpiScale;
+        var cardHeight = Math.Max(80, view - y - 16);
+        var card = new RectangleF(Pad, y, Edge - Pad, cardHeight);
+        FillRound(card, DeckTheme.Panel, 8);
+        if (g is not null)
+        {
+            using var path = DeckTheme.RoundedRectangle(card, 8);
+            using var border = new Pen(DeckTheme.Border, 1);
+            g.DrawPath(border, path);
+        }
+
         if (shown is null)
         {
-            Draw("Reading the disk…", DeckTheme.Caption, DeckTheme.Muted, Pad, y, Edge - Pad, 26);
-            return y + 26;
+            Draw("Reading the disk…", DeckTheme.Caption, DeckTheme.Muted, card.X + 14, card.Y, card.Width - 28, Math.Min(cardHeight, 44));
+            return y + 44;
         }
         if (shown.Attributes.Length == 0)
         {
             Draw(shown.Power == DiskPower.Standby
                     ? "The disk has been asleep since the agent started, so nothing has been read from it yet."
                     : "This disk reports no health attributes.",
-                DeckTheme.Caption, DeckTheme.Muted, Pad, y, Edge - Pad, 26);
-            return y + 26;
+                DeckTheme.Caption, DeckTheme.Muted, card.X + 14, card.Y, card.Width - 28, Math.Min(cardHeight, 44));
+            return y + 44;
         }
 
         // SMART has numbered attributes with normalised values; SAS and NVMe readings are a name and a value.
         var numbered = shown.Attributes.Any(attribute => attribute.Id.Length > 0);
-        float nameX = Pad + (numbered ? 56 : 24), nameWidth = numbered ? 230 : 400;
-        Draw(numbered ? "ID" : "", DeckTheme.Label, DeckTheme.Muted, Pad + 24, y, 30, 26);
-        Draw("ATTRIBUTE", DeckTheme.Label, DeckTheme.Muted, nameX, y, nameWidth, 26);
+        var innerLeft = card.Left + 10;
+        var innerRight = card.Right - 18;
+        float nameX = innerLeft + (numbered ? 54 : 22), nameWidth = numbered ? 222 : 390;
+        Draw(numbered ? "ID" : "", DeckTheme.Label, DeckTheme.Muted, innerLeft + 22, y + 1, 28, headerHeight);
+        Draw("ATTRIBUTE", DeckTheme.Label, DeckTheme.Muted, nameX, y + 1, nameWidth, headerHeight);
         if (numbered)
         {
-            Draw("CURRENT", DeckTheme.Label, DeckTheme.Muted, ColumnCurrent, y, 60, 26, TextFormatFlags.Right);
-            Draw("WORST", DeckTheme.Label, DeckTheme.Muted, ColumnWorst, y, 56, 26, TextFormatFlags.Right);
-            Draw("THRESHOLD", DeckTheme.Label, DeckTheme.Muted, ColumnThreshold, y, 72, 26, TextFormatFlags.Right);
-            Draw("RAW (HEX)", DeckTheme.Label, DeckTheme.Muted, ColumnRaw, y, 108, 26, TextFormatFlags.Right);
-            Draw("RAW (DECIMAL)", DeckTheme.Label, DeckTheme.Muted, ColumnDecimal, y, Edge - ColumnDecimal, 26, TextFormatFlags.Right);
+            Draw("CURRENT", DeckTheme.Label, DeckTheme.Muted, ColumnCurrent, y + 1, 58, headerHeight, TextFormatFlags.Right);
+            Draw("WORST", DeckTheme.Label, DeckTheme.Muted, ColumnWorst, y + 1, 54, headerHeight, TextFormatFlags.Right);
+            Draw("THRESHOLD", DeckTheme.Label, DeckTheme.Muted, ColumnThreshold, y + 1, 70, headerHeight, TextFormatFlags.Right);
+            Draw("RAW (HEX)", DeckTheme.Label, DeckTheme.Muted, ColumnRaw, y + 1, 102, headerHeight, TextFormatFlags.Right);
+            Draw("RAW (DECIMAL)", DeckTheme.Label, DeckTheme.Muted, ColumnDecimal, y + 1, innerRight - ColumnDecimal, headerHeight, TextFormatFlags.Right);
         }
         else
         {
-            Draw("VALUE", DeckTheme.Label, DeckTheme.Muted, ColumnRaw, y, Edge - ColumnRaw, 26, TextFormatFlags.Right);
+            Draw("VALUE", DeckTheme.Label, DeckTheme.Muted, ColumnRaw, y + 1, innerRight - ColumnRaw, headerHeight, TextFormatFlags.Right);
         }
-        y += 26;
-        Line(y);
+        y += headerHeight;
+        if (g is not null)
+        {
+            using var sep = new Pen(DeckTheme.Border, 1);
+            g.DrawLine(sep, card.Left + 1, y + 0.5f, card.Right - 1, y + 0.5f);
+        }
 
         // Only the rows scroll; everything above them stays put.
-        var view = ClientSize.Height / DpiScale;
+        var viewport = Math.Max(0, card.Bottom - tableTop - 6);
+        var contentHeight = shown.Attributes.Length * RowHeight + 4;
+        scrollBar.Update(new RectangleF(card.Right - 16, tableTop + 3, 14, Math.Max(0, viewport)), viewport, contentHeight);
+
         var state = g?.Save();
-        g?.SetClip(new RectangleF(0, tableTop + 1, PanelWidth, Math.Max(0, view - tableTop - 1)));
-        var rowY = y - scroll;
+        g?.SetClip(new RectangleF(card.Left + 2, tableTop + 1.5f, card.Width - 4, Math.Max(0, card.Bottom - tableTop - 3)));
+        var rowY = y + 2 - scrollBar.Offset;
         foreach (var attribute in shown.Attributes)
         {
-            if (rowY + RowHeight > tableTop && rowY < view)
+            if (rowY + RowHeight > tableTop && rowY < card.Bottom)
             {
+                var rowRect = new RectangleF(card.Left + 5, rowY + 1, innerRight - card.Left - 1, RowHeight - 2);
+                if (mouse is { } point && point.Y >= tableTop && point.Y <= card.Bottom && !scrollBar.Dragging && rowRect.Contains(point))
+                    FillRound(rowRect, DeckTheme.Mix(DeckTheme.Panel, DeckTheme.Border, 0.65f), 5);
                 var color = attribute.Status switch
                 {
                     HealthStatus.Bad => DeckTheme.Danger, HealthStatus.Caution => DeckTheme.Warning,
                     HealthStatus.Good => DeckTheme.Ready, _ => DeckTheme.Muted
                 };
                 var text = attribute.Status is HealthStatus.Bad or HealthStatus.Caution ? color : DeckTheme.Text;
-                FillEllipse(new RectangleF(Pad + 6, rowY + 7, 8, 8), color);
-                Draw(attribute.Id, DeckTheme.Caption, DeckTheme.Muted, Pad + 24, rowY, 30, RowHeight);
+                FillEllipse(new RectangleF(innerLeft + 4, rowY + (RowHeight - 7) / 2, 7, 7), color);
+                Draw(attribute.Id, DeckTheme.Caption, DeckTheme.Muted, innerLeft + 22, rowY, 28, RowHeight);
                 Draw(attribute.Name, DeckTheme.Caption, text, nameX, rowY, nameWidth, RowHeight);
                 if (numbered)
                 {
-                    Draw($"{attribute.Current}", DeckTheme.Caption, text, ColumnCurrent, rowY, 60, RowHeight, TextFormatFlags.Right);
-                    Draw($"{attribute.Worst}", DeckTheme.Caption, DeckTheme.Muted, ColumnWorst, rowY, 56, RowHeight, TextFormatFlags.Right);
-                    Draw($"{attribute.Threshold}", DeckTheme.Caption, DeckTheme.Muted, ColumnThreshold, rowY, 72, RowHeight, TextFormatFlags.Right);
-                    Draw(attribute.Raw, Mono, DeckTheme.Muted, ColumnRaw, rowY, 108, RowHeight, TextFormatFlags.Right);
-                    Draw(Decimal(attribute), Mono, text, ColumnDecimal, rowY, Edge - ColumnDecimal, RowHeight, TextFormatFlags.Right);
+                    Draw($"{attribute.Current}", DeckTheme.Caption, text, ColumnCurrent, rowY, 58, RowHeight, TextFormatFlags.Right);
+                    Draw($"{attribute.Worst}", DeckTheme.Caption, DeckTheme.Muted, ColumnWorst, rowY, 54, RowHeight, TextFormatFlags.Right);
+                    Draw($"{attribute.Threshold}", DeckTheme.Caption, DeckTheme.Muted, ColumnThreshold, rowY, 70, RowHeight, TextFormatFlags.Right);
+                    Draw(attribute.Raw, Mono, DeckTheme.Muted, ColumnRaw, rowY, 102, RowHeight, TextFormatFlags.Right);
+                    Draw(Decimal(attribute), Mono, text, ColumnDecimal, rowY, innerRight - ColumnDecimal, RowHeight, TextFormatFlags.Right);
                 }
                 else
                 {
-                    Draw(attribute.Raw, DeckTheme.Caption, text, ColumnRaw, rowY, Edge - ColumnRaw, RowHeight, TextFormatFlags.Right);
+                    Draw(attribute.Raw, DeckTheme.Caption, text, ColumnRaw, rowY, innerRight - ColumnRaw, RowHeight, TextFormatFlags.Right);
                 }
             }
             rowY += RowHeight;
         }
         if (g is not null && state is not null) g.Restore(state);
-
-        var bottom = y + shown.Attributes.Length * RowHeight;
-        var overflow = bottom + 16 - view;
-        if (g is not null && overflow > 0.5f)
-        {
-            // A thumb whose length is the visible share of the rows.
-            var track = view - tableTop - 8;
-            var length = Math.Max(24, track * (view - tableTop) / (bottom + 16 - tableTop));
-            var offset = (track - length) * Math.Clamp(scroll / overflow, 0, 1);
-            FillRound(new RectangleF(PanelWidth - 9, tableTop + 4 + offset, 4, length), DeckTheme.Border, 2);
-        }
-        return bottom;
+        if (g is not null) scrollBar.Paint(g);
+        return y + contentHeight;
     }
 
-    private static readonly Font Mono = new("Consolas", 9.5f);
-    private const float ColumnCurrent = 300, ColumnWorst = 366, ColumnThreshold = 428, ColumnRaw = 508, ColumnDecimal = 624;
+    private static readonly Font Mono = new("Consolas", 9f);
+    private const float ColumnCurrent = 304, ColumnWorst = 368, ColumnThreshold = 428, ColumnRaw = 504, ColumnDecimal = 612;
 
     /// <summary>
     /// The raw value in decimal. A temperature attribute packs the lifetime minimum and maximum above the reading,
@@ -412,13 +457,6 @@ internal sealed class DiskInfoWindow : Form
     {
         if (!ulong.TryParse(attribute.Raw, System.Globalization.NumberStyles.HexNumber, null, out var raw)) return "";
         return (attribute.Id is "C2" or "BE" ? raw & 0xFF : raw).ToString("N0");
-    }
-
-    private void Line(float y)
-    {
-        if (g is null) return;
-        using var pen = new Pen(DeckTheme.Border, 1);
-        g.DrawLine(pen, Pad, y + 0.5f, Edge, y + 0.5f);
     }
 
     private void Draw(string text, Font font, Color color, float x, float top, float width, float height, TextFormatFlags align = TextFormatFlags.Left)

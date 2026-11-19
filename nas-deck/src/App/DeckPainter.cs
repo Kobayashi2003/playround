@@ -16,6 +16,7 @@ internal sealed class DeckActions
     internal required Action<int> ToggleDisk { get; init; }
     internal required Action<DiskInfo> DiskPower { get; init; }
     internal required Action<int> DiskInfo { get; init; }
+    internal required Action<int> DiskActivity { get; init; }
     internal required Action<RectangleF> Timer { get; init; }
     internal required Action<RectangleF> Clients { get; init; }
     internal required Action WakeNas { get; init; }
@@ -268,12 +269,17 @@ internal sealed class DeckPainter(DeckActions actions)
                 lineY += FactHeight;
             }
             var buttonX = left;
+            var totalButtons = disk.Volumes.Length + 2;
+            var buttonWidth = totalButtons <= 3 ? 76f : Math.Max(58f, (Right - left - (totalButtons - 1) * 5f) / totalButtons);
+            var buttonGap = totalButtons <= 3 ? 6f : 5f;
             foreach (var volume in disk.Volumes)
             {
-                Button($"{id}:open:{volume.Letter}", new RectangleF(buttonX, lineY + 6, 76, 24), "Open " + volume.Letter, false, () => actions.OpenVolume(volume.Letter));
-                buttonX += 82;
+                Button($"{id}:open:{volume.Letter}", new RectangleF(buttonX, lineY + 6, buttonWidth, 24), "Open " + volume.Letter, false, () => actions.OpenVolume(volume.Letter));
+                buttonX += buttonWidth + buttonGap;
             }
-            Button($"{id}:info", new RectangleF(buttonX, lineY + 6, 76, 24), "Details…", false, () => actions.DiskInfo(disk.Number));
+            Button($"{id}:info", new RectangleF(buttonX, lineY + 6, buttonWidth, 24), "Details…", false, () => actions.DiskInfo(disk.Number));
+            buttonX += buttonWidth + buttonGap;
+            Button($"{id}:activity", new RectangleF(buttonX, lineY + 6, buttonWidth, 24), "Activity…", false, () => actions.DiskActivity(disk.Number));
         }
         y += height;
     }

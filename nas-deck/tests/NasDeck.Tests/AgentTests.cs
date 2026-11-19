@@ -308,3 +308,41 @@ public class DiskReportTests
         Assert.Equal(HealthStatus.Bad, NvmeHealth.Parse(log, DateTimeOffset.UnixEpoch).Health);
     }
 }
+
+public class HostFollowTests
+{
+    private static readonly DateTimeOffset Now = new(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
+    private static readonly FollowPlan Plan = new(HostPowerAction.Hibernate, Now, ["192.168.0.173", "fe80::5f69:23a0:9531:46de%19"]);
+
+    [Fact]
+    public void Nothing_happens_before_the_grace_period_ends() =>
+        Assert.Equal(HostFollow.Verdict.Wait, HostFollow.Decide(Plan with { Due = Now.AddMinutes(1) }, Now, [], 0).Verdict);
+
+    [Fact]
+    public void The_pc_own_sessions_do_not_hold_the_nas_up()
+    {
+        SmbSession[] own = [new("192.168.0.173", "17312", 600, 300), new("[::ffff:192.168.0.173]", "17312", 600, 300), new("[fe80::5f69:23a0:9531:46de]", "17312", 600, 300)];
+        Assert.Equal(HostFollow.Verdict.Go, HostFollow.Decide(Plan, Now, own, 0).Verdict);
+    }
+
+    [Fact]
+    public void Another_client_keeps_the_nas_on()
+    {
+        var (verdict, reason) = HostFollow.Decide(Plan, Now, [new("192.168.0.50", "tv", 60, 10)], 0);
+        Assert.Equal(HostFollow.Verdict.Skip, verdict);
+        Assert.Contains("192.168.0.50 (tv)", reason);
+    }
+
+    [Fact]
+    public void Busy_disks_put_it_off() =>
+        Assert.Equal(HostFollow.Verdict.Postpone, HostFollow.Decide(Plan, Now, [], 40 * 1024 * 1024).Verdict);
+
+    [Theory]
+    [InlineData(@"\\192.168.0.173", "192.168.0.173")]
+    [InlineData("[::ffff:192.168.0.173]", "192.168.0.173")]
+    [InlineData("FE80::1", "fe80::1")]
+    [InlineData("fe80::5f69:23a0:9531:46de%19", "fe80::5f69:23a0:9531:46de")]
+    [InlineData("DESKTOP-PC", "DESKTOP-PC")]
+    public void Addresses_compare_however_windows_writes_them(string written, string expected) =>
+        Assert.Equal(expected, HostFollow.Normalize(written));
+}

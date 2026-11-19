@@ -1,4 +1,4 @@
-# app-gateway — one public port, several apps.
+﻿# app-gateway — one public port, several apps.
 #
 # Only a single HTTPS port is reachable through the tunnel, but there is more than
 # one app behind it and each would like to own the origin root. One Caddy holds
@@ -11,7 +11,7 @@
 # unregisters one. See schema/app.schema.json for the fields, README.md for why.
 #
 #   .\start.ps1                                every enabled app
-#   .\start.ps1 -App hearth,chatlog-viewer     just these, enabled or not
+#   .\start.ps1 -App hearth,neovndb            just these, enabled or not
 #   .\start.ps1 -List                          the registry, and what is on
 #   .\start.ps1 -ConfigOnly                    generate and validate config, launch nothing
 #   .\start.ps1 -NoBrowser                     do not open the landing page
@@ -19,6 +19,8 @@
 #   .\start.ps1 -Port hearth:backend=17019     move an app's port, this run
 #   .\start.ps1 -Enable tmw-downloader         turn an app on, written back to its own file
 #   .\start.ps1 -Disable tmw-downloader        turn it off again
+#   .\start.ps1 -NoAdmin                       leave the admin page off, this run
+#   .\start.ps1 -SetAdminPassword              set the admin page's password
 
 [CmdletBinding(DefaultParameterSetName = 'Run')]
 param(
@@ -43,6 +45,14 @@ param(
     [Parameter(ParameterSetName = 'Run')]
     [switch]   $NoBrowser,
 
+    # Serve no admin page this run, whatever gateway.json's admin.enabled says.
+    [Parameter(ParameterSetName = 'Run')]
+    [switch]   $NoAdmin,
+
+    # Ask for a new admin password and store its hash in gateway.json.
+    [Parameter(ParameterSetName = 'Password', Mandatory)]
+    [switch]   $SetAdminPassword,
+
     [Parameter(ParameterSetName = 'List')]
     [switch]   $List,
 
@@ -52,6 +62,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Keep PowerShell and .NET exception messages in English in gateway logs,
+# regardless of the host Windows display language.
+$enUs = [Globalization.CultureInfo]::GetCultureInfo('en-US')
+[Globalization.CultureInfo]::DefaultThreadCurrentUICulture = $enUs
+[Threading.Thread]::CurrentThread.CurrentUICulture = $enUs
 
 # `pwsh -File start.ps1 -App a,b` hands the list over as the single string
 # "a,b" — only an in-session call splits it. Both spellings are how this script is
@@ -67,12 +83,31 @@ $root         = $PSScriptRoot
 $appsDir      = Join-Path $root 'apps'
 
 . (Join-Path $root 'lib\Config.ps1')
+. (Join-Path $root 'lib\Icons.ps1')
 . (Join-Path $root 'lib\CaddyBuilder.ps1')
 . (Join-Path $root 'lib\LandingBuilder.ps1')
 . (Join-Path $root 'lib\ProcessHost.ps1')
+. (Join-Path $root 'lib\Supervisor.ps1')
+. (Join-Path $root 'lib\AdminAuth.ps1')
+. (Join-Path $root 'lib\AdminServer.ps1')
 
 # --------------------------------------------------------------------- load
-$settings = Read-GatewaySettings -Path (Join-Path $root 'gateway.json')
+$settingsFile = Join-Path $root 'gateway.json'
+$credentialFile = Join-Path $root 'gateway.auth.json'
+$settings = Read-GatewaySettings -Path $settingsFile
+
+# ------------------------------------------------------------ admin password
+if ($SetAdminPassword) {
+    $first  = Read-Host 'New admin password' -AsSecureString
+    $second = Read-Host 'Again' -AsSecureString
+    $plain  = [Net.NetworkCredential]::new('', $first).Password
+    if ($plain -ne [Net.NetworkCredential]::new('', $second).Password) { throw 'The two passwords differ; nothing changed.' }
+    if ($plain.Length -lt 8) { throw 'The password needs at least 8 characters; nothing changed.' }
+    $Gw = @{ SettingsFile = $settingsFile; CredentialFile = $credentialFile }
+    Set-GatewayAdminCredential -PasswordHash (New-PasswordHash $plain)
+    Write-Host '[GATEWAY] admin password set in gateway.auth.json. A running gateway picks it up on restart.' -ForegroundColor Cyan
+    return
+}
 $runtimeDir = [IO.Path]::GetFullPath([string](Get-JsonProperty $settings 'runtime' '.runtime'), $root)
 $webRoot    = Join-Path $runtimeDir 'web'
 $caddyfile  = Join-Path $runtimeDir 'Caddyfile'
@@ -91,13 +126,7 @@ if ($Enable -or $Disable) {
 $bind = if ($Bind) { $Bind } else { [string](Get-JsonProperty $settings 'bind' ':30709') }
 if ($bind -notmatch ':\d+$') { throw "Bind must end in a port, got '$bind'." }
 
-$paths = @{}
-$pathsNode = Get-JsonProperty $settings 'paths'
-if ($pathsNode) {
-    foreach ($p in $pathsNode.PSObject.Properties) {
-        $paths["paths.$($p.Name)"] = [IO.Path]::GetFullPath([string]$p.Value, $root)
-    }
-}
+$paths = Get-GatewayPaths -Settings $settings -Root $root
 
 # The port convention is not the gateway's: it reads the ranges from PORTS.md.
 $portsFile  = [IO.Path]::GetFullPath([string](Get-JsonProperty $settings 'ports' '../../PORTS.md'), $root)
@@ -156,25 +185,101 @@ if (-not $selected.Count) {
     throw "Nothing to run: every app in $appsDir is disabled. Turn one on with -Enable <id>, or name one with -App."
 }
 
-Assert-GatewayApps -Apps $selected -Bind $bind -PortRanges $convention.Ranges -PortSlot $convention.Slot
-
-# --------------------------------------------------------------------- config
-# Regenerated every launch — the plugin files are the source of truth, and a stale
-# runtime folder would serve the previous app set. Only the gateway's own files go:
-# gateway.json's "runtime" may point at a folder that holds other things.
-foreach ($stale in $webRoot, $caddyfile) {
-    if (Test-Path $stale) { Remove-Item -Recurse -Force $stale }
+# -------------------------------------------------------------------- admin
+# The admin page and Caddy's reload endpoint sit in the gateway's own slot
+# (playround/PORTS.md), so no app can be given them.
+$adminNode    = Get-JsonProperty $settings 'admin'
+if ($adminNode -and $adminNode -isnot [pscustomobject]) { throw 'gateway.json admin must be a JSON object.' }
+$adminPort    = Get-JsonInt $adminNode 'port' 16050 'gateway.json admin'
+if ($adminPort -lt 1 -or $adminPort -gt 65535) { throw "gateway.json admin.port must be between 1 and 65535, got '$adminPort'." }
+$caddyAdmin   = Assert-LoopbackEndpoint -Endpoint ([string](Get-JsonProperty $settings 'caddyAdmin' 'localhost:16051')) -FieldName 'gateway.json caddyAdmin'
+$credential   = Get-GatewayAdminCredential -Path $credentialFile -Legacy $adminNode
+$adminUser    = [string](Get-JsonProperty $credential 'user' 'admin')
+$adminHash    = [string](Get-JsonProperty $credential 'passwordHash' '')
+$adminEnabled = (Get-JsonBool $adminNode 'enabled' $true 'gateway.json admin') -and -not $NoAdmin
+if ($adminEnabled -and -not $adminHash) {
+    Write-Host '[GATEWAY] admin page off: run start.ps1 -SetAdminPassword to enable it.' -ForegroundColor Yellow
+    $adminEnabled = $false
 }
 
-$site = Get-JsonProperty $settings 'site'
-New-LandingPage -Apps $selected -WebRoot $webRoot `
-    -Title        ([string](Get-JsonProperty $site 'title' 'Gateway')) `
-    -Tagline      ([string](Get-JsonProperty $site 'tagline' '')) `
-    -FallbackIcon ([string](Get-JsonProperty $site 'fallbackIcon' '*')) | Out-Null
+$reserved = @{ Prefixes = @{}; Ports = @{} }
+$reserved.Prefixes['/_gateway'] = '(gateway) static assets'
+if ($caddyAdmin) { $reserved.Ports[[int]($caddyAdmin -split ':')[-1]] = '(gateway) caddy admin' }
+if ($adminEnabled) {
+    $reserved.Prefixes['/admin'] = '(gateway) admin page'
+    $reserved.Ports[$adminPort]  = '(gateway) admin page'
+}
 
-New-GatewayCaddyfile -Apps $selected -OutFile $caddyfile -WebRoot $webRoot -Bind $bind | Out-Null
+Assert-GatewayApps -Apps $selected -Bind $bind -PortRanges $convention.Ranges -PortSlot $convention.Slot -Reserved $reserved
 
-$routeEnv = Get-MergedRouteEnv -Apps $selected
+# The public port is the tunnel's, and only one process can hold it: an earlier
+# gateway, or a project started standalone with -Bind onto it. Say so plainly:
+# otherwise Caddy fails to bind, exits 1, and the reason is buried in its JSON log
+# while the apps are already starting up. Checked before the runtime folder is
+# rewritten, so a second start does not swap a running gateway's landing page.
+$bindPort = [int]($bind -split ':')[-1]
+if (-not $ConfigOnly) {
+    $held = { param([int]$P) [bool](Get-NetTCPConnection -LocalPort $P -State Listen -ErrorAction SilentlyContinue) }
+    if (& $held $bindPort) {
+        throw "Port $bindPort is already in use — something else owns the public port. " +
+              'Stop the other edge (a project started standalone, or an earlier gateway) first.'
+    }
+    if ($caddyAdmin -and (& $held ([int]($caddyAdmin -split ':')[-1]))) {
+        throw "Port $(($caddyAdmin -split ':')[-1]) (caddyAdmin) is already in use; Caddy could not take reloads on it."
+    }
+    if ($adminEnabled -and (& $held $adminPort)) {
+        Write-Host "[GATEWAY] admin page off: port $adminPort is already in use." -ForegroundColor Yellow
+        $adminEnabled = $false
+    }
+}
+
+if (-not (Get-Command caddy -ErrorAction SilentlyContinue)) {
+    throw 'caddy is not on PATH (https://caddyserver.com/download).'
+}
+
+# ---------------------------------------------------------------- the state
+# Everything the supervisor and the admin page share. See lib/Supervisor.ps1.
+$Gw = @{
+    Root          = $root
+    AppsDir       = $appsDir
+    SettingsFile  = $settingsFile
+    CredentialFile = $credentialFile
+    Settings      = $settings
+    StartupSettings = $settings
+    PortsFile     = $portsFile
+    Convention    = $convention
+    Bind          = $bind
+    Paths         = $paths
+    PortOverride  = $portOverride
+    Reserved      = $reserved
+    RuntimeDir    = $runtimeDir
+    WebRoot       = $webRoot
+    Caddyfile     = $caddyfile
+    CaddyAdmin    = $caddyAdmin
+    AdminPort     = $(if ($adminEnabled) { $adminPort } else { 0 })
+    AdminWeb      = Join-Path $root 'admin'
+    LogDir        = [IO.Path]::GetFullPath([string](Get-JsonProperty $settings 'logs' 'logs'), $root)
+    RunFile       = Join-Path $root '.running.json'
+    All           = $all
+    RegistryVersions = Get-RegistryVersions $plugins
+    Active        = [Collections.Generic.HashSet[string]]::new([string[]]@($selected.Id))
+    ExplicitApps  = $App
+    Selection     = $(if ($App) { "-App $($App -join ',')" } else { 'enabled apps' })
+    Runs          = @{}
+    Deferred      = [Collections.Generic.List[object]]::new()
+    StartedAt     = Get-Date
+    RouteEnv      = @{}
+}
+$Gw.BackupDir = [IO.Path]::GetFullPath([string](Get-JsonProperty $settings 'backups' 'backups'), $root)
+
+# --------------------------------------------------------------------- config
+# A preview has separate files so it can run next to an active gateway.
+if ($ConfigOnly) {
+    $preview = Join-Path $runtimeDir "previews/$([guid]::NewGuid().ToString('N'))"
+    $Gw.Caddyfile = $caddyfile = Join-Path $preview 'Caddyfile'
+    $Gw.WebRoot = $webRoot = Join-Path $preview 'web'
+}
+$Gw.RouteEnv = Build-GatewayConfig -Apps $selected -Validate
 
 Write-Host ''
 Write-Host "[GATEWAY] bind $bind" -ForegroundColor Cyan
@@ -183,69 +288,60 @@ foreach ($a in $selected) {
     $how    = switch ($a.Routes.Kind) { 'snippet' { 'snippet' } 'proxy' { 'proxy' } default { '-' } }
     Write-Host ("[GATEWAY]   {0,-24} {1,-20} {2}" -f $a.Id, $prefix, $how) -ForegroundColor Cyan
 }
+if ($Gw.AdminPort) { Write-Host ("[GATEWAY]   {0,-24} {1,-20} {2}" -f '(admin page)', '/admin', "localhost:$($Gw.AdminPort)") -ForegroundColor Cyan }
 Write-Host ''
-
-if (-not (Get-Command caddy -ErrorAction SilentlyContinue)) {
-    throw 'caddy is not on PATH (https://caddyserver.com/download).'
-}
-
-# ------------------------------------------------------------------- preflight
-# Adapt the config before anything is spawned. A snippet with a typo in it, or a
-# route variable no routes.env supplies, is otherwise found only after every app
-# has been started — Caddy exits 1 and takes the whole launch down with it.
-$saved = Push-ProcessEnvironment -Environment $routeEnv
-try {
-    $check = & caddy validate --config $caddyfile --adapter caddyfile 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "The generated Caddyfile does not adapt:`n$($check -join "`n")"
-    }
-} finally {
-    Pop-ProcessEnvironment -Saved $saved
-}
 
 if ($ConfigOnly) {
     Write-Host "[GATEWAY] config is valid; wrote $caddyfile and $webRoot\index.html. Launched nothing." -ForegroundColor Yellow
     return
 }
 
-# The public port is the tunnel's, and only one process can hold it: an earlier
-# gateway, or a project started standalone with -Bind onto it. Say so plainly:
-# otherwise Caddy fails to bind, exits 1, and the reason is buried in its JSON log
-# while the apps are already starting up.
-$bindPort = [int]($bind -split ':')[-1]
-if (Get-NetTCPConnection -LocalPort $bindPort -State Listen -ErrorAction SilentlyContinue) {
-    throw "Port $bindPort is already in use — something else owns the public port. " +
-          'Stop the other edge (a project started standalone, or an earlier gateway) first.'
+if ($Gw.AdminPort -and (Test-LegacyAdminCredential $adminNode)) {
+    Set-GatewayAdminCredential -PasswordHash $adminHash
 }
 
 # --------------------------------------------------------------------- launch
-$children = @()
-$runFile = Join-Path $root '.running.json'
+Add-Type -Path (Join-Path $root 'lib\Native.cs')
+[AppGateway.SystemStats]::UseEnglishMessages()
+New-Item -ItemType Directory -Force -Path $Gw.LogDir, $Gw.BackupDir | Out-Null
+# Every child's output passes through here: to this console, prefixed with its
+# app, to logs/<app>.log, and to the admin page.
+$Gw.Hub = [AppGateway.LogHub]::new($Gw.LogDir, 3000, 5MB)
+$Gw.CaddyVersion = ("$(& caddy version 2>$null)" -split ' ')[0]
+
 try {
     foreach ($a in $selected) {
         if (-not $a.Launch) {
-            Write-Host "[SKIP]  $($a.Id) declares no launch; routing only." -ForegroundColor DarkGray
+            Write-GatewayLog "[SKIP] $($a.Id) declares no launch; routing only."
             continue
         }
-        # The gateway's landing page is the one page to open; an app's own would be its
-        # internal port.
-        $appArgs = @('-NoProfile', '-File', $a.Launch.Script) + $a.Launch.Args
-        if ((Get-Command $a.Launch.Script).Parameters.ContainsKey('NoBrowser')) { $appArgs += '-NoBrowser' }
-        $children += Start-Child -Label $a.Id -File 'pwsh' -Cwd $a.Root -Environment $a.Env -Arguments $appArgs
+        # One app that cannot start is skipped; the others still come up.
+        try { $null = Start-GatewayApp -Id $a.Id } catch { }
     }
 
     # Caddy last, so its upstreams are already coming up. It tolerates a cold one
     # anyway (502 until ready); this just keeps the log readable.
-    $children += Start-Child -Label 'caddy' -File 'caddy' -Cwd $root -Environment $routeEnv `
-        -Arguments @('run', '--config', $caddyfile, '--adapter', 'caddyfile')
+    $caddyEnv = [Collections.Generic.Dictionary[string, string]]::new()
+    foreach ($e in $Gw.RouteEnv.GetEnumerator()) { $caddyEnv[$e.Key] = [string]$e.Value }
+    $Gw.Caddy = $Gw.Hub.Start('caddy', 'caddy', [string[]]@('run', '--config', $caddyfile, '--adapter', 'caddyfile'), $root, $caddyEnv)
+    Write-GatewayLog "[START] caddy (PID $($Gw.Caddy.Id))"
+    Save-RunFile
 
-    # stop.ps1 reads this to stop the gateway from another window.
-    $children | ForEach-Object { @{ ProcessId = $_.Process.Id; StartTicks = $_.Process.StartTime.Ticks } } |
-        ConvertTo-Json -AsArray | Set-Content -LiteralPath $runFile
+    if ($Gw.AdminPort) {
+        $Gw.Auth = New-AdminAuth -User $adminUser -PasswordHash $adminHash `
+            -SessionHours ([double](Get-JsonProperty $adminNode 'sessionHours' 12)) `
+            -AuditFile (Join-Path $Gw.LogDir 'admin-audit.log')
+        try {
+            $Gw.Listener = Start-AdminListener -Port $Gw.AdminPort
+        } catch {
+            Write-GatewayLog "admin page off: could not listen on localhost:$($Gw.AdminPort): $($_.Exception.Message)" 'err'
+        }
+    }
 
     $landing = "http://127.0.0.1:$bindPort/"
     Write-Host ''
     Write-Host "[GATEWAY] up on $landing — Ctrl+C to stop everything." -ForegroundColor Green
+    if ($Gw.Listener) { Write-Host "[GATEWAY] admin page on ${landing}admin/" -ForegroundColor Green }
     Write-Host ''
 
     if (-not $NoBrowser) {
@@ -260,8 +356,12 @@ try {
         }
     }
 
-    Wait-Children -Children $children
+    # The supervisor loop. Only Caddy exiting, Ctrl+C or the admin page's
+    # shutdown ends it; an app that exits is reported and the rest keep serving.
+    while (Step-Gateway) { Invoke-AdminPump -WaitMs 250 }
 } finally {
-    Stop-Children -Children $children
-    Remove-Item -LiteralPath $runFile -ErrorAction SilentlyContinue
+    if ($Gw.Listener) { try { $Gw.Listener.Close() } catch { } }
+    Stop-Gateway
+    if ($Gw.Hub) { $Gw.Hub.Dispose() }
+    Remove-Item -LiteralPath $Gw.RunFile -ErrorAction SilentlyContinue
 }

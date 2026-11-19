@@ -26,6 +26,9 @@ var token = Encoding.UTF8.GetBytes(File.ReadAllText(tokenPath).Trim());
 var builder = WebApplication.CreateBuilder();
 builder.Host.UseWindowsService(options => options.ServiceName = "NasDeckAgent");
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+// The event log takes warnings only by default; the agent's own notes (a PC going down or coming back, a disk
+// put to sleep) are what to look for when the NAS did not do what was expected.
+builder.Logging.AddFilter<Microsoft.Extensions.Logging.EventLog.EventLogLoggerProvider>("NasDeck", LogLevel.Information);
 builder.WebHost.ConfigureKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, port));
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton(services => new Sampler(dataDirectory, services.GetRequiredService<ILogger<Sampler>>()));
@@ -47,9 +50,12 @@ app.MapGet("/api/snapshot", (Sampler sampler) =>
     sampler.Current is { } snapshot ? Results.Json(snapshot) : Results.StatusCode(StatusCodes.Status503ServiceUnavailable));
 app.MapGet("/api/disks/{number:int}", (int number, Sampler sampler) =>
     sampler.Detail(number) is { } detail ? Results.Json(detail) : Results.NotFound());
+app.MapGet("/api/activity", (Sampler sampler) => Results.Json(sampler.Activity()));
 app.MapPost("/api/disks/sleep", (Sampler sampler) => sampler.SleepAll());
 app.MapPost("/api/disks/{number:int}/sleep", (int number, bool? force, Sampler sampler) => sampler.Sleep(number, force == true));
 app.MapPost("/api/disks/{number:int}/wake", (int number, Sampler sampler) => sampler.Wake(number));
 app.MapPut("/api/policy", (PowerPolicy policy, Sampler sampler) => sampler.SetPolicy(policy));
+app.MapPost("/api/host/leaving", (HostLeaving request, Sampler sampler) => sampler.HostLeaving(request));
+app.MapPost("/api/host/present", (Sampler sampler) => sampler.HostPresent());
 
 app.Run();

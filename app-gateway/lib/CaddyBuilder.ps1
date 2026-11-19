@@ -1,4 +1,4 @@
-# Generates the gateway's Caddyfile from the resolved apps.
+﻿# Generates the gateway's Caddyfile from the resolved apps.
 #
 # There are two kinds of app here, and the difference is who owns the routing:
 #
@@ -73,8 +73,15 @@ function New-GatewayCaddyfile {
         [hashtable[]] $Apps,
         [string]      $OutFile,
         [string]      $WebRoot,
-        [string]      $Bind
+        [string]      $Bind,
+        # Where Caddy takes reloads from: the admin page changes routes without a
+        # restart through it. Empty turns the endpoint off.
+        [string]      $CaddyAdmin = '',
+        # Port of the gateway's own admin page, or 0 when it is off.
+        [int]         $AdminPort = 0
     )
+
+    $CaddyAdmin = Assert-LoopbackEndpoint -Endpoint $CaddyAdmin -FieldName 'caddyAdmin'
 
     $lines = @(
         "# GENERATED on every launch. Edit the source instead: apps/<app>.json for"
@@ -82,12 +89,46 @@ function New-GatewayCaddyfile {
         '{'
         "`tauto_https off"
         ''
-        "`t# Never used, and leaving it on binds 127.0.0.1:2019 — which collides with"
-        "`t# any second Caddy on the box."
-        "`tadmin off"
+    )
+    if ($CaddyAdmin) {
+        $lines += @(
+            "`t# Reloads from the admin page. In the gateway's own port slot, not the"
+            "`t# default 2019, which collides with any second Caddy on the box."
+            "`tadmin $CaddyAdmin"
+        )
+    } else {
+        $lines += "`tadmin off"
+    }
+    $lines += @(
         '}'
         ''
         "$Bind {"
+    )
+
+    if ($AdminPort) {
+        # http.sys, which serves the admin page, answers only to the host it was
+        # registered under, so the public Host is swapped for it.
+        $lines += @(
+            "`t# the gateway's admin page, served by start.ps1"
+            "`tredir /admin /admin/ 308"
+            "`thandle /admin/* {"
+            "`t`treverse_proxy 127.0.0.1:$AdminPort {"
+            "`t`t`theader_up Host localhost:$AdminPort"
+            "`t`t}"
+            "`t}"
+            ''
+        )
+    }
+
+    $lines += @(
+        '    handle /_gateway/* {'
+        "        root * `"$(ConvertTo-CaddyPath $WebRoot)`""
+        '        header X-Content-Type-Options nosniff'
+        '        header Content-Security-Policy "default-src ''none''; style-src ''none''; sandbox"'
+        '        header Cache-Control "public, max-age=31536000, immutable"'
+        '        file_server'
+        '    }'
+        ''
     )
 
     foreach ($app in $Apps) {

@@ -49,7 +49,6 @@ internal sealed partial class DeckWindow
     {
         if (model.Snapshot is not { } snapshot) yield break;
         var current = snapshot.Policy.DiskIdleSeconds;
-        yield return DeckMenu.Label("Spin idle disks down after");
         var listed = false;
         foreach (var minutes in TimerMinutes)
         {
@@ -67,7 +66,6 @@ internal sealed partial class DeckWindow
     {
         if (model.Snapshot is not { } snapshot) yield break;
         var current = snapshot.Policy.AutoHibernateMinutes;
-        yield return DeckMenu.Label("After no disk or network file activity for");
         foreach (var minutes in HibernateMinutes)
             yield return DeckMenu.Item(Format.Timeout(minutes * 60), null,
                 () => _ = SetPolicyAsync(snapshot.Policy with { AutoHibernateMinutes = minutes }), isChecked: current == minutes);
@@ -80,15 +78,22 @@ internal sealed partial class DeckWindow
     {
         if (model.Snapshot is not { } snapshot) yield break;
         foreach (var session in snapshot.Sessions)
-            yield return DeckMenu.Label($"{session.Client} · {session.User} · idle {Format.Duration(session.IdleSeconds)}", DeckTheme.Text, strong: true);
-        if (snapshot.OpenFiles.Length == 0) yield break;
-        yield return DeckMenu.Separator();
-        foreach (var file in snapshot.OpenFiles.OrderByDescending(file => file.Writing).Take(14))
         {
-            var path = file.Path.Length > 62 ? file.Path[..18] + "…" + file.Path[^42..] : file.Path;
-            yield return DeckMenu.Label((file.Writing ? "writing · " : "") + path, file.Writing ? DeckTheme.Warning : DeckTheme.Muted);
+            var client = session.Client.Length > 26 ? session.Client[..23] + "…" : session.Client;
+            yield return DeckMenu.Label($"{client} · {session.User} · idle {Format.Duration(session.IdleSeconds)}", DeckTheme.Text, strong: true);
         }
-        if (snapshot.OpenFiles.Length > 14) yield return DeckMenu.Label($"and {snapshot.OpenFiles.Length - 14} more");
+        if (snapshot.OpenFiles.Length > 0)
+        {
+            yield return DeckMenu.Separator();
+            foreach (var file in snapshot.OpenFiles.OrderByDescending(file => file.Writing).Take(12))
+            {
+                var path = file.Path.Length > 44 ? file.Path[..14] + "…" + file.Path[^29..] : file.Path;
+                yield return DeckMenu.Label((file.Writing ? "W · " : "") + path, file.Writing ? DeckTheme.Warning : DeckTheme.Muted);
+            }
+            if (snapshot.OpenFiles.Length > 12) yield return DeckMenu.Label($"and {snapshot.OpenFiles.Length - 12} more");
+        }
+        yield return DeckMenu.Separator();
+        yield return DeckMenu.Item("Disk activity…", DeckGlyph.Activity, () => ShowDiskActivity(null));
     }
 
     private IEnumerable<ToolStripItem> MainItems()
@@ -112,6 +117,12 @@ internal sealed partial class DeckWindow
             yield return DeckMenu.Sub("Disk sleep timer", DeckGlyph.Timer, TimerItems());
             yield return DeckMenu.Sub("Hibernate when idle", DeckGlyph.Power, HibernateItems());
             yield return DeckMenu.Item("Disk information…", DeckGlyph.Info, () => ShowDiskInfo(null));
+            yield return DeckMenu.Item("Disk activity…", DeckGlyph.Activity, () => ShowDiskActivity(null));
+        }
+        else
+        {
+            yield return DeckMenu.Separator();
+            yield return DeckMenu.Item("Disk activity…", DeckGlyph.Activity, () => ShowDiskActivity(null));
         }
         if (online)
         {
@@ -124,6 +135,10 @@ internal sealed partial class DeckWindow
                 yield return DeckMenu.Item("Open in Explorer", DeckGlyph.Folder, () => Launch("explorer.exe", $@"\\{model.Settings.Host}"));
             yield return DeckMenu.Item("Remote Desktop", DeckGlyph.Screen, () => Launch("mstsc.exe", $"/v:{model.Settings.Host}"));
         }
+        yield return DeckMenu.Item("NAS Recycle Bin…", DeckGlyph.Folder, ShowRecycleBin);
+        if (undoRecycle.Length > 0)
+            yield return DeckMenu.Item("Undo last recycle", null, () => _ = ChangeRecycledAsync(undoRecycle, false), !recycleBusy);
+        yield return DeckMenu.Sub("Follow this PC", DeckGlyph.Power, FollowItems());
 
         yield return DeckMenu.Separator();
         yield return DeckMenu.Item("Always on top", null, () =>
@@ -146,11 +161,12 @@ internal sealed partial class DeckWindow
                 Opacity = percent / 100.0;
                 SaveWidget(widget with { OpacityPercent = percent });
             }, isChecked: widget.OpacityPercent == percent)));
-        yield return DeckMenu.Item(Visible ? "Hide widget" : "Show widget", null, () =>
-        {
-            if (Visible) Hide();
-            else ShowWidget();
-        });
+        if (widget.ShowTrayIcon || !Visible)
+            yield return DeckMenu.Item(Visible ? "Hide widget" : "Show widget", null, () =>
+            {
+                if (Visible) Hide();
+                else ShowWidget();
+            });
 
         yield return DeckMenu.Separator();
         yield return DeckMenu.Item("Refresh", DeckGlyph.Refresh, () => _ = PollAsync(), canCommand, hint: "F5");

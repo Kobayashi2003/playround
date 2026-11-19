@@ -11,5 +11,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\Protocol\*.cs" LinkBase="Protocol" />
+    <InternalsVisibleTo Include="NasDeck.Tests" />
   </ItemGroup>
 </Project>

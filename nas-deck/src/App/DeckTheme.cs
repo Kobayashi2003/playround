@@ -24,10 +24,8 @@ internal static class DeckTheme
 
     internal static readonly Font Menu = new("Segoe UI", 9);
     internal static readonly Font MenuStrong = new("Segoe UI Semibold", 9);
-    internal static readonly Font Title = new("Segoe UI Semibold", 17);
     internal static readonly Font Heading = new("Segoe UI Semibold", 10.5f);
     internal static readonly Font Strong = new("Segoe UI Semibold", 9);
-    internal static readonly Font Body = new("Segoe UI", 10);
     internal static readonly Font Caption = new("Segoe UI", 9);
     internal static readonly Font Small = new("Segoe UI", 8.25f);
     internal static readonly Font Label = new("Segoe UI Semibold", 7.5f);
@@ -36,6 +34,17 @@ internal static class DeckTheme
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
     internal static event Action? Changed;
+
+    internal static Panel CreateDivider()
+    {
+        var divider = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
+        divider.Paint += (_, e) =>
+        {
+            using var pen = new Pen(Border, 1);
+            e.Graphics.DrawLine(pen, 0, divider.Height / 2, divider.Width, divider.Height / 2);
+        };
+        return divider;
+    }
 
     /// <summary>Follows the system's light or dark setting; a framed window also gets a matching title bar.</summary>
     internal static void Attach(Form form)

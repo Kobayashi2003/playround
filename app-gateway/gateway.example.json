@@ -1,0 +1,9 @@
+{
+  "$schema": "./schema/gateway.schema.json",
+  "bind": ":30709",
+  "site": { "title": "App Gateway", "fallbackIcon": "◇" },
+  "paths": { "workspace": "../example-workspace" },
+  "ports": "../../PORTS.md",
+  "caddyAdmin": "localhost:16051",
+  "admin": { "port": 16050 }
+}

@@ -61,10 +61,11 @@ if (Test-Path -LiteralPath $appDirectory) { Remove-Item -LiteralPath $appDirecto
 Move-Item -LiteralPath $staging -Destination $appDirectory
 
 $binaryPath = '"{0}" --port {1} --data "{2}"' -f $executable, $Port, $dataDirectory
+# Plain automatic start: a delayed one left the widget without data for over two minutes after each boot.
 if ($exists) {
-    sc.exe config $serviceName binPath= $binaryPath start= delayed-auto | Out-Null
+    sc.exe config $serviceName binPath= $binaryPath start= auto | Out-Null
 } else {
-    sc.exe create $serviceName binPath= $binaryPath start= delayed-auto DisplayName= 'NAS Deck Agent' | Out-Null
+    sc.exe create $serviceName binPath= $binaryPath start= auto DisplayName= 'NAS Deck Agent' | Out-Null
 }
 if ($LASTEXITCODE -ne 0) { throw "sc.exe could not register the service (exit code $LASTEXITCODE)." }
 sc.exe description $serviceName 'Reports this machine''s load, temperatures and disks to NAS Deck, and puts its disks to sleep on request.' | Out-Null

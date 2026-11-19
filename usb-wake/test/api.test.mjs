@@ -12,7 +12,10 @@ const catalogue = [
   { id: "start-notes", label: "Open notes" },
 ];
 
-async function fixture(t, { accessPassword = password } = {}) {
+async function fixture(
+  t,
+  { accessPassword = password, passwordRequired } = {},
+) {
   const mf = new Miniflare(
     convertV4MiniflareOptions({
       workers: [
@@ -32,6 +35,9 @@ async function fixture(t, { accessPassword = password } = {}) {
             ADMIN_TOKEN: owner,
             DEVICE_TOKEN: device,
             ...(accessPassword ? { ACCESS_PASSWORD: accessPassword } : {}),
+            ...(passwordRequired
+              ? { PASSWORD_REQUIRED: passwordRequired }
+              : {}),
           },
           durableObjects: {
             WAKE_STATE: { className: "WakeState", useSQLite: true },
@@ -98,7 +104,7 @@ async function fixture(t, { accessPassword = password } = {}) {
           : new Promise((resolve) => waiting.push(resolve)),
     };
   };
-  if (accessPassword) {
+  if (accessPassword && passwordRequired !== "false") {
     const login = await call("/api/login", {
       body: { password: accessPassword },
       cookie: false,
@@ -120,6 +126,36 @@ test("without a configured password the page stays locked", async (t) => {
   });
   assert.equal(login.status, 409);
   assert.equal((await call("/api/status", { token: owner })).status, 200);
+});
+
+test("with PASSWORD_REQUIRED off the page opens without signing in", async (t) => {
+  const call = await fixture(t, { passwordRequired: "false" });
+  const status = await call("/api/status", { cookie: false });
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).access, "open");
+  const login = await call("/api/login", {
+    body: { password: "anything" },
+    cookie: false,
+  });
+  assert.equal(login.status, 200);
+  assert.equal(login.headers.get("Set-Cookie"), null);
+  // The board and the management key keep their own credentials.
+  assert.equal(
+    (await call("/device/poll", { body: {}, cookie: false })).status,
+    401,
+  );
+  assert.equal(
+    (await call("/api/firmware", { method: "DELETE", cookie: false })).status,
+    401,
+  );
+});
+
+test("any other PASSWORD_REQUIRED value keeps the sign-in", async (t) => {
+  const call = await fixture(t, { passwordRequired: "no" });
+  const status = await call("/api/status", { cookie: false });
+  assert.equal(status.status, 401);
+  assert.equal((await call("/api/status")).status, 200);
+  assert.equal((await (await call("/api/status")).json()).access, "password");
 });
 
 test("the configured password unlocks a session; guessing is throttled", async (t) => {
@@ -351,6 +387,22 @@ test("an off-on cycle without a page action is reported as a restart", async (t)
   assert.deepEqual(types, ["pc_restarted", "pc_off"]);
 });
 
+test("the USB handoff while a PC boots is neither an off nor a restart", async (t) => {
+  const call = await fixture(t);
+  const board = await call.socket();
+  // Off, then on at POST, a few seconds gone while Windows resets USB, on again.
+  for (const power of ["off", "on", "off", "on"]) {
+    board.send({ pc: { online: false, power } });
+    await board.next();
+  }
+  const status = await (await call("/api/status")).json();
+  assert.deepEqual(
+    status.events.map((event) => event.type),
+    ["pc_on"],
+  );
+  assert.equal(status.pc.power, "on");
+});
+
 test("board telemetry is stored and invalid fields are dropped", async (t) => {
   const call = await fixture(t);
   const board = await call.socket();
@@ -463,5 +515,14 @@ test("schedules are validated and fire at the next matching local time", async (
     Date.UTC(2026, 2, 8, 12),
   );
   assert.equal(nextFire({ ...weekdays, enabled: false }, 0, "UTC"), null);
+  // The same time on the same days, in any order, is kept once.
+  assert.equal(
+    parseSchedules([weekdays, { ...weekdays, days: [5, 4, 3, 2, 1] }]).length,
+    1,
+  );
+  assert.deepEqual(
+    parseSchedules([{ ...weekdays, days: [6, 0, 6] }])[0].days,
+    [0, 6],
+  );
   assert.equal(parseSchedules([{ ...weekdays, days: [7] }]), null);
 });

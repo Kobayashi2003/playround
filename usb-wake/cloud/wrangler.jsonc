@@ -4,8 +4,13 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-15",
   "workers_dev": false,
-  // Scheduled wakes use this IANA time zone.
-  "vars": { "TIMEZONE": "Asia/Shanghai" },
+  "vars": {
+    // Scheduled wakes use this IANA time zone.
+    "TIMEZONE": "Asia/Shanghai",
+    // "false" opens the page to anyone with its address, without the
+    // ACCESS_PASSWORD sign-in. Set it back to "true" and deploy to lock it.
+    "PASSWORD_REQUIRED": "false",
+  },
   "durable_objects": {
     "bindings": [{ "name": "WAKE_STATE", "class_name": "WakeState" }],
   },

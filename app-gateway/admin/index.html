@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Gateway Admin</title>
+<link rel="icon" href="favicon.svg?v=2" type="image/svg+xml">
+<script src="theme.js?v=2"></script>
+<link rel="stylesheet" href="theme.css?v=3">
+<link rel="stylesheet" href="admin.css?v=9">
+<script src="admin.js?v=9" defer></script>
+</head>
+<body>
+  <div id="login" class="login" hidden>
+    <form id="login-form" class="login-card" autocomplete="on">
+      <img src="favicon.svg?v=2" alt="" width="52" height="52">
+      <h1>Gateway</h1>
+      <p class="muted">Sign in to manage the apps behind this port.</p>
+      <label>User name <input name="user" autocomplete="username" required autofocus></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="btn primary wide" type="submit">Sign in</button>
+      <p id="login-error" class="error" role="alert"></p>
+    </form>
+  </div>
+
+  <div id="shell" hidden>
+    <header class="top">
+      <a class="brand" href="#overview"><img src="favicon.svg?v=2" alt="" width="26" height="26"><span>Gateway</span></a>
+      <div class="top-right">
+        <a id="health" class="health" href="#apps">…</a>
+        <button id="open-palette" class="btn ghost small" type="button" aria-label="Find a page or command" title="Find a page or command"><span class="search-symbol" aria-hidden="true"></span><span class="search-label">Find or run…</span> <kbd>Ctrl K</kbd></button>
+        <div class="theme-picker" data-theme-picker></div>
+        <details class="action-menu account-menu"><summary class="btn" aria-label="Account menu"><span id="who">Account</span></summary>
+          <div class="menu-items"><a href="#security">Account and sessions</a><button id="logout" type="button">Sign out</button></div></details>
+      </div>
+    </header>
+    <div class="workspace">
+      <nav id="nav" aria-label="Jump to section">
+        <a href="#overview" data-view="overview"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"/></svg>Overview</a>
+        <a href="#apps" data-view="apps"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 5h18v14H3z M3 10h18"/></svg>Apps</a>
+        <a href="#ports" data-view="ports"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4v5 M12 4v5 M19 4v5 M5 9h14v6l-7 5-7-5z"/></svg>Ports</a>
+        <a href="#logs" data-view="logs"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16 M4 12h12 M4 18h16"/></svg>Logs</a>
+        <a href="#config" data-view="config"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4v16 M12 4v16 M19 4v16 M2 9h6 M9 15h6 M16 8h6"/></svg>Config</a>
+        <a href="#security" data-view="security"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l8 3v7c0 4-4 7-8 10-4-3-8-6-8-10z"/></svg>Security</a>
+      </nav>
+      <main id="view" class="view" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <dialog id="palette" class="palette" aria-label="Command palette">
+    <input id="palette-input" type="search" role="combobox" aria-label="Find a page or command" aria-controls="palette-list" aria-expanded="true" placeholder="Jump to a page, or act on an app…" autocomplete="off" spellcheck="false">
+    <ul id="palette-list" role="listbox"></ul>
+    <p class="palette-hint"><kbd>↑</kbd><kbd>↓</kbd> choose <kbd>Enter</kbd> run <kbd>Esc</kbd> close</p>
+  </dialog>
+
+  <dialog id="confirm" class="dialog">
+    <form method="dialog">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-text"></p>
+      <div class="row end">
+        <button class="btn ghost" value="cancel">Cancel</button>
+        <button class="btn danger" value="ok" id="confirm-ok">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>

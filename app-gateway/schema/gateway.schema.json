@@ -38,6 +38,41 @@
       "description": "Where the generated Caddyfile and landing page are written, relative to this file. Both are rewritten on every launch; nothing else in the folder is touched."
     },
 
+    "logs": {
+      "type": "string",
+      "default": "logs",
+      "description": "Folder for logs/<app>.log (every child's output, rotated to .1 past 5 MB when a run first writes it) and admin-audit.log. Disposable logs; registry backups live separately under backups. Relative to this file."
+    },
+
+    "backups": {
+      "type": "string",
+      "default": "backups",
+      "description": "Persistent folder for previous and deleted app registrations saved by the admin page (Config -> History). Kept separate from logs so clearing logs never discards recovery history. Relative to this file."
+    },
+
+    "caddyAdmin": {
+      "type": "string",
+      "default": "localhost:16051",
+      "description": "Caddy's admin endpoint, through which the admin page hands it new routes without a restart. In the gateway's own slot of playround/PORTS.md rather than Caddy's default 2019, which any second Caddy on the box would also want. Loopback only: anything that can reach it can reconfigure Caddy."
+    },
+
+    "admin": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The admin page at /admin/, served by start.ps1 itself. It can start, stop and restart apps, follow their logs, edit the registry and reload Caddy's routes, so it sits behind a sign-in.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true, "description": "-NoAdmin turns it off for one run." },
+        "port": {
+          "type": "integer", "default": 16050,
+          "description": "localhost port the page listens on, behind Caddy. In the gateway's slot of playround/PORTS.md."
+        },
+        "sessionHours": {
+          "type": "number", "default": 12, "exclusiveMinimum": 0,
+          "description": "Idle time after which a session is signed out. A session lasts at most seven days, and none survives a restart of the gateway."
+        }
+      }
+    },
+
     "ports": {
       "type": "string",
       "default": "../../PORTS.md",

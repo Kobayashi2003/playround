@@ -1,0 +1,6 @@
+{
+  "name": "Example upstream",
+  "root": "${paths.workspace}/example-upstream",
+  "basePath": "/example-upstream",
+  "routes": { "proxy": [{ "upstream": "upstream.example.com:8080" }] }
+}

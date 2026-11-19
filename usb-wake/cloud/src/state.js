@@ -3,6 +3,7 @@ import {
   controlAuthorized,
   makeSession,
   passwordMatches,
+  passwordRequired,
 } from "./auth.js";
 import { record } from "./events.js";
 import { clear, download, imageDigest, store } from "./firmware.js";
@@ -20,6 +21,11 @@ const WAKE_TIMEOUT_MS = 120000;
 const RESTART_WINDOW_MS = 180000;
 // Power changes this soon after a page action are treated as requested.
 const ACTION_GRACE_MS = 180000;
+// The board is a USB keyboard: the firmware enumerates it during POST and
+// Windows does again after resetting the controller, so a PC that has just
+// come on drops it for a few seconds. A drop this soon after coming on is that
+// handoff, not the PC turning off; one that lasts is then not logged at all.
+const BOOT_HANDOFF_MS = 60000;
 const BOARD_OFFLINE_NOTICE_MS = 120000;
 // Catches half-open sockets, whose pings stop without a close event.
 const WATCHDOG_MS = 120000;
@@ -74,8 +80,7 @@ export class WakeState {
     }
     if (path === "/api/logout")
       return json({ ok: true }, 200, {
-        "Set-Cookie":
-          "wake_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0; Secure",
+        "Set-Cookie": `wake_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`,
       });
     if (path === "/device/socket") return this.connect(request, now);
     if (path === "/device/poll") return this.poll(body, now);
@@ -127,6 +132,7 @@ export class WakeState {
   }
 
   async login(request, body, now) {
+    if (!passwordRequired(this.env)) return json({ ok: true });
     if (!configuredPassword(this.env))
       return json({ error: "password_not_set" }, 409);
     const address = request.headers.get("CF-Connecting-IP") ?? "local";
@@ -163,6 +169,8 @@ export class WakeState {
       .map((schedule) => nextFire(schedule, now, this.timeZone))
       .filter((at) => at !== null);
     return {
+      // "open" when PASSWORD_REQUIRED is off: the page then offers no Lock.
+      access: passwordRequired(this.env) ? "password" : "open",
       online,
       lastSeen,
       pc: {
@@ -473,6 +481,8 @@ export class WakeState {
       actions: update.actions ?? previous.actions ?? [],
       powerAt: previous.powerAt ?? null,
       offAt: previous.offAt ?? null,
+      bootAt: previous.bootAt ?? null,
+      handoff: previous.handoff ?? false,
     };
     if (update.power && update.power !== previous.power) {
       next.powerAt = now;
@@ -483,7 +493,18 @@ export class WakeState {
 
   async powerChanged(from, to, next, now) {
     if (to !== "on") {
-      if (to === "off") next.offAt = now;
+      if (
+        to === "off" &&
+        from === "on" &&
+        next.bootAt &&
+        now - next.bootAt < BOOT_HANDOFF_MS
+      ) {
+        next.handoff = true;
+        return;
+      }
+      next.handoff = false;
+      // A first report says nothing about when the PC went off.
+      if (to === "off" && from) next.offAt = now;
       if (from)
         await this.log(
           `pc_${to}`,
@@ -491,6 +512,11 @@ export class WakeState {
         );
       return;
     }
+    if (next.handoff) {
+      next.handoff = false;
+      return;
+    }
+    if (from === "off" || from === "sleep") next.bootAt = now;
     const wake = await this.storage.get("wake");
     const lastAction = (await this.storage.get("lastActionAt")) ?? 0;
     if (wake) {

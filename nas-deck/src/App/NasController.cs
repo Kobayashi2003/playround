@@ -46,6 +46,7 @@ internal static class NasController
         }
     }
 
+    /// <summary>Sends a short burst of magic packets; a single datagram is easily lost.</summary>
     internal static async Task WakeAsync(NasSettings settings, CancellationToken cancellationToken)
     {
         var mac = settings.MacAddress.Split('-', ':').Select(part => byte.Parse(part, NumberStyles.HexNumber)).ToArray();
@@ -53,7 +54,12 @@ internal static class NasController
         using var udp = new UdpClient(AddressFamily.InterNetwork) { EnableBroadcast = true };
         try
         {
-            await udp.SendAsync(packet, new IPEndPoint(IPAddress.Parse(settings.BroadcastAddress), settings.WakePort), cancellationToken);
+            var target = new IPEndPoint(IPAddress.Parse(settings.BroadcastAddress), settings.WakePort);
+            for (var burst = 0; burst < 3; burst++)
+            {
+                if (burst > 0) await Task.Delay(150, cancellationToken);
+                await udp.SendAsync(packet, target, cancellationToken);
+            }
         }
         catch (SocketException error)
         {

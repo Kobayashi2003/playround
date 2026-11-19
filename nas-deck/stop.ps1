@@ -1,20 +1,8 @@
 [CmdletBinding()]
-param([switch]$RemoveShortcut, [switch]$RemoveStartup)
+param()
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scripts\Process-State.ps1')
-
-# The counterparts of start.ps1 -InstallShortcut and -InstallStartup.
-$shortcutFolders = @()
-if ($RemoveShortcut) { $shortcutFolders += [Environment]::GetFolderPath('Programs') }
-if ($RemoveStartup) { $shortcutFolders += [Environment]::GetFolderPath('Startup') }
-foreach ($folder in $shortcutFolders) {
-    $shortcutPath = Join-Path $folder 'NAS Deck.lnk'
-    if (Test-Path -LiteralPath $shortcutPath) {
-        Remove-Item -LiteralPath $shortcutPath -Force
-        Write-Output "Removed $shortcutPath"
-    }
-}
 
 $statePath = Join-Path $PSScriptRoot '.running.json'
 $process = Get-NasDeckProcess $statePath (Join-Path $PSScriptRoot 'build\NasDeck.App\NasDeck.exe')

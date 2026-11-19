@@ -48,6 +48,9 @@ internal sealed record NasSettings
     public int WakePort { get; init; } = 9;
     /// <summary>The agent's loopback port on the NAS, and the local end of the SSH tunnel to it.</summary>
     public int AgentPort { get; init; } = AgentApi.DefaultPort;
+    public bool RecycleEnabled { get; init; }
+    public string[] RecycleShares { get; init; } = [];
+    public string? RecycleHostAlias { get; init; }
 
     internal string HostKeyAlias => "nas-switch-" + MacAddress.Replace("-", "").Replace(":", "").ToLowerInvariant();
 
@@ -71,6 +74,10 @@ internal sealed record NasSettings
 
     private void Validate()
     {
+        if (RecycleShares is null || RecycleShares.Any(name => string.IsNullOrWhiteSpace(name)
+            || name is "." or ".." || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            || (RecycleEnabled && RecycleShares.Length == 0))
+            throw new InvalidDataException("Choose at least one valid share for the NAS Recycle Bin.");
         if (string.IsNullOrWhiteSpace(Host) || Uri.CheckHostName(Host) == UriHostNameType.Unknown)
             throw new InvalidDataException("Enter a valid NAS IP address or host name.");
         if (string.IsNullOrWhiteSpace(SshUser) || !Regex.IsMatch(SshUser, @"^[\w.@\\-]+$"))
@@ -81,6 +88,24 @@ internal sealed record NasSettings
             throw new InvalidDataException("Enter a six-part MAC address such as 2C-F0-5D-32-32-14.");
         if (!IPAddress.TryParse(BroadcastAddress, out var broadcast) || broadcast.AddressFamily != AddressFamily.InterNetwork)
             throw new InvalidDataException("Enter an IPv4 broadcast address such as 192.168.0.255.");
+    }
+}
+
+/// <summary>
+/// <c>follow.log</c>: when this PC went down and whether the NAS was told, the one record that survives the
+/// PC shutting down. Kept short by starting over past 64 KB.
+/// </summary>
+internal static class FollowLog
+{
+    internal static void Write(string text)
+    {
+        try
+        {
+            var path = Path.Combine(DeckPaths.DataDirectory, "follow.log");
+            if (File.Exists(path) && new FileInfo(path).Length > 64 * 1024) File.Delete(path);
+            File.AppendAllText(path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {text}{Environment.NewLine}");
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 }
 
@@ -97,7 +122,15 @@ internal sealed record WidgetState
     public bool Pinned { get; init; }
     /// <summary>A read and write chart under each disk.</summary>
     public bool DiskCharts { get; init; } = true;
+    /// <summary>Wake the NAS when this PC starts or resumes.</summary>
+    public bool FollowWake { get; init; }
+    /// <summary>Have the NAS hibernate or shut down a while after this PC does.</summary>
+    public bool FollowSleep { get; init; }
+    /// <summary>How long the NAS waits for this PC to come back before following it down.</summary>
+    public int FollowGraceMinutes { get; init; } = 2;
     public int OpacityPercent { get; init; } = 100;
+    /// <summary>Whether the notification-area (system tray) icon is visible.</summary>
+    public bool ShowTrayIcon { get; init; } = true;
 
     internal static WidgetState Load()
     {
@@ -105,7 +138,7 @@ internal sealed record WidgetState
         {
             var path = Path.Combine(DeckPaths.DataDirectory, "widget.json");
             if (File.Exists(path) && JsonSerializer.Deserialize<WidgetState>(File.ReadAllText(path), DeckPaths.Json) is { } state)
-                return state with { OpacityPercent = Math.Clamp(state.OpacityPercent, 40, 100) };
+                return state with { OpacityPercent = Math.Clamp(state.OpacityPercent, 40, 100), FollowGraceMinutes = Math.Clamp(state.FollowGraceMinutes, 1, 60) };
         }
         catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException) { }
         return new WidgetState();

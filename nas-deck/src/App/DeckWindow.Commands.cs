@@ -45,6 +45,7 @@ internal sealed partial class DeckWindow
             }
             model.HasAgentToken = link.HasToken;
             model.AgentProblem = link.TunnelError;
+            WakeIfPending();
             RefreshView();
         }
         catch (OperationCanceledException) { }
@@ -72,6 +73,7 @@ internal sealed partial class DeckWindow
         foreach (var disk in snapshot.Disks)
             if (model.DiskActivity.TryGetValue(disk.Number, out var pending) && disk.Power == pending.Expected)
                 model.DiskActivity.Remove(disk.Number);
+        ReportPresence(snapshot);
         foreach (var message in alerts.Evaluate(snapshot))
             Notify(message, ToolTipIcon.Warning, always: true);
     }
@@ -131,11 +133,19 @@ internal sealed partial class DeckWindow
             }
 
             var timer = Stopwatch.StartNew();
-            var limit = wake ? TimeSpan.FromSeconds(90) : TimeSpan.FromSeconds(40);
+            // A cold boot with a SAS adapter's option ROM and every disk spinning up took 54 s on the NAS.
+            var limit = wake ? TimeSpan.FromMinutes(3) : TimeSpan.FromSeconds(40);
+            var resent = 0;
             var offlineChecks = 0;
             do
             {
                 await Task.Delay(wake ? 1500 : 800, token);
+                // Packets go again during the first half minute, in case the NAS was still powering down.
+                if (wake && resent < 2 && timer.Elapsed > TimeSpan.FromSeconds(10 * (resent + 1)))
+                {
+                    resent++;
+                    await NasController.WakeAsync(model.Settings, token);
+                }
                 var ports = await NasController.ProbeAsync(model.Settings, token);
                 model.Ports = ports;
                 model.CheckedAt = DateTime.Now;
@@ -245,6 +255,19 @@ internal sealed partial class DeckWindow
         diskInfo.Activate();
     }
 
+    /// <summary>Opens the live NAS and local PC disk activity monitor, optionally filtered to one NAS disk.</summary>
+    private void ShowDiskActivity(int? number)
+    {
+        if (diskActivity is null or { IsDisposed: true })
+        {
+            diskActivity = new DiskActivityWindow(link, () => model.Snapshot, () => model.Settings, number);
+            diskActivity.Show();
+            return;
+        }
+        diskActivity.FilterDisk(number);
+        diskActivity.Activate();
+    }
+
     private void OpenVolume(string letter)
     {
         var root = letter + @"\";
@@ -290,22 +313,49 @@ internal sealed partial class DeckWindow
     private async Task EditSettingsAsync()
     {
         if (settingsOpen || busy) return;
-        using var dialog = new SettingsWindow(model.Settings, InstallAgent);
+        var previous = model.Settings;
+        using var dialog = new SettingsWindow(model.Settings, widget.ShowTrayIcon, InstallAgent,
+            (model.Snapshot?.Shares ?? []).Select(share => share.Name), model.Snapshot?.System.HostName);
         settingsOpen = true;
         DialogResult result;
         try { result = dialog.ShowDialog(this); }
         finally { settingsOpen = false; }
         if (result != DialogResult.OK) return;
+
+        if (dialog.ShowTrayIcon != widget.ShowTrayIcon)
+        {
+            SaveWidget(widget with { ShowTrayIcon = dialog.ShowTrayIcon });
+            tray.Visible = widget.ShowTrayIcon;
+            if (!widget.ShowTrayIcon && !Visible) ShowWidget();
+        }
+
+        var connectionChanged = settingsInvalid
+            || !string.Equals(previous.Host, dialog.Settings.Host, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(previous.SshUser, dialog.Settings.SshUser, StringComparison.Ordinal)
+            || previous.SshPort != dialog.Settings.SshPort
+            || !string.Equals(previous.MacAddress, dialog.Settings.MacAddress, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(previous.BroadcastAddress, dialog.Settings.BroadcastAddress, StringComparison.Ordinal)
+            || previous.WakePort != dialog.Settings.WakePort
+            || previous.AgentPort != dialog.Settings.AgentPort;
+
         model.Settings = dialog.Settings;
+        ConfigureRecycle();
         settingsInvalid = false;
-        model.Snapshot = null;
-        model.Ports = null;
-        model.CheckedAt = null;
-        model.Cpu.Clear();
-        model.Rx.Clear();
-        model.DiskIo.Clear();
-        link.Configure(model.Settings);
-        RefreshView();
-        await PollAsync();
+        if (connectionChanged)
+        {
+            model.Snapshot = null;
+            model.Ports = null;
+            model.CheckedAt = null;
+            model.Cpu.Clear();
+            model.Rx.Clear();
+            model.DiskIo.Clear();
+            link.Configure(model.Settings);
+            RefreshView();
+            await PollAsync();
+        }
+        else
+        {
+            RefreshView();
+        }
     }
 }

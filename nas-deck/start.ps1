@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$Build, [switch]$InstallShortcut, [switch]$InstallStartup)
+param([switch]$Build)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scripts\Process-State.ps1')
@@ -28,26 +28,8 @@ try {
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
         throw 'NAS Deck is missing its build. Run .\start.ps1 -Build first.'
     }
-    $systemPowerShell = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
-    if (-not (Test-Path -LiteralPath $systemPowerShell -PathType Leaf)) { throw 'Windows PowerShell is required.' }
     if (-not (Get-Command ssh.exe -CommandType Application -ErrorAction SilentlyContinue)) {
         throw 'Install the Windows OpenSSH Client optional feature to use NAS Deck.'
-    }
-
-    $shortcutFolders = @()
-    if ($InstallShortcut) { $shortcutFolders += [Environment]::GetFolderPath('Programs') }
-    if ($InstallStartup) { $shortcutFolders += [Environment]::GetFolderPath('Startup') }
-    foreach ($folder in $shortcutFolders) {
-        $shortcutPath = Join-Path $folder 'NAS Deck.lnk'
-        $shell = New-Object -ComObject WScript.Shell
-        $shortcut = $shell.CreateShortcut($shortcutPath)
-        $shortcut.TargetPath = $systemPowerShell
-        $shortcut.Arguments = '-NoProfile -WindowStyle Hidden -File "{0}"' -f $PSCommandPath
-        $shortcut.WorkingDirectory = $PSScriptRoot
-        $shortcut.IconLocation = "$executable,0"
-        $shortcut.Description = 'Watch and manage your NAS from the desktop.'
-        $shortcut.Save()
-        Write-Output "Shortcut saved to $shortcutPath"
     }
 
     $showSignal = $null

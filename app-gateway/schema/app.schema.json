@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://local/app-gateway/app.schema.json",
   "title": "app-gateway app plugin",
-  "description": "One app, in one file. apps/<id>.json is the registry entry: dropping a file in registers an app, deleting it unregisters one, and nothing else has to be edited. JSON carries no comments, so this schema is where the protocol is documented; README.md has the prose. Placeholders usable in every string below: ${id}, ${root}, ${basePath}, ${bind}, ${paths.NAME}, ${ports.NAME}.",
+  "description": "One local registration per apps/<id>.json. Publish sanitised examples under examples/apps/. See README.md for where ${id}, ${root}, ${basePath}, ${bind}, ${paths.NAME} and ${ports.NAME} expand.",
   "type": "object",
   "additionalProperties": false,
   "required": ["name", "root"],
@@ -16,7 +16,18 @@
     },
     "name":        { "type": "string", "description": "Display name on the landing card." },
     "description": { "type": "string", "description": "One line on the landing card." },
-    "icon":        { "type": "string", "description": "Card glyph. Falls back to site.fallbackIcon in gateway.json." },
+    "icon": {
+      "description": "A glyph or an app-relative PNG or static SVG. Files may not traverse or link outside the app. Missing files fall back to site.fallbackIcon.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file"],
+          "properties": { "file": { "type": "string", "minLength": 1, "examples": ["static/icon.svg"] } }
+        }
+      ]
+    },
 
     "order": {
       "type": "integer",
@@ -42,11 +53,21 @@
       "type": "string",
       "pattern": "^/[^\\s]*[^/\\s]$",
       "description": "Public path prefix the app is reached under, no trailing slash. Every app shares one origin here, so the root belongs to the landing page and each app must live under a prefix it also knows about itself: a build-time basePath for Next, a runtime flag for the rest. Required for a landing card and for the default proxy route.",
-      "examples": ["/hearth", "/chatlog"]
+      "examples": ["/example-app"]
     },
     "probe": {
       "type": "string",
-      "description": "Path the landing card HEADs to decide whether the app is up. Defaults to basePath."
+      "description": "Path the authenticated admin uses to check a published entry. Defaults to basePath."
+    },
+    "localEntry": {
+      "type": "object",
+      "description": "Optional entry for a local launch. Omit to open the lowest declared port at /.",
+      "required": ["port"],
+      "additionalProperties": false,
+      "properties": {
+        "port": { "type": "string", "description": "Name of a declared port." },
+        "path": { "type": "string", "default": "/", "description": "Absolute path on the local app." }
+      }
     },
 
     "ports": {
@@ -112,7 +133,17 @@
       "additionalProperties": false,
       "description": "Start the app with its own start.ps1 in its root, as a child of the gateway. Omit for an app that is already running under its own supervision and only needs routing.",
       "properties": {
-        "args": { "type": "array", "items": { "type": "string" }, "description": "Arguments for start.ps1." }
+        "args": { "type": "array", "items": { "type": "string" }, "description": "Arguments for start.ps1." },
+        "restartIfRunning": {
+          "type": "boolean",
+          "default": false,
+          "description": "What to do when one of the app's declared ports is already listening at launch, i.e. it is running outside this gateway. False: leave it running and do not launch it. True: run the app's stop.ps1 (with this app's env), wait for its ports to free, then launch it as usual. Either way, an app that cannot be launched is skipped, not fatal. Restart on the admin page takes such an app over regardless."
+        },
+        "autoRestart": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start the app again when its start.ps1 exits without being asked to, after 2, 4, 8 ... seconds. Gives up after 5 such exits in 10 minutes, so a crash loop does not spin."
+        }
       }
     }
   }

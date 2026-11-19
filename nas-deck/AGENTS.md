@@ -8,6 +8,9 @@
   (`.\Install-Agent.ps1 -Build`) as well as rebuilding the widget.
 - The agent must never wake a sleeping disk by observing it. Before adding a device call to the sampler, check
   that it is answered without disk I/O, and skip it for a disk in standby otherwise.
+- Live disk activity (`DiskActivityTracker` on the NAS and `LocalActivityMonitor` on this PC) must remain purely
+  passive: the NAS ETW `DiskIo` session starts on demand and stops after idle, and local handle inspection reads
+  kernel object names (`NtQueryObject`) on `FILE_TYPE_DISK` handles only without sending SMB requests.
 - Send ATA commands only through `AtaCommand` with the disk's `DiskProtocol`. Behind the NAS's SAS3008,
   `IOCTL_ATA_PASS_THROUGH` returns success with blank registers, which reads as "asleep"; those disks need SAT
   (`Sat`) or SCSI (`Scsi`) commands.

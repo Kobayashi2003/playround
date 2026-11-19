@@ -39,6 +39,7 @@ internal sealed class Sampler(string dataDirectory, ILogger<Sampler> logger) : B
     private readonly SortedDictionary<int, DiskRuntime> disks = [];
     private readonly SystemMetrics metrics = new();
     private readonly ProcessIo processIo = new();
+    private readonly DiskActivityTracker activity = new(logger);
     private CpuSensor? cpu;
     private SmbSession[] sessions = [];
     private SmbOpenFile[] openFiles = [];
@@ -47,10 +48,15 @@ internal sealed class Sampler(string dataDirectory, ILogger<Sampler> logger) : B
     private DateTimeOffset lastSample;
     private DateTimeOffset quietSince = DateTimeOffset.Now;
     private DateTimeOffset hibernateHoldUntil;
+    private FollowPlan? follow;
+    private DateTimeOffset followCheckAt;
+    private string? followNote;
     private long tick;
     private volatile Snapshot? snapshot;
 
     internal Snapshot? Current => snapshot;
+
+    internal NasActivity Activity() => activity.Read(SmbInfo.OpenFiles());
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -66,12 +72,14 @@ internal sealed class Sampler(string dataDirectory, ILogger<Sampler> logger) : B
             try { await Task.Delay(Interval, stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
+        activity.Dispose();
         cpu?.Dispose();
     }
 
     private void Sample()
     {
         var hibernate = false;
+        (HostPowerAction Action, string Reason)? power = null;
         var idle = new List<DiskIdentity>();
         lock (gate)
         {
@@ -94,6 +102,7 @@ internal sealed class Sampler(string dataDirectory, ILogger<Sampler> logger) : B
             }
             if (tick % 150 == 0) shares = SmbInfo.Shares();
             if (tick % 15 == 0) diskIdleSeconds = PowerPlan.ReadDiskIdleSeconds() ?? diskIdleSeconds;
+            if (tick % 5 == 0) activity.StopIfIdle();
             var volumes = tick % 15 == 0 ? ReadVolumes() : null;
 
             var changed = false;
@@ -132,15 +141,18 @@ internal sealed class Sampler(string dataDirectory, ILogger<Sampler> logger) : B
             if (changed) SaveState();
 
             hibernate = ShouldHibernate(now);
+            var followed = FollowHost(now);
             snapshot = Build(now);
             tick++;
+            if (followed is { } action) power = action;
+            else if (hibernate) power = (HostPowerAction.Hibernate, $"no disk or SMB activity for {state.AutoHibernateMinutes} minutes");
         }
         foreach (var identity in idle)
         {
             if (DiskDevice.Standby(identity))
                 logger.LogInformation("Disk {Number} was idle for {Seconds} s and was put to sleep.", identity.Number, diskIdleSeconds);
         }
-        if (hibernate) Hibernate();
+        if (power is { } command) PowerDown(command.Action, command.Reason);
     }
 
     private void ScanDisks(DateTimeOffset now)
@@ -244,19 +256,76 @@ internal sealed class Sampler(string dataDirectory, ILogger<Sampler> logger) : B
         return true;
     }
 
-    private void Hibernate()
+    /// <summary>Runs a pending follow once its grace period is over; returns what to do, if anything.</summary>
+    private (HostPowerAction, string)? FollowHost(DateTimeOffset now)
     {
-        logger.LogWarning("Hibernating: no disk or SMB activity for {Minutes} minutes.", state.AutoHibernateMinutes);
+        if (follow is not { } plan || now < followCheckAt) return null;
+        var busiest = disks.Values.Where(disk => disk.Identity.Rotational)
+            .Select(disk => disk.ReadRate + disk.WriteRate).DefaultIfEmpty(0).Max();
+        var (verdict, reason) = HostFollow.Decide(plan, now, sessions, busiest);
+        switch (verdict)
+        {
+            case HostFollow.Verdict.Go:
+                follow = null;
+                return (plan.Action, "the PC it follows went down");
+            case HostFollow.Verdict.Postpone:
+                followCheckAt = now + HostFollow.RetryEvery;
+                return null;
+            case HostFollow.Verdict.Skip:
+                follow = null;
+                followNote = $"The NAS stayed on when this PC went down: {reason}.";
+                logger.LogInformation("Not following the PC: {Reason}.", reason);
+                return null;
+            default:
+                return null;
+        }
+    }
+
+    internal ActionReply HostLeaving(HostLeaving request)
+    {
+        var grace = Math.Clamp(request.GraceSeconds, 30, 3600);
+        lock (gate)
+        {
+            var now = DateTimeOffset.Now;
+            follow = new FollowPlan(request.Action, now.AddSeconds(grace), request.Addresses);
+            followCheckAt = follow.Due;
+            snapshot = snapshot is null ? null : snapshot with { Follow = FollowState() };
+        }
+        logger.LogInformation("The PC is going down; following with {Action} in {Seconds} s unless it returns.", request.Action, grace);
+        return new ActionReply(true, "ok", $"The NAS will {(request.Action == HostPowerAction.Shutdown ? "shut down" : "hibernate")} in {Format.Duration(grace)} unless this PC returns.");
+    }
+
+    /// <summary>The PC is back: a pending follow is called off, and the last note has been read.</summary>
+    internal ActionReply HostPresent()
+    {
+        bool cancelled;
+        lock (gate)
+        {
+            cancelled = follow is not null;
+            (follow, followNote) = (null, null);
+            snapshot = snapshot is null ? null : snapshot with { Follow = null };
+        }
+        if (cancelled) logger.LogInformation("The PC returned within its grace period; the NAS stays on.");
+        return new ActionReply(true, "ok", cancelled ? "The pending follow was cancelled." : "Nothing was pending.");
+    }
+
+    private FollowState? FollowState() =>
+        follow is null && followNote is null ? null : new FollowState(follow?.Action, follow?.Due, followNote);
+
+    private void PowerDown(HostPowerAction action, string reason)
+    {
+        logger.LogWarning("{Action}: {Reason}.", action == HostPowerAction.Shutdown ? "Shutting down" : "Hibernating", reason);
         try
         {
-            using var process = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "shutdown.exe"), "/h")
+            var arguments = action == HostPowerAction.Shutdown ? "/s /t 0" : "/h";
+            using var process = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "shutdown.exe"), arguments)
             {
                 UseShellExecute = false, CreateNoWindow = true
             });
         }
         catch (System.ComponentModel.Win32Exception error)
         {
-            logger.LogError(error, "Could not hibernate.");
+            logger.LogError(error, "Could not power down.");
         }
     }
 
@@ -269,7 +338,7 @@ internal sealed class Sampler(string dataDirectory, ILogger<Sampler> logger) : B
             (int)Math.Max((now - disk.LastIo).TotalSeconds, 0), disk.Volumes, disk.Report?.Smart, disk.Record.SpinUps,
             disk.Record.Wakes.ToArray(), disk.Identity.CanSleep, disk.Report?.Health ?? HealthStatus.Unknown)).ToArray();
         return new Snapshot(now, Version, system, list, sessions, openFiles, shares,
-            new PowerPolicy(diskIdleSeconds, state.AutoHibernateMinutes));
+            new PowerPolicy(diskIdleSeconds, state.AutoHibernateMinutes), FollowState());
     }
 
     private void SaveState()

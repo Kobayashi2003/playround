@@ -16,6 +16,11 @@ browser ─ Pages entry ─ Worker + Durable Object ═ WebSocket ═ board ─ 
 Open <https://personal-usb-wake-entry.pages.dev/> and sign in with
 `ACCESS_PASSWORD`. On a phone, add it to the home screen to use it like an app.
 
+`PASSWORD_REQUIRED` in `cloud/wrangler.jsonc` turns the sign-in off when set to
+`"false"`: the page then opens for anyone who has its address and can wake,
+shut down or hibernate the PC. Set it back to `"true"` and run `pnpm deploy` to
+lock it again; any other value also keeps the sign-in.
+
 - **Wake PC** sends the packets and follows the wake until the PC reports on
   (or two minutes pass).
 - **PC** shows the power state and one button per agent action; actions marked

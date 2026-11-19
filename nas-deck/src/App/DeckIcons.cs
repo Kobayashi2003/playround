@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace NasDeck;
 
-internal enum DeckGlyph { Refresh, Settings, Open, Exit, Power, More, ChevronUp, ChevronDown, Moon, Sun, Check, Folder, Screen, Timer, Pin, Info }
+internal enum DeckGlyph { Refresh, Settings, Open, Exit, Power, More, ChevronUp, ChevronDown, Moon, Sun, Check, Folder, Screen, Timer, Pin, Info, Activity }
 
 internal static class DeckIcons
 {
@@ -99,6 +99,9 @@ internal static class DeckIcons
                 graphics.DrawLine(pen, 4.5f, 2, 11.5f, 2);
                 graphics.DrawLines(pen, (PointF[])[new(6, 2), new(6, 6.5f), new(3.5f, 9.5f), new(12.5f, 9.5f), new(10, 6.5f), new(10, 2)]);
                 graphics.DrawLine(pen, 8, 9.5f, 8, 14.5f);
+                break;
+            case DeckGlyph.Activity:
+                graphics.DrawLines(pen, (PointF[])[new(1.8f, 8.5f), new(4.5f, 8.5f), new(6.4f, 3.5f), new(9.5f, 12.5f), new(11.6f, 8.5f), new(14.2f, 8.5f)]);
                 break;
         }
     }

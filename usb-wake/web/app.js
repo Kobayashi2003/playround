@@ -4,6 +4,7 @@ const messages = {
   password_required: "Enter your password.",
   password_not_set:
     "No password is configured. Set ACCESS_PASSWORD on the server.",
+  duplicate_schedule: "That wake is already scheduled.",
   device_offline: "Wake board offline. Check its power and Wi-Fi.",
   pc_offline: "The PC is asleep, off, or its agent is not running.",
   unknown_action: "The PC no longer offers that action. Refresh the page.",
@@ -45,6 +46,7 @@ let latest;
 class ApiError extends Error {
   constructor(code, status) {
     super(messages[code] || "Request failed. Try again.");
+    this.code = code;
     this.status = status;
   }
 }
@@ -99,7 +101,8 @@ function setLocked(locked) {
   $("controller").dataset.locked = String(locked);
   $("loginPanel").hidden = !locked;
   for (const id of PANELS) $(id).hidden = locked;
-  $("logoutButton").hidden = locked;
+  // An open page (PASSWORD_REQUIRED off) has nothing to lock.
+  $("logoutButton").hidden = locked || latest?.access === "open";
   if (locked) $("loginPassword").focus();
 }
 function describe(command) {
@@ -296,6 +299,9 @@ async function refresh() {
   } catch (error) {
     if (error.status === 401) {
       setLocked(true);
+      // Says why when the server has no password to check against.
+      if (error.code === "password_not_set")
+        $("loginError").textContent = error.message;
       return;
     }
     $("connection").dataset.state = "offline";
@@ -388,10 +394,14 @@ $("scheduleForm").addEventListener("submit", (event) => {
     $("scheduleError").textContent = "Pick at least one day.";
     return;
   }
-  saveSchedules([
-    ...(latest?.schedules ?? []),
-    { time: $("scheduleTime").value, days, enabled: true },
-  ]);
+  const time = $("scheduleTime").value;
+  const sameDays = (other) =>
+    [...other].sort().join() === [...days].sort().join();
+  if (latest?.schedules.some((s) => s.time === time && sameDays(s.days))) {
+    $("scheduleError").textContent = messages.duplicate_schedule;
+    return;
+  }
+  saveSchedules([...(latest?.schedules ?? []), { time, days, enabled: true }]);
 });
 $("moreEvents").addEventListener("click", () => {
   showAllEvents = !showAllEvents;
@@ -402,6 +412,7 @@ $("loginForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = event.submitter;
   button.disabled = true;
+  button.textContent = "Unlocking…";
   $("loginError").textContent = "";
   try {
     await api("./api/login", { password: $("loginPassword").value });
@@ -410,9 +421,14 @@ $("loginForm").addEventListener("submit", async (event) => {
     await refresh();
   } catch (error) {
     $("loginError").textContent = error.message;
+    $("loginPassword").select();
   } finally {
     button.disabled = false;
+    button.textContent = "Continue";
   }
+});
+$("loginPassword").addEventListener("input", () => {
+  $("loginError").textContent = "";
 });
 $("logoutButton").addEventListener("click", async () => {
   try {

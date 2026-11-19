@@ -6,6 +6,7 @@ internal sealed class SurfaceButton : Button
 {
     internal bool Primary { get; set; }
     internal bool Quiet { get; set; }
+    internal bool Danger { get; set; }
     private bool hovered;
     private bool pressed;
 
@@ -31,22 +32,35 @@ internal sealed class SurfaceButton : Button
         g.SmoothingMode = SmoothingMode.AntiAlias;
         var scale = DeviceDpi / 96f;
         using var shape = DeckTheme.RoundedRectangle(new RectangleF(1, 1, Width - 3, Height - 3), 7 * scale);
-        var fill = Primary ? DeckTheme.Accent : Quiet ? DeckTheme.Background : DeckTheme.Panel;
+        var accent = Danger ? DeckTheme.Danger : DeckTheme.Accent;
+        var fill = Primary ? accent : Quiet ? DeckTheme.Background : DeckTheme.Panel;
         if (!Enabled) fill = Quiet ? DeckTheme.Background : DeckTheme.Panel;
-        else if (Primary && pressed) fill = DeckTheme.Mix(DeckTheme.Accent, DeckTheme.Background, 0.25f);
-        else if (Primary && hovered) fill = DeckTheme.Mix(DeckTheme.Accent, DeckTheme.Text, 0.12f);
+        else if (Primary && pressed) fill = DeckTheme.Mix(accent, DeckTheme.Background, 0.25f);
+        else if (Primary && hovered) fill = DeckTheme.Mix(accent, DeckTheme.Text, 0.12f);
+        else if (Danger && pressed) fill = DeckTheme.Mix(DeckTheme.Panel, DeckTheme.Danger, 0.26f);
+        else if (Danger && hovered) fill = DeckTheme.Mix(DeckTheme.Panel, DeckTheme.Danger, 0.16f);
         else if (pressed) fill = DeckTheme.Mix(DeckTheme.Border, DeckTheme.Text, 0.08f);
         else if (hovered) fill = DeckTheme.Border;
         using var brush = new SolidBrush(fill);
         g.FillPath(brush, shape);
-        if (!Quiet && !Primary) { using var pen = new Pen(DeckTheme.Border); g.DrawPath(pen, shape); }
+        if (!Quiet && !Primary)
+        {
+            var borderColor = Danger
+                ? DeckTheme.Mix(DeckTheme.Border, DeckTheme.Danger, hovered || pressed ? 0.85f : 0.48f)
+                : DeckTheme.Border;
+            using var pen = new Pen(borderColor);
+            g.DrawPath(pen, shape);
+        }
         if (Focused && ShowFocusCues)
         {
             using var focus = DeckTheme.RoundedRectangle(new RectangleF(4, 4, Width - 9, Height - 9), 5 * scale);
-            using var pen = new Pen(Primary ? DeckTheme.Background : DeckTheme.Accent, 1.5f * scale);
+            using var pen = new Pen(Primary ? DeckTheme.Background : accent, 1.5f * scale);
             g.DrawPath(pen, focus);
         }
-        var color = !Enabled ? DeckTheme.Mix(DeckTheme.Muted, fill, 0.35f) : Primary ? DeckTheme.Background : DeckTheme.Text;
+        var color = !Enabled ? DeckTheme.Mix(DeckTheme.Muted, fill, 0.35f)
+            : Primary ? DeckTheme.Background
+            : Danger ? DeckTheme.Danger
+            : DeckTheme.Text;
         var bounds = ClientRectangle;
         if (Image is not null)
         {

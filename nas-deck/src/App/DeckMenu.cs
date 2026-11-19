@@ -68,7 +68,9 @@ internal sealed class DeckMenu : ContextMenuStrip
             switch (item)
             {
                 case ToolStripLabel label:
-                    label.Padding = new Padding(Scale(4), Scale(3), Scale(12), Scale(1));
+                    label.TextAlign = ContentAlignment.MiddleLeft;
+                    label.Margin = new Padding(0, Scale(1), 0, Scale(1));
+                    label.Padding = new Padding(Scale(6), Scale(2), Scale(10), Scale(2));
                     break;
                 case ToolStripMenuItem entry:
                     entry.Padding = new Padding(Scale(2), Scale(4), Scale(6), Scale(4));
@@ -126,16 +128,21 @@ internal sealed class DeckMenu : ContextMenuStrip
 
         protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
         {
-            if (e.Item is ToolStripMenuItem)
+            if (e.Item is ToolStripLabel)
+            {
+                e.TextRectangle = new Rectangle(e.TextRectangle.X, 0, e.TextRectangle.Width, e.Item.Height);
+                e.TextFormat = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix;
+                e.TextColor = e.Item.ForeColor;
+            }
+            else if (e.Item is ToolStripMenuItem menu)
             {
                 e.TextRectangle = new Rectangle(e.TextRectangle.X, 0, e.TextRectangle.Width, e.Item.Height);
                 e.TextFormat = (e.TextFormat & ~(TextFormatFlags.Top | TextFormatFlags.Bottom)) | TextFormatFlags.VerticalCenter;
+                if (!e.Item.Enabled)
+                    e.TextColor = DeckTheme.Mix(DeckTheme.Muted, DeckTheme.Panel, 0.35f);
+                else if (e.Text == menu.ShortcutKeyDisplayString)
+                    e.TextColor = DeckTheme.Muted;
             }
-            if (e.Item is ToolStripLabel) e.TextColor = e.Item.ForeColor;
-            else if (!e.Item.Enabled)
-                e.TextColor = DeckTheme.Mix(DeckTheme.Muted, DeckTheme.Panel, 0.35f);
-            else if (e.Item is ToolStripMenuItem menu && e.Text == menu.ShortcutKeyDisplayString)
-                e.TextColor = DeckTheme.Muted;
             base.OnRenderItemText(e);
         }
 

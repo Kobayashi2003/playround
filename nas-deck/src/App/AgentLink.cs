@@ -98,6 +98,24 @@ internal sealed class AgentLink : IDisposable
         }
     }
 
+    internal async Task<(NasActivity? Activity, bool Unsupported)> GetActivityAsync(CancellationToken cancellationToken)
+    {
+        if (!HasToken) return (null, false);
+        try
+        {
+            using var response = await http.GetAsync("api/activity", cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return (null, true);
+            if (!response.IsSuccessStatusCode) return (null, false);
+            var activity = await response.Content.ReadFromJsonAsync<NasActivity>(Json, cancellationToken);
+            return (activity, false);
+        }
+        catch (Exception error) when (error is HttpRequestException or JsonException
+            || (error is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+        {
+            return (null, false);
+        }
+    }
+
     internal Task<ActionReply> SleepDiskAsync(int number, bool force, CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Post, $"api/disks/{number}/sleep?force={(force ? "true" : "false")}", null, cancellationToken);
 
@@ -106,6 +124,12 @@ internal sealed class AgentLink : IDisposable
 
     internal Task<ActionReply> WakeDiskAsync(int number, CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Post, $"api/disks/{number}/wake", null, cancellationToken);
+
+    internal Task<ActionReply> HostLeavingAsync(HostLeaving request, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Post, "api/host/leaving", request, cancellationToken);
+
+    internal Task<ActionReply> HostPresentAsync(CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Post, "api/host/present", null, cancellationToken);
 
     internal Task<ActionReply> SetPolicyAsync(PowerPolicy policy, CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Put, "api/policy", policy, cancellationToken);

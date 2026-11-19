@@ -39,6 +39,12 @@ export function configuredPassword(env) {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+// The PASSWORD_REQUIRED variable in wrangler.jsonc; anything but "false" keeps
+// the sign-in, so a missing or mistyped value fails closed.
+export function passwordRequired(env) {
+  return env.PASSWORD_REQUIRED !== "false";
+}
+
 export async function passwordMatches(password, env) {
   const expected = configuredPassword(env);
   if (!expected || typeof password !== "string") return false;
@@ -79,6 +85,7 @@ export async function makeSession(env, secure) {
 }
 
 export async function controlAuthorized(request, env) {
+  if (!passwordRequired(env)) return true;
   if (await ownerAuthorized(request, env.ADMIN_TOKEN)) return true;
   if (!configuredPassword(env)) return false;
   const value = request.headers

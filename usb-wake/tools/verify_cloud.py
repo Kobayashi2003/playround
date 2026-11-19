@@ -20,10 +20,19 @@ def main() -> None:
             assert response.status == 200
             assert marker in response.read()
     state = client.call("/api/status", owner=True)
+    # With PASSWORD_REQUIRED off the page routes are open on purpose, and a wake
+    # or shut-down sent to test that would really run, so only the board's are tried.
+    page_open = isinstance(state, dict) and state.get("access") == "open"
     unauthenticated: tuple[tuple[str, dict[str, Json] | None], ...] = (
-        ("/api/status", None),
-        ("/api/wake", {}),
-        ("/api/action", {"action": "shutdown"}),
+        *(
+            ()
+            if page_open
+            else (
+                ("/api/status", None),
+                ("/api/wake", {}),
+                ("/api/action", {"action": "shutdown"}),
+            )
+        ),
         ("/device/poll", {}),
         ("/device/socket", None),
     )
@@ -34,9 +43,15 @@ def main() -> None:
             assert error.code == 401, error.code
         else:
             raise AssertionError("Privileged request accepted without authentication")
-    print(
-        "Verified HTTPS, assets, password protection, owner and device authentication."
-    )
+    if page_open:
+        print(
+            "WARNING: the page is open without a password (PASSWORD_REQUIRED is"
+            ' "false"). Verified HTTPS, assets, owner and device authentication.'
+        )
+    else:
+        print(
+            "Verified HTTPS, assets, password protection, owner and device authentication."
+        )
     print(json.dumps(state))
 
 

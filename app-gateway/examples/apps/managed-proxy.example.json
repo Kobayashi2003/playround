@@ -1,0 +1,8 @@
+{
+  "name": "Example managed app",
+  "root": "${paths.workspace}/example-managed",
+  "basePath": "/example-managed",
+  "ports": { "http": 16110 },
+  "launch": { "args": ["-Port", "${ports.http}"] },
+  "routes": { "proxy": [{ "upstream": "127.0.0.1:${ports.http}" }] }
+}

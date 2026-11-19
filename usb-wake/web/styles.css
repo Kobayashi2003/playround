@@ -191,7 +191,7 @@ h2 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: calc(var(--key-size) * 0.24) 0 calc(var(--key-size) * 0.2);
+  padding: calc(var(--key-size) * 0.24) 0 calc(var(--key-size) * 0.1);
 }
 .power-button {
   position: relative;
@@ -410,6 +410,16 @@ h2 {
 .login-panel {
   padding: 24px 20px 20px;
 }
+/* Locked: the brand and the sign-in sit together in the middle of the screen,
+   a little above centre where the eye expects a dialog. */
+.controller[data-locked="true"] {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100dvh;
+  width: min(100%, 420px);
+  padding-bottom: max(12dvh, 24px, env(safe-area-inset-bottom));
+}
 .login-panel form {
   margin-top: 4px;
 }
@@ -623,10 +633,12 @@ input[role="switch"]:checked::before {
   background: var(--case);
   font-size: 13px;
 }
+/* Ink on plate rather than the key colour, which in dark mode sat too close to
+   an unchosen chip to read at a glance. */
 .chip input:checked + span {
-  border-color: var(--key);
-  background: var(--key);
-  color: #fff;
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--plate);
 }
 .chip input:focus-visible + span {
   outline: 3px solid var(--focus);

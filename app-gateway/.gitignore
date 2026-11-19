@@ -1,2 +1,15 @@
 # Generated on every launch from apps/*.json — never edit, never commit.
 .runtime/
+# Every child's output and the admin page's audit trail.
+logs/
+# Persistent recovery copies of edited or deleted app registrations.
+backups/
+
+# Machine-specific registry, administrator credentials and launch state.
+/gateway.json
+/gateway.json.*.tmp
+/gateway.auth.json
+/gateway.auth.json.*.tmp
+/apps/*.json
+/apps/*.json.*.tmp
+/.running.json

@@ -1,14 +1,10 @@
-# Renders the landing page served at the gateway root.
+﻿# Renders the landing page served at the gateway root.
 #
 # A static file (Caddy file_server), so there is no extra process to supervise.
-# Cards come straight from the resolved apps, and the heading, tagline and
-# fallback glyph from the "site" block — nothing here names an app or picks an
-# icon, so registering one is the whole job of adding it.
+# Public cards come straight from the routed apps, while local-only apps are
+# never baked into the public HTML — they are fetched on loopback hosts from
+# /admin/api/local-apps after server-side host/client verification.
 #
-# Each card probes its own app and dims if the upstream is down. The gateway can
-# legitimately run with only some apps launched, and a route to an app that is not
-# running still exists and would answer 502.
-
 function New-LandingPage {
     <# Render $WebRoot\index.html. Returns its path. #>
     param(
@@ -16,38 +12,59 @@ function New-LandingPage {
         [string]      $WebRoot,
         [string]      $Title        = 'Gateway',
         [string]      $Tagline      = '',
-        [string]      $FallbackIcon = '*'
+        [string]      $FallbackIcon = '*',
+        # Link to the admin page in the header; empty when it is off.
+        [string]      $AdminPath    = ''
     )
 
     $enc = { param($text) [Net.WebUtility]::HtmlEncode([string]$text) }
 
-    # An app with no prefix has no page to link to, and a hidden one is reached by
-    # a direct link rather than by browsing.
-    $listed = @($Apps | Where-Object { $_.BasePath -and -not $_.Hidden })
+    # Routed apps, linked through the gateway. A hidden one is reached by a direct
+    # link rather than by browsing.
+    $listed = @($Apps | Where-Object { $_.BasePath -and $_.Routes.Kind -ne 'none' -and -not $_.Hidden })
 
     $cards = foreach ($app in $listed) {
-        $icon = if ($app.Icon) { $app.Icon } else { $FallbackIcon }
+        $icon = if ($app.Icon) { & $enc $app.Icon } else { & $enc $FallbackIcon }
+        if ($app.IconFile) {
+            try {
+                $asset = Read-AppIcon -Root $app.Root -File $app.IconFile
+                $name = "$($app.Id).$($asset.Hash)$($asset.Extension)"
+                $assets = Join-Path $WebRoot '_gateway/icons'
+                New-Item -ItemType Directory -Path $assets -Force | Out-Null
+                [IO.File]::WriteAllBytes((Join-Path $assets $name), $asset.Bytes)
+                $icon = '<img src="_gateway/icons/' + $name + '" width="24" height="24" alt="">'
+            } catch { Write-Warning "App '$($app.Id)': icon unavailable. Using the fallback glyph." }
+        }
 
         # No trailing slash: an app under a prefix serves the bare form as
         # canonical and 30x-es the slashed one to it. Linking at the canonical form
         # skips a redirect hop.
         @"
-      <a class="card" href="$(& $enc $app.BasePath)" data-probe="$(& $enc $app.Probe)">
-        <span class="icon">$(& $enc $icon)</span>
+      <div class="card">
+        <span class="icon" aria-hidden="true">$icon</span>
         <span class="body">
           <span class="name">$(& $enc $app.Name)</span>
           <span class="desc">$(& $enc $app.Description)</span>
         </span>
-        <span class="status" aria-live="polite">checking…</span>
-      </a>
+        <code class="address">$(& $enc $app.BasePath)</code>
+        <a class="open" href="$(& $enc $app.BasePath)" aria-label="Open $(& $enc $app.Name)">Open ↗</a>
+      </div>
 "@
     }
 
-    if (-not $listed.Count) {
-        $cards = @'
-      <p class="empty">Nothing is enabled. Register an app in apps/, or turn one back on with <code>start.ps1 -Enable &lt;id&gt;</code>.</p>
-'@
-    }
+    # Local-only apps are never embedded in the public static HTML. On loopback
+    # hosts, the page requests them from the admin API, which enforces loopback
+    # access server-side and attaches file icons only for signed-in sessions.
+    $localSection = if ($AdminPath) {
+        @"
+    <section id="local" data-admin="$(& $enc $AdminPath)" hidden>
+      <h2>On this machine</h2>
+      <div class="grid" id="local-grid"></div>
+    </section>
+"@
+    } else { '' }
+
+    $admin = if ($AdminPath) { '<a class="control" href="' + (& $enc $AdminPath) + '">Admin</a>' } else { '' }
 
     $html = @"
 <!doctype html>
@@ -56,78 +73,229 @@ function New-LandingPage {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>$(& $enc $Title)</title>
+<link rel="icon" href="favicon.svg?v=2" type="image/svg+xml">
+<script src="theme.js?v=2"></script>
+<link rel="stylesheet" href="theme.css?v=3">
 <style>
   :root {
-    color-scheme: light dark;
-    --bg: #f6f7f9;  --fg: #17191c;  --muted: #6b7280;
-    --card: #ffffff; --line: #e3e6ea; --accent: #3b6fd4;
+    color-scheme: light;
+    --bg: #f1f4f9; --fg: #182638; --muted: #506478; --card: #ffffff;
+    --raised: #f6f8fb; --hover: #edf2f8; --line: #d4dde8; --line-soft: #e5ebf3;
+    --accent: #215da6; --selected: #dfebfb;
+    --scroll-thumb: rgb(24 38 56 / .20); --scroll-thumb-hover: rgb(24 38 56 / .36);
   }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #14161a; --fg: #e8eaed; --muted: #9aa3ad;
-      --card: #1c1f24; --line: #2b3037; --accent: #6f9cf0;
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #101720; --fg: #e5ecf4; --muted: #a6b6c7; --card: #18222d;
+      --raised: #141d27; --hover: #22303f; --line: #2d3c4c; --line-soft: #222f3d;
+      --accent: #8ebeff; --selected: #203956;
+      --scroll-thumb: rgb(176 191 206 / .22); --scroll-thumb-hover: rgb(176 191 206 / .38);
     }
   }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #101720; --fg: #e5ecf4; --muted: #a6b6c7; --card: #18222d;
+    --raised: #141d27; --hover: #22303f; --line: #2d3c4c; --line-soft: #222f3d;
+    --accent: #8ebeff; --selected: #203956;
+    --scroll-thumb: rgb(176 191 206 / .22); --scroll-thumb-hover: rgb(176 191 206 / .38);
+  }
   * { box-sizing: border-box; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--scroll-thumb);
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); }
+  @supports not selector(::-webkit-scrollbar) {
+    * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+  }
+  [hidden] { display: none !important; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   body {
-    margin: 0; min-height: 100vh;
-    display: flex; align-items: center; justify-content: center;
-    padding: 2rem 1.25rem;
-    background: var(--bg); color: var(--fg);
-    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
-  main { width: 100%; max-width: 34rem; }
-  h1 { margin: 0 0 .25rem; font-size: 1.4rem; letter-spacing: -.01em; }
-  .sub { margin: 0 0 1.75rem; color: var(--muted); font-size: .875rem; }
-  .grid { display: flex; flex-direction: column; gap: .75rem; }
+  .wrap { max-width: 1120px; width: calc(100% - 64px); margin-inline: auto; }
+  .top { background: var(--card); border-bottom: 1px solid var(--line); }
+  .bar, .heading, .brand, .actions { display: flex; align-items: center; gap: 10px; }
+  .bar, .heading { justify-content: space-between; }
+  .bar { min-height: 56px; }
+  .brand { font-weight: 650; font-size: 16px; letter-spacing: -.01em; }
+  main { padding-block: 36px 64px; }
+  .heading { margin-bottom: 24px; gap: 16px; }
+  h1 { margin: 0; font-size: 24px; line-height: 1.25; letter-spacing: -.02em; font-weight: 650; }
+  .sub { margin: 4px 0 0; color: var(--muted); }
+  .sub:empty { display: none; }
+  h2 { margin: 0 0 10px; font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  section + section { margin-top: 26px; }
+  .grid, .empty { border: 1px solid var(--line); border-radius: 8px; background: var(--card); overflow: clip; }
   .card {
-    display: flex; align-items: center; gap: 1rem;
-    padding: 1rem 1.15rem;
-    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-    text-decoration: none; color: inherit;
-    transition: border-color .15s, transform .15s;
+    display: grid; grid-template-columns: 36px minmax(130px, 1fr) minmax(108px, auto) 76px;
+    align-items: center; gap: 16px; min-height: 62px; padding: 10px 16px;
+    transition: background-color .12s ease;
   }
-  .card:hover { border-color: var(--accent); transform: translateY(-1px); }
-  .card[data-down="1"] { opacity: .45; pointer-events: none; }
-  .icon { font-size: 1.6rem; line-height: 1; }
-  .body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-  .name { font-weight: 600; }
-  .desc { color: var(--muted); font-size: .85rem; }
-  .status { color: var(--muted); font-size: .75rem; white-space: nowrap; }
-  .card[data-down="0"] .status { color: #2e9e5b; }
-  .card[data-down="1"] .status { color: #c2493d; }
-  .empty { color: var(--muted); font-size: .9rem; }
-  code { font-size: .85em; }
+  .card:hover { background: var(--hover); }
+  .card + .card { border-top: 1px solid var(--line-soft); }
+  .icon {
+    display: grid; place-items: center; width: 36px; height: 36px; border-radius: 7px;
+    background: var(--raised); border: 1px solid var(--line-soft); color: var(--accent); font-size: 17px;
+  }
+  .icon img { object-fit: contain; }
+  .body { min-width: 0; display: grid; gap: 1px; overflow-wrap: anywhere; }
+  .name { font-weight: 620; }
+  .desc, .address, .empty p { color: var(--muted); }
+  .desc { font-size: 13px; }
+  .desc:empty { display: none; }
+  .address { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .open, .control {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 34px; border-radius: 7px; text-decoration: none;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+  }
+  .open { color: var(--accent); font-weight: 600; padding-inline: 10px; }
+  .open:hover, .control:hover { background: var(--selected); color: var(--accent); }
+  .control, input {
+    border: 1px solid var(--line); background: var(--card); color: var(--fg);
+    min-height: 34px; border-radius: 7px; padding: 0 12px; font: inherit;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input { width: min(290px, 100%); }
+  button { cursor: pointer; }
+  .empty { padding: 24px 20px; }
+  .empty p { margin: 4px 0 12px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (max-width: 600px) {
+    .wrap { width: calc(100% - 32px); }
+    main { padding-top: 24px; }
+    .heading { align-items: flex-start; flex-direction: column; }
+    input { width: 100%; }
+    .card { grid-template-columns: 36px minmax(0, 1fr) 64px; gap: 2px 10px; padding: 10px 12px; }
+    .card .icon { grid-row: span 2; }
+    .card .open { grid-column: 3; grid-row: 1 / span 2; }
+    .address { grid-column: 2; }
+    .open, .control, input { min-height: 44px; }
+  }
 </style>
 </head>
 <body>
-  <main>
-    <h1>$(& $enc $Title)</h1>
-    <p class="sub">$(& $enc $Tagline)</p>
-    <div class="grid">
-$($cards -join "`n")
+  <header class="top"><div class="bar wrap">
+    <div class="brand"><img src="favicon.svg?v=2" width="28" height="28" alt="">$(& $enc $Title)</div>
+    <div class="actions"><div class="theme-picker" data-theme-picker></div>$admin</div>
+  </div></header>
+  <main class="wrap">
+    <div class="heading">
+      <div><h1>Applications</h1><p class="sub">$(& $enc $Tagline)</p></div>
+      <input id="search" type="search" placeholder="Search applications" aria-label="Search applications">
     </div>
+    <section id="public"><h2>Via Gateway</h2><div class="grid">
+$($cards -join "`n")
+    </div></section>
+$localSection
+    <div class="empty" id="empty" hidden><strong id="empty-title">No applications to show</strong>
+      <p id="empty-text">Entries appear here after their configuration is applied.</p>
+      <button class="control" id="clear" type="button" hidden>Clear search</button></div>
   </main>
 <script>
-  for (const card of document.querySelectorAll('.card')) {
-    const status = card.querySelector('.status');
-    fetch(card.dataset.probe, { method: 'HEAD', cache: 'no-store' })
-      .then(r => {
-        const up = r.ok || r.status === 401 || r.status === 403;  // auth-walled still counts as up
-        card.dataset.down = up ? '0' : '1';
-        status.textContent = up ? 'online' : 'offline';
-      })
-      .catch(() => {
-        card.dataset.down = '1';
-        status.textContent = 'offline';
-      });
+  const sections = [document.getElementById('public')];
+  const local = document.getElementById('local');
+  const search = document.getElementById('search');
+  const clear = document.getElementById('clear');
+
+  function makeLocalCard(app) {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const icon = document.createElement('span');
+    icon.className = 'icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = app.icon || '*';
+    if (app.iconUrl) {
+      const image = new Image(24, 24);
+      image.alt = '';
+      image.onload = () => icon.replaceChildren(image);
+      image.src = app.iconUrl;
+    }
+
+    const body = document.createElement('span');
+    body.className = 'body';
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = app.name || app.id || '';
+    const desc = document.createElement('span');
+    desc.className = 'desc';
+    desc.textContent = app.description || '';
+    body.append(name, desc);
+
+    const address = document.createElement('code');
+    address.className = 'address';
+    address.textContent = app.address || '';
+
+    const open = document.createElement('a');
+    open.className = 'open';
+    open.href = app.url || '#';
+    open.setAttribute('aria-label', 'Open ' + (app.name || app.id || 'application'));
+    open.textContent = 'Open ↗';
+
+    card.append(icon, body, address, open);
+    return card;
   }
+
+  function filter() {
+    const term = search.value.trim().toLowerCase();
+    let matches = 0;
+    for (const section of sections) {
+      let count = 0;
+      for (const row of section.querySelectorAll('.card')) {
+        row.hidden = !row.textContent.toLowerCase().includes(term);
+        count += Number(!row.hidden);
+      }
+      section.hidden = count === 0;
+      matches += count;
+    }
+    document.getElementById('empty').hidden = matches > 0;
+    document.getElementById('empty-title').textContent = term ? 'No matching applications' : 'No applications to show';
+    document.getElementById('empty-text').textContent = term ? 'Try another name or address.' : 'Entries appear here after their configuration is applied.';
+    clear.hidden = !term;
+  }
+
+  async function loadLocalApps() {
+    if (!local || !local.dataset.admin) return;
+    if (!['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) return;
+    try {
+      const response = await fetch(local.dataset.admin + 'api/local-apps', { cache: 'no-store', credentials: 'same-origin' });
+      if (!response.ok) return;
+      const data = await response.json();
+      const items = Array.isArray(data.apps) ? data.apps : [];
+      if (!items.length) return;
+      const grid = document.getElementById('local-grid');
+      grid.replaceChildren(...items.map(makeLocalCard));
+      sections.push(local);
+      filter();
+    } catch { /* Local list stays hidden when unavailable. */ }
+  }
+
+  search.addEventListener('input', filter);
+  clear.addEventListener('click', () => { search.value = ''; filter(); search.focus(); });
+  filter();
+  loadLocalApps();
 </script>
 </body>
 </html>
 "@
 
     New-Item -ItemType Directory -Path $WebRoot -Force | Out-Null
+    # One icon for the gateway, kept beside the admin page that also uses it.
+    $icon = Join-Path $PSScriptRoot '..\admin\favicon.svg'
+    if (Test-Path -LiteralPath $icon) { Copy-Item -LiteralPath $icon -Destination (Join-Path $WebRoot 'favicon.svg') -Force }
+    foreach ($asset in 'theme.js', 'theme.css') {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot "..\admin\$asset") -Destination $WebRoot -Force
+    }
     $out = Join-Path $WebRoot 'index.html'
     [IO.File]::WriteAllText($out, $html, [Text.UTF8Encoding]::new($false))
     return $out

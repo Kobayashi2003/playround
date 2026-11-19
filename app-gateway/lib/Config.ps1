@@ -1,4 +1,4 @@
-# The launch protocol: gateway.json for the gateway, apps/*.json for the apps.
+﻿# The launch protocol: gateway.json for the gateway, apps/*.json for the apps.
 #
 # The apps directory *is* the registry. One file is one app; dropping a file in
 # registers it and deleting the file unregisters it, with nothing else to edit and
@@ -71,6 +71,68 @@ function Get-JsonProperty {
     return $prop.Value
 }
 
+function Get-JsonBool {
+    <# Strict boolean reader: PowerShell coerces non-empty strings like "false" to
+       $true, so reject non-boolean values explicitly with the field name. #>
+    param($Object, [string]$Name, [bool]$Default, [string]$Where)
+
+    if ($null -eq $Object) { return $Default }
+    $prop = $Object.PSObject.Properties[$Name]
+    if (-not $prop -or $null -eq $prop.Value) { return $Default }
+    if ($prop.Value -isnot [bool]) {
+        throw "$Where $Name must be a boolean (true or false), got '$($prop.Value)'."
+    }
+    return [bool]$prop.Value
+}
+
+function Get-JsonInt {
+    <# Strict integer reader for ports, order, and similar numeric fields. #>
+    param($Object, [string]$Name, [int]$Default, [string]$Where)
+
+    if ($null -eq $Object) { return $Default }
+    $prop = $Object.PSObject.Properties[$Name]
+    if (-not $prop -or $null -eq $prop.Value) { return $Default }
+    if ($prop.Value -isnot [int] -and $prop.Value -isnot [long]) {
+        throw "$Where $Name must be an integer, got '$($prop.Value)'."
+    }
+    return [int]$prop.Value
+}
+
+function Test-LegacyAdminCredential {
+    <# True when an optional gateway.json admin node still holds legacy credentials. #>
+    param($AdminNode)
+
+    if ($null -eq $AdminNode -or $AdminNode -isnot [pscustomobject]) { return $false }
+    return [bool]($AdminNode.PSObject.Properties['passwordHash'] -or $AdminNode.PSObject.Properties['user'])
+}
+
+function Assert-LoopbackEndpoint {
+    <# Validate an optional loopback host:port endpoint such as caddyAdmin.
+       Empty disables the endpoint; non-empty must target loopback only so the
+       endpoint cannot be exposed on the LAN or inject Caddyfile directives. #>
+    param(
+        [AllowEmptyString()] [string]$Endpoint,
+        [string]$FieldName = 'caddyAdmin'
+    )
+
+    if ([string]::IsNullOrEmpty($Endpoint)) { return '' }
+    if ($Endpoint -match '[\s\r\n]' -or $Endpoint -notmatch '^(?<host>localhost|\[[^\]]+\]|[^:\s]+):(?<port>\d+)$') {
+        throw "$FieldName must be a loopback host:port (e.g. localhost:16051 or 127.0.0.1:16051), or empty to disable. Got '$Endpoint'."
+    }
+    $hostPart = $Matches['host']
+    $port = 0
+    if (-not [int]::TryParse($Matches['port'], [ref]$port) -or $port -lt 1 -or $port -gt 65535) {
+        throw "$FieldName port must be between 1 and 65535, got '$($Matches['port'])'."
+    }
+    if ($hostPart -ieq 'localhost') { return $Endpoint }
+    $ipText = $hostPart.Trim('[', ']')
+    $ip = $null
+    if (-not [Net.IPAddress]::TryParse($ipText, [ref]$ip) -or -not [Net.IPAddress]::IsLoopback($ip)) {
+        throw "$FieldName must bind to a loopback address (localhost, 127.0.0.1, or [::1]), got '$Endpoint'."
+    }
+    return $Endpoint
+}
+
 function Read-JsonFile {
     param([string]$Path)
 
@@ -94,6 +156,42 @@ function Read-GatewaySettings {
     return Read-JsonFile -Path $Path
 }
 
+function Get-GatewayPaths {
+    param($Settings, [string] $Root)
+    $paths = @{}
+    $node = Get-JsonProperty $Settings 'paths'
+    if ($node -and $node -isnot [pscustomobject]) { throw 'gateway.json paths must be a JSON object.' }
+    foreach ($property in $node.PSObject.Properties) {
+        if ($property.Value -isnot [string] -or -not $property.Value) {
+            throw "gateway.json paths.$($property.Name) must be a directory path."
+        }
+        $paths["paths.$($property.Name)"] = [IO.Path]::GetFullPath($property.Value, $Root)
+    }
+    return $paths
+}
+
+function Write-GatewayText {
+    param([string] $Path, [string] $Text, [switch] $Private)
+    $temp = "$Path.$([guid]::NewGuid().ToString('N')).tmp"
+    try {
+        if ($Private) {
+            [IO.File]::WriteAllBytes($temp, [byte[]]@())
+            $security = [Security.AccessControl.FileSecurity]::new()
+            $security.SetAccessRuleProtection($true, $false)
+            $user = [Security.Principal.WindowsIdentity]::GetCurrent().User
+            $admins = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+            foreach ($sid in @($user, $admins)) {
+                $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', 'Allow'))
+            }
+            [IO.FileSystemAclExtensions]::SetAccessControl([IO.FileInfo]::new($temp), $security)
+        }
+        [IO.File]::WriteAllText($temp, $Text, [Text.UTF8Encoding]::new($false))
+        [IO.File]::Move($temp, $Path, $true)
+    } finally {
+        [IO.File]::Delete($temp)
+    }
+}
+
 function Get-AppPlugin {
     <# Every *.json in the apps directory, in load order.
 
@@ -103,20 +201,27 @@ function Get-AppPlugin {
        update, and no way for an index to disagree with what is actually there.
 
        Ordering therefore cannot also come from the name, hence "order" inside. #>
-    param([string]$Dir)
+    param(
+        [string]   $Dir,
+        [switch]   $AllowEmpty,
+        [string[]] $ExcludeId = @()
+    )
 
     if (-not (Test-Path -LiteralPath $Dir)) {
-        throw "No apps directory at $Dir. One *.json file per app; schema/app.schema.json describes one."
+        if ($AllowEmpty) { return @() }
+        throw "Missing apps directory. Copy an example from examples/apps/ to apps/<id>.json and configure it."
     }
 
     $plugins = @()
     foreach ($file in Get-ChildItem -LiteralPath $Dir -Filter '*.json' -File | Sort-Object Name) {
+        $id = [IO.Path]::GetFileNameWithoutExtension($file.Name)
+        if ($ExcludeId -and $id -in $ExcludeId) { continue }
+
         $entry = Read-JsonFile -Path $file.FullName
         if ($entry -isnot [pscustomobject]) {
             throw "$($file.Name) must hold a JSON object describing one app."
         }
 
-        $id = [IO.Path]::GetFileNameWithoutExtension($file.Name)
         if ($id -notmatch '^[a-z0-9][a-z0-9._-]*$') {
             throw "$($file.Name): the file name is the app id, so it must be lower-case alphanumeric, optionally with . _ or -."
         }
@@ -131,13 +236,13 @@ function Get-AppPlugin {
         $plugins += [pscustomobject]@{
             File  = $file.FullName
             Id    = $id
-            Order = [int](Get-JsonProperty $entry 'order' 100)
+            Order = Get-JsonInt $entry 'order' 100 "App '$id' ($($file.Name))"
             Entry = $entry
         }
     }
 
-    if (-not $plugins.Count) {
-        throw "No app plugins in $Dir. One *.json file per app; schema/app.schema.json describes one."
+    if (-not $plugins.Count -and -not $AllowEmpty) {
+        throw "No registrations in $Dir. Copy an example from examples/apps/ as <id>.json and configure it."
     }
     return @($plugins | Sort-Object Order, Id)
 }
@@ -237,10 +342,41 @@ function Resolve-GatewayApps {
         $launch = $null
         $launchNode = Get-JsonProperty $entry 'launch'
         if ($launchNode) {
+            if ($launchNode -isnot [pscustomobject]) { throw "$where launch must be a JSON object." }
             $launch = @{
-                Script = Join-Path $root 'start.ps1'
-                Args   = @(@(Get-JsonProperty $launchNode 'args' @()) |
-                              ForEach-Object { Expand-GatewayString ([string]$_) $vars "$where launch.args" })
+                Script           = Join-Path $root 'start.ps1'
+                StopScript       = Join-Path $root 'stop.ps1'
+                Args             = @(@(Get-JsonProperty $launchNode 'args' @()) |
+                                        ForEach-Object { Expand-GatewayString ([string]$_) $vars "$where launch.args" })
+                RestartIfRunning = Get-JsonBool $launchNode 'restartIfRunning' $false "$where launch"
+                AutoRestart      = Get-JsonBool $launchNode 'autoRestart' $false "$where launch"
+            }
+        }
+
+        $icon = Get-JsonProperty $entry 'icon' ''
+        $iconFile = ''
+        if ($icon -is [pscustomobject] -and $icon.PSObject.Properties.Name.Count -eq 1 -and
+            $icon.file -is [string] -and $icon.file) {
+            $iconFile = $icon.file
+            $icon = ''
+        }
+        if ($icon -isnot [string]) { throw "$where icon must be a glyph or an object with a file." }
+        $iconHash = ''
+        if ($iconFile) {
+            try { $iconHash = (Read-AppIcon -Root $root -File $iconFile).Hash } catch { }
+        }
+
+        $localEntry = Get-JsonProperty $entry 'localEntry'
+        $localPort = if ($ports.Count) { ($ports.Values | Measure-Object -Minimum).Minimum }
+        $localPath = '/'
+        if ($localEntry) {
+            if ($basePath -or -not $launch) { throw "$where localEntry requires a local launch without a basePath." }
+            $role = [string](Get-JsonProperty $localEntry 'port')
+            if (-not $ports.ContainsKey($role)) { throw "$where localEntry.port must name a declared port." }
+            $localPort = $ports[$role]
+            $localPath = Get-JsonProperty $localEntry 'path' '/'
+            if ($localPath -isnot [string] -or $localPath -notmatch '^/(?!/)[^\\\s#]*$') {
+                throw "$where localEntry.path must be an absolute path on the local app."
             }
         }
 
@@ -249,9 +385,12 @@ function Resolve-GatewayApps {
             File        = $plugin.File
             Name        = $name
             Description = Expand-GatewayString ([string](Get-JsonProperty $entry 'description' '')) $vars "$where description"
-            Icon        = [string](Get-JsonProperty $entry 'icon' '')
-            Enabled     = [bool](Get-JsonProperty $entry 'enabled' $true)
-            Hidden      = [bool](Get-JsonProperty $entry 'hidden' $false)
+            Icon        = $icon
+            IconFile    = $iconFile
+            IconHash    = $iconHash
+            LocalUrl    = $(if (-not $basePath -and $launch -and $localPort) { "http://127.0.0.1:$localPort$localPath" })
+            Enabled     = Get-JsonBool $entry 'enabled' $true $where
+            Hidden      = Get-JsonBool $entry 'hidden' $false $where
             Root        = $root
             BasePath    = $basePath
             Probe       = Expand-GatewayString ([string](Get-JsonProperty $entry 'probe' $basePath)) $vars "$where probe"
@@ -306,8 +445,8 @@ function Resolve-AppRoute {
             @{
                 Paths    = @($paths | ForEach-Object { Expand-GatewayString ([string]$_) $Vars "$Where routes.proxy.paths" })
                 Upstream = $upstream
-                Strip    = [bool](Get-JsonProperty $rule 'strip' $false)
-                Stream   = [bool](Get-JsonProperty $rule 'stream' $false)
+                Strip    = Get-JsonBool $rule 'strip' $false "$Where routes.proxy"
+                Stream   = Get-JsonBool $rule 'stream' $false "$Where routes.proxy"
             }
         }
         return @{ Kind = 'proxy'; Rules = @($rules) }
@@ -326,13 +465,18 @@ function Assert-GatewayApps {
         # From Read-PortConvention: an app's ports come from the range of the
         # directory its root lives in.
         [hashtable[]] $PortRanges = @(),
-        [int]         $PortSlot = 10
+        [int]         $PortSlot = 10,
+        # What the gateway keeps for itself: @{ Prefixes = @{ '/admin' = 'the admin page' };
+        # Ports = @{ 16050 = 'the admin page' } }.
+        [hashtable]   $Reserved = @{}
     )
 
     $bindPort = [int]($Bind -split ':')[-1]
     $seenPort = @{}
     $seenSlot = @{}
     $prefixes = @{}
+    if ($Reserved.Prefixes) { foreach ($r in $Reserved.Prefixes.GetEnumerator()) { $prefixes[$r.Key] = $r.Value } }
+    if ($Reserved.Ports)    { foreach ($r in $Reserved.Ports.GetEnumerator())    { $seenPort[[int]$r.Key] = $r.Value } }
 
     foreach ($app in $Apps) {
         if (-not (Test-Path -LiteralPath $app.Root)) {
@@ -360,6 +504,19 @@ function Assert-GatewayApps {
             }
             if ($app.Routes.EnvScript -and -not (Test-Path -LiteralPath $app.Routes.EnvScript)) {
                 throw "App '$($app.Id)': routes.env not found: $($app.Routes.EnvScript)"
+            }
+        }
+        if ($app.Routes.Kind -eq 'proxy') {
+            foreach ($rule in $app.Routes.Rules) {
+                foreach ($path in $rule.Paths) {
+                    $pattern = '^' + ([regex]::Escape($path) -replace '\\\*', '.*') + '$'
+                    foreach ($prefix in $Reserved.Prefixes.Keys) {
+                        if ($path.StartsWith("$prefix/", [StringComparison]::OrdinalIgnoreCase) -or
+                            $prefix -match $pattern -or "$prefix/" -match $pattern) {
+                            throw "$($app.Id): route path '$path' overlaps reserved prefix '$prefix'."
+                        }
+                    }
+                }
             }
         }
 

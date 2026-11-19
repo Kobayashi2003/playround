@@ -7,6 +7,7 @@ const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
 export function parseSchedules(value) {
   if (!Array.isArray(value) || value.length > MAX_SCHEDULES) return null;
   const result = [];
+  const seen = new Set();
   for (const item of value) {
     if (
       !item ||
@@ -21,13 +22,20 @@ export function parseSchedules(value) {
       typeof item.enabled !== "boolean"
     )
       return null;
+    const days = [...new Set(item.days)].sort((a, b) => a - b);
+    // The same time on the same days would only fire one wake twice; a repeat
+    // is dropped rather than refused, so a list saved before this check (which
+    // may hold one) can still be edited.
+    const key = `${item.time}/${days.join("")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     result.push({
       id:
         typeof item.id === "string" && /^[\w-]{1,40}$/.test(item.id)
           ? item.id
           : crypto.randomUUID(),
       time: item.time,
-      days: [...new Set(item.days)].sort(),
+      days,
       enabled: item.enabled,
     });
   }

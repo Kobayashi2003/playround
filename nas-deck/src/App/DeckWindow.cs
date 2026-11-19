@@ -36,6 +36,7 @@ internal sealed partial class DeckWindow : Form
     private Point dragWindow;
     private bool dragging;
     private DiskInfoWindow? diskInfo;
+    private DiskActivityWindow? diskActivity;
     private string? menuOwner;
     private string? closedBy;
     private DateTime menuClosedAt;
@@ -101,6 +102,7 @@ internal sealed partial class DeckWindow : Form
             },
             DiskPower = disk => _ = ChangeDiskPowerAsync(disk),
             DiskInfo = number => ShowDiskInfo(number),
+            DiskActivity = number => ShowDiskActivity(number),
             Timer = bounds => ShowPopup("timer", bounds, TimerItems),
             Clients = bounds => ShowPopup("clients", bounds, ClientItems),
             WakeNas = () => _ = RunPowerAsync(null),
@@ -112,7 +114,7 @@ internal sealed partial class DeckWindow : Form
         popup = new DeckMenu(() => popupItems());
         mainMenu.Closed += OnMenuClosed;
         popup.Closed += OnMenuClosed;
-        tray = new NotifyIcon { Icon = appIcon, Text = AppName, ContextMenuStrip = mainMenu, Visible = true };
+        tray = new NotifyIcon { Icon = appIcon, Text = AppName, ContextMenuStrip = mainMenu, Visible = widget.ShowTrayIcon };
         tray.MouseClick += (_, args) =>
         {
             if (args.Button == MouseButtons.Left) ToggleWidget();
@@ -128,6 +130,9 @@ internal sealed partial class DeckWindow : Form
         clock.Start();
         DeckTheme.Changed += OnThemeChanged;
         SystemEvents.UserPreferenceChanged += OnPreferenceChanged;
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        SystemEvents.SessionEnding += OnSessionEnding;
+        wakePending = widget.FollowWake;
     }
 
     protected override CreateParams CreateParams
@@ -168,6 +173,7 @@ internal sealed partial class DeckWindow : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        ConfigureRecycle();
         RefreshView();
         if (!TopMost) SendToBottom();
         _ = RunAsync();
@@ -226,15 +232,20 @@ internal sealed partial class DeckWindow : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (!exiting && e.CloseReason == CloseReason.UserClosing)
+        if (!exiting && e.CloseReason == CloseReason.UserClosing && widget.ShowTrayIcon)
         {
             e.Cancel = true;
             Hide();
             return;
         }
+        // Windows may close this window before it raises SessionEnding, and the tunnel the notice needs
+        // goes down below, so a shutdown is announced here first.
+        if (e.CloseReason == CloseReason.WindowsShutDown) AnnounceShutdown();
         lifetime.Cancel();
         clock.Stop();
         diskInfo?.Close();
+        diskActivity?.Close();
+        recycleWindow?.Close();
         tray.Visible = false;
         link.StopTunnel();
         base.OnFormClosing(e);
@@ -246,6 +257,9 @@ internal sealed partial class DeckWindow : Form
         {
             DeckTheme.Changed -= OnThemeChanged;
             SystemEvents.UserPreferenceChanged -= OnPreferenceChanged;
+            SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+            SystemEvents.SessionEnding -= OnSessionEnding;
+            shortcuts?.Dispose();
             tray.Dispose();
             trayIcon?.Dispose();
             mainMenu.Dispose();
@@ -263,7 +277,7 @@ internal sealed partial class DeckWindow : Form
         switch (keyData)
         {
             case Keys.Escape:
-                Hide();
+                if (widget.ShowTrayIcon) Hide();
                 return true;
             case Keys.F5:
                 _ = PollAsync();
@@ -453,10 +467,9 @@ internal sealed partial class DeckWindow : Form
 
     private void Notify(string text, ToolTipIcon icon = ToolTipIcon.None, bool always = false)
     {
-        if (string.IsNullOrWhiteSpace(text) || (!always && Visible)) return;
+        if (string.IsNullOrWhiteSpace(text) || !tray.Visible || (!always && Visible)) return;
         tray.ShowBalloonTip(5000, AppName, text.Length > 200 ? text[..197] + "…" : text, icon);
     }
 
-    private bool Confirm(string text) =>
-        MessageBox.Show(this, text, AppName, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.OK;
+    private bool Confirm(string text) => ThemedDialog.Confirm(this, AppName, text);
 }

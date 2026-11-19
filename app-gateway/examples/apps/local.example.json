@@ -1,0 +1,6 @@
+{
+  "name": "Example local app",
+  "root": "${paths.workspace}/example-local",
+  "ports": { "http": 16100 },
+  "launch": { "args": ["-Port", "${ports.http}"] }
+}
