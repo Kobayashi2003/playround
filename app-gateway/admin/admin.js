@@ -46,9 +46,32 @@ function appIcon(a) {
 document.addEventListener('error', event => {
   const image = event.target;
   if (image instanceof HTMLImageElement && image.parentElement?.classList.contains('ico')) {
+    const attempt = Number(image.dataset.retry || 0);
+    if (attempt < 2) {
+      image.dataset.retry = String(attempt + 1);
+      const base = image.dataset.baseSrc || image.getAttribute('src') || '';
+      image.dataset.baseSrc = base;
+      if (base) {
+        setTimeout(() => {
+          if (!image.isConnected) return;
+          const sep = base.includes('?') ? '&' : '?';
+          image.src = `${base}${sep}retry=${attempt + 1}`;
+        }, 800 * (attempt + 1));
+        return;
+      }
+    }
     image.hidden = true;
     if (image.nextElementSibling) image.nextElementSibling.hidden = false;
     image.parentElement.title = 'Registered icon unavailable';
+  }
+}, true);
+
+document.addEventListener('load', event => {
+  const image = event.target;
+  if (image instanceof HTMLImageElement && image.parentElement?.classList.contains('ico')) {
+    image.hidden = false;
+    if (image.nextElementSibling) image.nextElementSibling.hidden = true;
+    image.parentElement.title = '';
   }
 }, true);
 
@@ -100,7 +123,7 @@ const clock = iso => iso ? new Date(iso).toLocaleTimeString([], { hour12: false 
 const stamp = iso => iso ? new Date(iso).toLocaleString([], { hour12: false }) : '–';
 // eslint-disable-next-line no-control-regex
 const stripAnsi = s => s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
-const pct = v => v == null || v < 0 ? '–' : `${v.toFixed(1)}%`;
+const pct = v => v == null || v < 0 ? '–' : v > 0 && v < 0.1 ? '<0.1%' : `${v.toFixed(1)}%`;
 
 /** A sparkline over `values` (null = no sample). `max` fixes the scale. */
 function spark(values, { max, cls = '' } = {}) {
@@ -136,6 +159,24 @@ function toast(message, kind = '') {
   el.textContent = message;
   $('#toasts').append(el);
   setTimeout(() => el.remove(), kind === 'bad' ? 9000 : 4500);
+}
+
+async function copyText(text, label = 'Copied to clipboard.') {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(label, 'ok');
+  } catch {
+    toast('Clipboard access is unavailable.', 'warn');
+  }
+}
+
+function handleCodeTab(ev) {
+  if (ev.key !== 'Tab' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  ev.preventDefault();
+  const el = ev.currentTarget;
+  const start = el.selectionStart, end = el.selectionEnd;
+  el.setRangeText('  ', start, end, 'end');
+  el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function confirmAction(title, text, okLabel = 'Confirm') {
@@ -215,6 +256,11 @@ function showLogin() {
   csrf = '';
   pulse = metrics = null;
   lastStates = null;
+  busyApps.clear();
+  probes.clear();
+  probeUsesGet.clear();
+  $('#nav-apps-badge').hidden = true;
+  $('#nav-config-dot').hidden = true;
   $('#shell').hidden = true;
   $('#login').hidden = false;
   document.title = 'Gateway Admin';
@@ -307,6 +353,17 @@ async function loadMetrics(poll = false) {
   for (const section of mounted.values()) section.onMetrics?.();
 }
 
+function updateNavBadges() {
+  const badgeEl = $('#nav-apps-badge');
+  if (!badgeEl) return;
+  const count = pulse ? apps().filter(appAttention).length : 0;
+  badgeEl.hidden = count === 0;
+  if (count) {
+    setText(badgeEl, count);
+    badgeEl.title = `${count} ${count === 1 ? 'app needs' : 'apps need'} attention`;
+  }
+}
+
 function renderHealth() {
   const el = $('#health');
   if (!online || !pulse) {
@@ -315,6 +372,7 @@ function renderHealth() {
     el.textContent = online ? '…' : 'offline';
     el.title = online ? '' : 'The gateway is not answering.';
     document.title = online ? 'Gateway Admin' : '⚠ Gateway Admin';
+    updateNavBadges();
     return;
   }
   const s = pulse.apps.states;
@@ -325,6 +383,7 @@ function renderHealth() {
   el.href = caddyDown ? '#overview' : exited ? '#apps/attention' : busy ? '#apps' : '#apps/live';
   el.title = STATES.filter(k => s[k]).map(k => `${s[k]} ${k}`).join(' · ');
   document.title = `${exited || caddyDown ? '⚠ ' : ''}Gateway Admin`;
+  updateNavBadges();
 }
 
 /** Say so when an app changes state on its own: nobody watches seven cards. */
@@ -418,12 +477,51 @@ function mountWorkspace() {
 for (const type of ['wheel','touchstart','pointerdown','keydown']) {
   workspace.addEventListener(type, () => { pinnedSection = ''; }, {passive:true});
 }
+// Chain mouse-wheel scrolling cleanly from inner scrollable panels (Storage,
+// Apps list/properties/output, Logs, Config editors/inspector/code, Security
+// tables) up to the nearest outer scroller with room (including #view) as soon
+// as an inner panel hits its top/bottom edge or has no vertical overflow.
+// Avoids Chromium's ~500ms wheel-latching stall and Windows DPI subpixel traps.
+workspace.addEventListener('wheel', ev => {
+  if (ev.ctrlKey || ev.shiftKey || ev.altKey || ev.metaKey || ev.defaultPrevented || !ev.deltaY ||
+      Math.abs(ev.deltaY) < Math.abs(ev.deltaX)) return;
+  const startEl = ev.target instanceof Element ? ev.target : ev.target?.parentElement;
+  if (!startEl || startEl.closest('select, dialog')) return;
+  const deltaY = ev.deltaY * (ev.deltaMode === 1 ? 16 : ev.deltaMode === 2 ? workspace.clientHeight : 1);
+
+  const hasRoom = el => {
+    const max = el.scrollHeight - el.clientHeight;
+    if (max <= 2) return false;
+    return deltaY < 0 ? el.scrollTop > 1 : el.scrollTop < max - 2;
+  };
+
+  let el = startEl;
+  let firstInner = null;
+  let target = null;
+  while (el) {
+    const isWs = el === workspace;
+    const oy = isWs ? 'auto' : getComputedStyle(el).overflowY;
+    if (oy === 'auto' || oy === 'scroll') {
+      if (!isWs && !firstInner) firstInner = el;
+      if (hasRoom(el)) { target = el; break; }
+    }
+    if (isWs) break;
+    el = el.parentElement;
+  }
+
+  // No inner scrollable box under the cursor, or the innermost box still has room: let native scroll run.
+  if (!firstInner || target === firstInner) return;
+  if (!target) return;
+  ev.preventDefault();
+  pinnedSection = '';
+  target.scrollTop += deltaY;
+}, { passive: false });
 document.addEventListener('keydown', e => {
   if (['PageDown','PageUp','Home','End','ArrowDown','ArrowUp',' '].includes(e.key)) pinnedSection = '';
 });
 workspace.addEventListener('scroll', () => {
   if (pinnedSection || !mounted.size) return;
-  const top = workspace.getBoundingClientRect().top + 40;
+  const top = workspace.getBoundingClientRect().top + 96;
   let name = sectionOrder[0];
   for (const el of workspace.children) {
     if (el.getBoundingClientRect().top > top) break;
@@ -461,9 +559,13 @@ document.addEventListener('keydown', event => {
 
 // ------------------------------------------------------------------ actions
 
+const busyApps = new Map(); // app id -> verb while an action is in flight
+const BUSY_LABEL = { start: 'Starting…', stop: 'Stopping…', restart: 'Restarting…' };
+
 const CONFIRMS = {
+  'restart-all': { title: 'Restart live apps?', text: 'Every managed app currently running will be stopped and started again.', ok: 'Restart live apps' },
   'stop-all': { title: 'Stop every app?', text: 'Every app this gateway started is stopped. Caddy and this page keep running.', ok: 'Stop all' },
-  shutdown: { title: 'Shut down the gateway?', text: 'Every app, Caddy and this admin page stop. Start it again with start.ps1 on the machine.', ok: 'Shut down' },
+  shutdown: { title: 'Shut down Gateway?', text: 'Every app, Caddy and this admin page stop. Start it again with start.ps1 on the machine.', ok: 'Shut down' },
 };
 
 async function gatewayAction(what) {
@@ -473,32 +575,52 @@ async function gatewayAction(what) {
 }
 
 async function appAction(id, verb) {
+  if (busyApps.has(id)) return null;
   const app = appById(id);
   const name = app?.name ?? id;
   const confirm = verb === 'stop' ? { title: `Stop ${name}?`, text: 'Anyone using this application loses the connection.', ok: 'Stop' }
     : verb === 'restart' || (verb === 'start' && app?.state === 'external')
     ? { title: `${app?.state === 'external' ? 'Take over' : 'Restart'} ${name}?`, text: 'The current process is stopped and relaunched by Gateway.', ok: 'Continue' }
     : undefined;
-  const done = await act(`/apps/${encodeURIComponent(id)}/${verb}`, { confirm });
-  probes.delete(id);
-  beat();
-  return done;
+  if (confirm && !(await confirmAction(confirm.title, confirm.text, confirm.ok))) return null;
+  busyApps.set(id, verb);
+  for (const section of mounted.values()) section.onPulse?.();
+  try {
+    const done = await act(`/apps/${encodeURIComponent(id)}/${verb}`);
+    probes.delete(id);
+    return done;
+  } finally {
+    busyApps.delete(id);
+    beat();
+  }
 }
 
 function appButtons(a) {
   if (!a.launch) return '';
+  const busyVerb = busyApps.get(a.id);
+  const disabled = busyVerb ? ' disabled' : '';
+  const cls = verb => busyVerb === verb ? ' is-busy' : '';
+  const label = (verb, idle) => busyVerb === verb ? BUSY_LABEL[verb] : idle;
   return isLive(a)
-    ? `<button class="btn small" data-app="${esc(a.id)}" data-verb="restart">Restart</button><button class="btn small danger" data-app="${esc(a.id)}" data-verb="stop">Stop</button>`
-    : `<button class="btn small primary" data-app="${esc(a.id)}" data-verb="start">Start</button>`;
+    ? `<button class="btn small${cls('restart')}" data-app="${esc(a.id)}" data-verb="restart"${disabled}>${label('restart', 'Restart')}</button><button class="btn small danger${cls('stop')}" data-app="${esc(a.id)}" data-verb="stop"${disabled}>${label('stop', 'Stop')}</button>`
+    : `<button class="btn small primary${cls('start')}" data-app="${esc(a.id)}" data-verb="start"${disabled}>${label('start', 'Start')}</button>`;
 }
 
 // Buttons anywhere on the page: data-gw runs a gateway action, data-app +
-// data-verb an app action.
+// data-verb an app action, data-copy copies text to clipboard.
 document.addEventListener('click', async ev => {
+  const copyBtn = ev.target.closest('[data-copy]');
+  if (copyBtn) { copyText(copyBtn.dataset.copy, copyBtn.dataset.copyLabel || 'Copied to clipboard.'); return; }
+  const recheckBtn = ev.target.closest('[data-recheck]');
+  if (recheckBtn) {
+    const target = appById(recheckBtn.dataset.recheck);
+    if (target) { probes.delete(target.id); probe(target, true); }
+    return;
+  }
   const gw = ev.target.closest('[data-gw]');
   if (gw) { gw.disabled = true; await gatewayAction(gw.dataset.gw); gw.disabled = false; return; }
   const btn = ev.target.closest('[data-app][data-verb]');
-  if (btn) { btn.disabled = true; await appAction(btn.dataset.app, btn.dataset.verb); btn.disabled = false; return; }
+  if (btn) { await appAction(btn.dataset.app, btn.dataset.verb); return; }
 });
 
 document.addEventListener('change', async ev => {
@@ -514,27 +636,38 @@ document.addEventListener('change', async ev => {
 // ------------------------------------------------------------------ probes
 
 const probes = new Map();
+const probeUsesGet = new Set();
 const onGatewayMachine = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
 const hasRoute = app => Boolean(app.basePath && app.active && app.routes !== 'none');
 const probePath = app => app.probe || app.basePath;
+const shouldProbe = app => hasRoute(app) && (!app.launch || app.state === 'running' || app.state === 'external');
 
 function currentProbe(app) {
   const result = probes.get(app.id);
   return result?.path === probePath(app) ? result : null;
 }
 
-async function probe(app) {
-  if (!hasRoute(app) || (app.launch && app.state === 'stopped')) return;
+async function probe(app, force = false) {
+  if (!shouldProbe(app)) {
+    probes.delete(app.id);
+    return;
+  }
   const path = probePath(app);
   const last = currentProbe(app);
-  if (last && (last.pending || Date.now() - last.at < 10000)) return;
+  if (!force && last && (last.pending || Date.now() - last.at < 15000)) return;
   const pending = { ...last, path, pending: true };
   probes.set(app.id, pending);
   let text, tone;
   const started = performance.now();
   try {
     const url = new URL('../' + path.replace(/^\//, ''), location.href);
-    const response = await fetch(url, { method: 'HEAD', mode: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(2500) });
+    const send = method => fetch(url, { method, mode: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(2500) });
+    let response = await send(probeUsesGet.has(app.id) ? 'GET' : 'HEAD');
+    if (!probeUsesGet.has(app.id) && (response.status === 405 || response.status === 501)) {
+      probeUsesGet.add(app.id);
+      response = await send('GET');
+    }
+    response.body?.cancel?.().catch(() => {});
     const ms = Math.round(performance.now() - started);
     if (response.status === 401 || response.status === 403) {
       text = 'Sign-in required';
@@ -556,19 +689,27 @@ async function probe(app) {
   const active = appById(app.id);
   if (!active || !hasRoute(active) || probePath(active) !== path) return;
   $$('[data-probe="' + CSS.escape(app.id) + '"]').forEach(element => updateEntryStatus(element, active));
+  updateNavBadges();
   for (const section of mounted.values()) section.onProbe?.();
 }
 
 function entryStatus(app) {
   if (app.localUrl) {
     const port = Number(new URL(app.localUrl).port || '80');
+    const up = app.ports.some(item => item.port === port && item.listening);
     return {
-      text: app.ports.some(item => item.port === port && item.listening) ? 'Listening locally' : 'No listener',
+      text: up ? 'Listening locally' : app.state === 'starting' ? 'Waiting for port…' : 'No listener',
+      tone: up ? 'ready' : 'neutral',
       hint: 'Listener status on the Gateway host. HTTP health has not been verified.',
     };
   }
   if (!hasRoute(app)) return { text: 'Not published' };
-  if (app.launch && app.state === 'stopped') return { text: 'App stopped' };
+  if (app.launch) {
+    if (app.state === 'stopped') return { text: 'App stopped' };
+    if (app.state === 'exited') return { text: 'Process exited', tone: 'problem' };
+    if (app.state === 'starting') return { text: 'Waiting for ports…' };
+    if (app.state === 'stopping') return { text: 'Stopping…' };
+  }
   const result = currentProbe(app);
   return {
     text: result?.text || 'Checking…',
@@ -608,6 +749,15 @@ function routeLink(app) {
 
 // ------------------------------------------------------------------ overview
 
+function formatEventMarkup(raw) {
+  const plain = stripAnsi(raw);
+  const m = plain.match(/^\[([A-Z ]+)\]\s*(.*)$/);
+  if (!m) return esc(plain);
+  const tag = m[1];
+  const cls = tag === 'START' ? 'ok' : tag === 'EXIT' || tag === 'GIVE UP' || tag === 'SKIP' ? 'bad' : tag === 'RESTART' || tag === 'STOP' ? 'warn' : 'info';
+  return `<span class="event-tag t-${cls}">${esc(tag)}</span> ${esc(m[2])}`;
+}
+
 views.overview = root => {
   const loadingRows = count => '<li class="loading-row" aria-hidden="true"><span class="skeleton"></span></li>'.repeat(count);
   const tile = (id, title) => `<section class="card tile" id="${id}"><h3>${title}</h3>
@@ -616,7 +766,10 @@ views.overview = root => {
     <div class="head overview-head"><div class="heading-group"><h1>Overview</h1><p class="muted" id="ov-summary">Connecting to Gateway…</p></div><span class="spacer"></span>
       <button class="btn" id="refresh-overview">Refresh</button>
       <details class="action-menu"><summary class="btn">More</summary><div class="menu-items">
-        <button data-gw="start-all">Start enabled apps</button><a href="#config">Configuration</a>
+        <button data-gw="reload">Apply routes</button>
+        <button data-gw="start-all">Start enabled apps</button>
+        <button data-gw="restart-all">Restart live apps</button>
+        <a href="#config">Config</a>
         <button class="menu-divider danger" data-gw="stop-all">Stop all apps</button><button class="danger" data-gw="shutdown">Shut down Gateway</button>
       </div></details></div>
     <div class="snapshot" id="snapshot">
@@ -629,11 +782,13 @@ views.overview = root => {
       <section class="card"><div class="panel-heading"><h3>Recent activity</h3><span class="panel-count" id="ov-event-count"></span></div>
         <ul class="events" id="events">${loadingRows(4)}</ul>
         <footer class="panel-footer"><span class="muted" id="activity-caption"></span><a href="#logs/gateway">View activity</a></footer></section>
-    <section class="card" id="disks-card"><div class="panel-heading"><h3>Storage</h3><span class="panel-count" id="disk-count"></span></div>
-      <div class="disks" id="disks"><span class="skeleton"></span></div></section></div>`;
+      <section class="card" id="disks-card"><div class="panel-heading"><h3>Storage</h3><span class="panel-count" id="disk-count"></span></div>
+        <div class="disks" id="disks"><span class="skeleton"></span></div>
+        <footer class="panel-footer"><span class="muted" id="disks-caption"></span><span class="muted num" id="disks-total"></span></footer></section></div>`;
   const refresh = $('#refresh-overview', root);
   refresh.addEventListener('click', async () => {
     refresh.disabled = true;
+    probes.clear();
     await Promise.all([beat(), loadMetrics()]);
     refresh.disabled = false;
   });
@@ -652,7 +807,7 @@ views.overview = root => {
         el.innerHTML = '<strong>No activity yet</strong><span>Starts, stops and route updates appear here.</span>';
       } else {
         el.className = entry.stream === 'err' ? 'err' : '';
-        el.innerHTML = `<time datetime="${esc(entry.time)}">${clock(entry.time)}</time><a href="#logs/gateway" title="${esc(stripAnsi(entry.text))}">${esc(stripAnsi(entry.text))}</a>`;
+        el.innerHTML = `<time datetime="${esc(entry.time)}">${clock(entry.time)}</time><a href="#logs/gateway" title="${esc(stripAnsi(entry.text))}">${formatEventMarkup(entry.text)}</a>`;
       }
       return el;
     });
@@ -673,6 +828,7 @@ views.overview = root => {
     const link = $('#ov-attention', root);
     link.hidden = count === 0;
     setText(link, `${count} ${count === 1 ? 'app needs' : 'apps need'} attention`);
+    updateNavBadges();
   }
 
   function onConnection() {
@@ -707,9 +863,19 @@ views.overview = root => {
     const total = pulse.apps.total;
     const proxied = apps().filter(hasRoute).length;
     setText($('#ov-summary', root), `${total} registered · ${proxied} proxied`);
-    const live = (states.running || 0) + (states.external || 0);
-    const runDetails = [states.running && `${states.running} managed`, states.external && `${states.external} external`, states.routed && `${states.routed} route-only`].filter(Boolean).join(' · ');
-    updateTile('#t-apps', `${live}<small> live</small>`, runDetails || 'No app processes running', `<span class="sub">${states.stopped || 0} stopped · ${states.exited || 0} exited</span>`);
+    const live = (states.running || 0) + (states.external || 0) + (states.starting || 0);
+    const runDetails = [
+      states.running && `${states.running} running`,
+      states.starting && `${states.starting} starting`,
+      states.stopping && `${states.stopping} stopping`,
+      states.external && `${states.external} external`,
+      states.routed && `${states.routed} route-only`,
+    ].filter(Boolean).join(' · ');
+    const offDetails = [
+      `${states.stopped || 0} stopped`,
+      `${states.exited || 0} exited`,
+    ].join(' · ');
+    updateTile('#t-apps', `${live}<small> / ${total} live</small>`, runDetails || 'No app processes running', `<span class="sub">${offDetails}</span>`);
     const bindPort = String(g.bind).match(/:(\d+)\/?$/)?.[1] || g.bind;
     updateTile('#t-gw', g.caddy.alive ? 'Online' : 'Offline', `Port <span class="mono" title="${esc(g.bind)}">${esc(bindPort)}</span> · ${g.caddy.alive ? 'up ' + since(g.startedAt) : 'Caddy unavailable'}`,
       `<span class="sub">${g.reloading ? 'Applying routes…' : g.lastReload ? `Routes ${g.lastReload.ok ? 'applied' : 'failed'} at ${esc(clock(g.lastReload.at))}` : 'Routes loaded at startup'}</span>`);
@@ -720,9 +886,14 @@ views.overview = root => {
     showAttention();
     const disks = pulse.system.disks;
     setText($('#disk-count', root), disks.length);
-    setMarkup($('#disks', root), disks.length ? disks.map(d => `
+    const disksEl = $('#disks', root);
+    setMarkup(disksEl, disks.length ? disks.map(d => `
       <div class="disk" title="${esc(d.label || d.name)}"><div class="row"><b>${esc(d.name)}</b>${d.label ? `<span class="disk-label">${esc(d.label)}</span>` : ''}<span class="muted num">${bytes(d.free)} free of ${bytes(d.total)}</span></div>${bar((d.total - d.free) / d.total, { warn: .85, bad: .95 })}</div>`).join('')
       : '<p class="muted">No ready storage volumes.</p>');
+    const totalFree = disks.reduce((sum, d) => sum + (d.free || 0), 0);
+    const totalSize = disks.reduce((sum, d) => sum + (d.total || 0), 0);
+    setText($('#disks-caption', root), disks.length > 4 ? `${disks.length} volumes · scroll for more` : `${disks.length} ${disks.length === 1 ? 'volume' : 'volumes'}`);
+    setText($('#disks-total', root), totalSize ? `${bytes(totalFree)} free` : '');
 
   }
 
@@ -736,6 +907,7 @@ views.apps = (root, initial, initialId) => {
     <div class="head"><div class="heading-group"><h2>Apps</h2><p id="apps-count" class="muted">Loading registrations…</p></div>
       <span class="spacer"></span><details class="action-menu"><summary class="btn">More</summary><div class="menu-items">
         <button data-gw="start-all">Start enabled apps</button>
+        <button data-gw="restart-all">Restart live apps</button>
         <button class="menu-divider danger" data-gw="stop-all">Stop all apps</button></div></details></div>
     <div class="app-workbench">
       <div class="app-toolbar"><input id="app-search" type="search" placeholder="Search apps" aria-label="Search apps">
@@ -802,13 +974,23 @@ views.apps = (root, initial, initialId) => {
     return row;
   }
 
+  function appSublabel(a) {
+    if (a.basePath) return a.basePath;
+    if (a.localUrl) {
+      try { const u = new URL(a.localUrl); return `Local · :${u.port || '80'}`; } catch { /* fallback */ }
+    }
+    return a.id;
+  }
+
   function updateRow(row, a) {
     const issue = appAttention(a);
+    const sub = issue || appSublabel(a);
     row.setAttribute('aria-pressed', String(a.id === selected));
+    row.title = `${a.name} — ${sub}`;
     setMarkup($('.app-image', row), appIcon(a));
     setText($('b', row), a.name);
     const caption = $('small', row);
-    setText(caption, issue || a.basePath || a.id);
+    setText(caption, sub);
     caption.classList.toggle('restart-note', !!issue);
     setMarkup($('.object-process', row), badge(a.state));
   }
@@ -829,25 +1011,36 @@ views.apps = (root, initial, initialId) => {
 
   function updateRouteCell(dd, a) {
     if (!dd._routeSlot) {
-      dd.innerHTML = '<span class="route-cell"><span class="route-link-slot"></span><span class="entry-status"></span></span>';
+      dd.innerHTML = '<span class="route-cell"><span class="route-link-slot"></span><span class="entry-status"></span><button type="button" class="link-button small recheck-btn" title="Check entry now" hidden>Re-check</button></span>';
       dd._routeSlot = $('.route-link-slot', dd);
       dd._probeSlot = $('.entry-status', dd);
+      dd._recheckSlot = $('.recheck-btn', dd);
     }
     setMarkup(dd._routeSlot, routeLink(a));
     dd._probeSlot.dataset.probe = a.id;
     updateEntryStatus(dd._probeSlot, a);
+    dd._recheckSlot.dataset.recheck = a.id;
+    dd._recheckSlot.hidden = !shouldProbe(a);
   }
 
   function updateGauges() {
     const a = appById(selected);
     if (!a) return;
     const history = metrics?.apps?.[a.id], [cpu, mem] = $$('.gauge', summary);
+    const cpuSamples = (history?.cpu ?? []).filter(v => v != null);
+    const memSamples = (history?.mem ?? []).filter(v => v != null);
+    const cpuPeak = cpuSamples.length ? Math.max(...cpuSamples) : null;
+    const memPeak = memSamples.length ? Math.max(...memSamples) : null;
+    cpu.title = cpuPeak != null ? `Peak ${pct(cpuPeak)} over last hour (all cores)` : 'CPU over all cores';
+    mem.title = memPeak != null ? `Peak ${bytes(memPeak)} over last hour` : 'Working set across process tree';
     setMarkup(cpu, `CPU <b>${a.usage ? pct(a.usage.cpu) : '–'}</b>${spark(history?.cpu ?? [])}`);
     setMarkup(mem, `Memory <b>${a.usage ? bytes(a.usage.memory) : '–'}</b>${spark(history?.mem ?? [], {cls:'mem'})}`);
   }
 
   function updateSummary(a) {
     const href = entryHref(a), logHash = '#logs/' + encodeURIComponent(a.id);
+    const issue = appAttention(a);
+    const entryHealthy = Boolean(href) && ['running', 'external', 'routed'].includes(a.state) && entryStatus(a).tone !== 'problem';
     setMarkup($('#object-icon', root), appIcon(a));
     setText($('#object-name', root), a.name);
     $('#object-name', root).title = a.name;
@@ -855,12 +1048,12 @@ views.apps = (root, initial, initialId) => {
     $('#object-description', root).title = a.description || a.id;
     setMarkup($('#object-state', root), badge(a.state));
     const warn = $('#object-warning', root);
-    warn.hidden = !a.note && !appAttention(a);
-    setText(warn, a.note || appAttention(a) || '');
+    warn.hidden = !a.note && !issue;
+    setText(warn, a.note || issue || '');
     const commands = $('#object-commands', root);
     const focused = commands.contains(document.activeElement) ? document.activeElement : null;
-    setMarkup(commands, `${appAttention(a) ? `<a class="btn small" href="${logHash}">Diagnose</a>` : ''}
-      ${href ? `<a class="btn small primary" href="${esc(href)}" target="_blank" rel="noopener">Open entry ↗</a>` : ''}${appButtons(a)}`);
+    setMarkup(commands, `${issue ? `<a class="btn small" href="${logHash}">Diagnose</a>` : ''}
+      ${href ? `<a class="btn small${entryHealthy ? ' primary' : ''}" href="${esc(href)}" target="_blank" rel="noopener">Open entry ↗</a>` : ''}${appButtons(a)}`);
     const edit = $('#object-edit', root);
     edit.href = '#config/' + encodeURIComponent(a.id);
     if (focused && !focused.isConnected) (commands.querySelector('button,a') || edit).focus({preventScroll:true});
@@ -873,6 +1066,8 @@ views.apps = (root, initial, initialId) => {
       enable = next;
     }
     if (!enable.disabled) enable.checked = !!a.enabled;
+    const launchCmd = a.launch ? ('start.ps1' + (a.args.length ? ' ' + a.args.join(' ') : '')) : '';
+    const copyChip = (val, label) => `<button type="button" class="copy-btn" data-copy="${esc(val)}" data-copy-label="${esc(label)}" title="Copy" aria-label="${esc(label)}">Copy</button>`;
     facts('.runtime', [
       ['Route', dd => updateRouteCell(dd, a)],
       ['Routing', `${esc(a.routes)}${a.hidden ? ' · Hidden from landing page' : ''}`],
@@ -880,7 +1075,8 @@ views.apps = (root, initial, initialId) => {
       ['Uptime', `${a.startedAt && a.managed ? since(a.startedAt) + ' · Since ' + esc(stamp(a.startedAt)) + ' · ' : ''}${a.starts} ${a.starts === 1 ? 'start' : 'starts'} this run${a.exitedAt ? ' · Last exit ' + esc(clock(a.exitedAt)) + ' (code ' + esc(a.exitCode) + ')' : ''}`]
     ]);
     facts('.startup', [
-      ['Root', esc(a.root)], ['Launch', a.launch ? 'start.ps1 ' + esc(a.args.join(' ')) : 'Routed only'],
+      ['Root', `<span class="copy-row"><span class="mono">${esc(a.root)}</span>${copyChip(a.root, 'Copied root path.')}</span>`],
+      ['Launch', a.launch ? `<span class="copy-row"><span class="mono">${esc(launchCmd)}</span>${copyChip(launchCmd, 'Copied launch command.')}</span>` : 'Routed only'],
       ['Policy', `${a.restartIfRunning ? 'Take over existing process' : 'Keep existing process'} · ${a.autoRestart ? 'Restart after crash' : 'Manual restart'}`],
       ['Environment', (Array.isArray(a.env) ? a.env : Object.keys(a.env || {})).map(esc).join('<br>') || '—']
     ]);
@@ -1046,31 +1242,61 @@ function toneOf(line, plain) {
   return '';
 }
 
-function logLine(l, { needle = '', withSource = false } = {}) {
-  const plain = l.plain ?? stripAnsi(l.text);
-  let text = esc(plain);
+/** Format structured Caddy JSON log lines into a concise, readable summary. */
+function formatCaddyLine(plain) {
+  if (!plain || plain[0] !== '{' || !plain.endsWith('}')) return null;
+  let obj;
+  try { obj = JSON.parse(plain); } catch { return null; }
+  if (!obj || typeof obj !== 'object' || typeof obj.msg !== 'string' || typeof obj.level !== 'string') return null;
+  const lvl = obj.level.toUpperCase();
+  const logger = obj.logger ? `${obj.logger} ` : '';
+  const req = obj.request;
+  const parts = [`[${lvl}] ${logger}${obj.msg}`];
+  if (req && typeof req === 'object') {
+    const reqInfo = [obj.status, req.method, req.uri].filter(v => v != null && v !== '').join(' ');
+    if (reqInfo) parts.push(`(${reqInfo})`);
+  } else if (obj.status != null) {
+    parts.push(`(HTTP ${obj.status})`);
+  }
+  if (obj.error && !obj.msg.includes(obj.error)) parts.push(`— ${obj.error}`);
+  if (obj.name && !req) parts.push(`· ${obj.name}`);
+  return parts.join(' ');
+}
+
+function logLine(l, { needle = '', withSource = false, pretty = true } = {}) {
+  const rawPlain = l.plain ?? stripAnsi(l.text);
+  const formatted = pretty && l.source === 'caddy' ? (l.pretty ?? formatCaddyLine(rawPlain)) : null;
+  const display = formatted || rawPlain;
+  let text = esc(display);
   if (needle) {
     const re = new RegExp(esc(needle).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
     text = text.replace(re, m => `<mark>${m}</mark>`);
   }
   const src = withSource ? `<span class="src ${colorOf(l.source)}">${esc(l.source)}</span>` : '';
-  return `<div class="l ${toneOf(l, plain)}"><span class="t">${clock(l.time)}</span>${src}${text}</div>`;
+  const titleAttr = formatted ? ` title="${esc(rawPlain)}"` : '';
+  return `<div class="l ${toneOf(l, rawPlain)}"${titleAttr}><span class="t">${clock(l.time)}</span>${src}${text}</div>`;
 }
 
 views.logs = (root, initial) => {
   root.innerHTML = `
     <div class="head"><h2>Logs</h2></div>
     <section class="logs-panel"><div class="log-toolbar">
-      <select id="sources" aria-label="Log source"><option>Reading sources…</option></select>
-      <input id="log-filter" type="search" placeholder="Filter lines" size="18" aria-label="Filter lines">
-      <label class="check small"><input type="checkbox" id="log-err"> Problems only</label>
-      <label class="check small"><input type="checkbox" id="log-wrap" checked> Wrap lines</label>
-      <label class="check small"><input type="checkbox" id="log-follow" checked> Follow</label>
-      <button class="btn small" id="log-pause">Pause</button></div>
+      <div class="log-toolbar-group">
+        <select id="sources" aria-label="Log source"><option>Reading sources…</option></select>
+        <input id="log-filter" type="search" placeholder="Filter lines" size="18" aria-label="Filter lines">
+      </div>
+      <div class="log-toolbar-group log-toolbar-toggles">
+        <label class="check small"><input type="checkbox" id="log-err"> Problems only</label>
+        <label class="check small" title="Show unformatted JSON for Caddy logs"><input type="checkbox" id="log-raw"> Raw JSON</label>
+        <label class="check small"><input type="checkbox" id="log-wrap" checked> Wrap lines</label>
+        <label class="check small"><input type="checkbox" id="log-follow" checked> Follow</label>
+        <button class="btn small" id="log-pause">Pause</button>
+      </div></div>
     <div class="logbox wrap" id="logbox" tabindex="0" aria-label="Log output"><div class="empty">Loading…</div></div>
     <footer class="log-footer"><span class="muted small" id="log-shown">Reading lines…</span><button class="pill" id="log-unread" hidden></button><span class="spacer"></span>
-      <button class="btn small" id="log-clear" hidden title="Empty the in-memory buffer; the file is kept">Clear</button>
-      <a class="btn small" id="log-download" hidden>Download</a></footer></section>`;
+      <button class="btn small" id="log-copy" title="Copy visible lines to clipboard">Copy</button>
+      <button class="btn small" id="log-clear" title="Empty the in-memory buffer; log files on disk are kept">Clear</button>
+      <a class="btn small" id="log-download">Download</a></footer></section>`;
 
   const box = $('#logbox', root);
   const ALL = '_all';
@@ -1079,15 +1305,22 @@ views.logs = (root, initial) => {
   let after = 0, loaded = false, lines = [], paused = false, unread = 0;
   const MAX = 5000;
 
-  const paint = () => {
+  const currentShown = () => {
     const needle = $('#log-filter', root).value;
     const lower = needle.toLowerCase();
     const problems = $('#log-err', root).checked;
-    const shown = lines.filter(l => (!problems || toneOf(l, l.plain)) && (!lower || l.plain.toLowerCase().includes(lower)));
+    const raw = $('#log-raw', root).checked;
+    const shown = lines.filter(l => (!problems || toneOf(l, l.plain)) && (!lower || l.plain.toLowerCase().includes(lower) || (l.pretty && l.pretty.toLowerCase().includes(lower))));
+    return { needle, raw, shown };
+  };
+
+  const paint = () => {
+    const { needle, raw, shown } = currentShown();
     const follow = $('#log-follow', root).checked;
     setText($('#log-shown', root), `${shown.length} of ${lines.length} lines`);
+    $('#log-copy', root).disabled = shown.length === 0;
     reconcile(box, shown.length ? shown : [{ seq: 'empty' }], l => l.seq, () => document.createElement('div'), (el, l) => {
-      setMarkup(el, l.seq === 'empty' ? '<div class="empty">No lines.</div>' : logLine(l, { needle, withSource: source === ALL }));
+      setMarkup(el, l.seq === 'empty' ? '<div class="empty">No lines.</div>' : logLine(l, { needle, withSource: source === ALL, pretty: !raw }));
     });
     if (follow) { box.scrollTop = box.scrollHeight; unread = 0; }
     showUnread();
@@ -1112,10 +1345,8 @@ views.logs = (root, initial) => {
     rememberSection('logs', name === ALL ? '#logs' : `#logs/${encodeURIComponent(name)}`);
     $('#sources', root).value = name;
     const dl = $('#log-download', root);
-    dl.hidden = name === ALL;
     dl.href = `api/logs/${encodeURIComponent(name)}/file`;
-    dl.setAttribute('download', `${name}.log`);
-    $('#log-clear', root).hidden = name === ALL;
+    dl.setAttribute('download', name === ALL ? 'all-sources.log' : `${name}.log`);
     box.innerHTML = '<div class="empty">Loading…</div>';
     poll();
   };
@@ -1133,7 +1364,11 @@ views.logs = (root, initial) => {
     }
     if (revision !== logRevision || !box.isConnected || want !== source || previous !== after) return;
     if (d.lines.length || !loaded) {
-      for (const l of d.lines) { l.plain = stripAnsi(l.text); lines.push(l); }
+      for (const l of d.lines) {
+        l.plain = stripAnsi(l.text);
+        if (l.source === 'caddy') l.pretty = formatCaddyLine(l.plain);
+        lines.push(l);
+      }
       if (lines.length > MAX) lines = lines.slice(-MAX);
       if (d.lines.length) after = d.lines[d.lines.length - 1].seq;
       if (loaded && (paused || !$('#log-follow', root).checked)) unread += d.lines.length;
@@ -1167,6 +1402,7 @@ views.logs = (root, initial) => {
   $('#sources', root).addEventListener('change', ev => select(ev.target.value));
   $('#log-filter', root).addEventListener('input', paint);
   $('#log-err', root).addEventListener('change', paint);
+  $('#log-raw', root).addEventListener('change', paint);
   $('#log-wrap', root).addEventListener('change', ev => box.classList.toggle('wrap', ev.target.checked));
   $('#log-pause', root).addEventListener('click', ev => {
     paused = !paused;
@@ -1174,11 +1410,19 @@ views.logs = (root, initial) => {
     ev.target.classList.toggle('on', paused);
     if (!paused) { paint(); poll(false); }
   });
+  $('#log-copy', root).addEventListener('click', () => {
+    const { raw, shown } = currentShown();
+    if (!shown.length) return;
+    const text = shown.map(l => `${clock(l.time)}${source === ALL ? ' [' + l.source + ']' : ''} ${(!raw && l.pretty) || l.plain}`).join('\n');
+    copyText(text, `Copied ${shown.length} ${shown.length === 1 ? 'line' : 'lines'}.`);
+  });
   $('#log-clear', root).addEventListener('click', async () => {
     const revision = logRevision;
-    if (await act(`/logs/${encodeURIComponent(source)}/clear`, { quiet: true }) && box.isConnected && revision === logRevision) {
+    const confirm = source === ALL ? { title: 'Clear all log buffers?', text: 'Clears the in-memory view for every source. Log files on disk are kept.', ok: 'Clear all' } : undefined;
+    if (await act(`/logs/${encodeURIComponent(source)}/clear`, { confirm }) && box.isConnected && revision === logRevision) {
       ++logRevision;
       lines = [];
+      unread = 0;
       paint();
     }
   });
@@ -1246,7 +1490,8 @@ views.config = (root, initial, initialTab) => {
     const text = key === 'env'
       ? (Array.isArray(f.routeEnv) ? f.routeEnv : Object.keys(f.routeEnv || {})).join('\n') || '(no snippet app sets any)'
       : f[key];
-    pane.innerHTML = `<pre class="code">${esc(text)}</pre>`;
+    pane.innerHTML = `<div class="code-box"><div class="code-box-head"><span class="muted small">${esc(key === 'caddyfile' ? 'Generated Caddyfile' : key === 'env' ? 'Route environment variables' : key === 'schema' ? 'schema/app.schema.json' : 'PORTS.md')}</span><button type="button" class="btn small" id="copy-ref">Copy</button></div><pre class="code">${esc(text)}</pre></div>`;
+    $('#copy-ref', pane).addEventListener('click', () => copyText(text, 'Copied to clipboard.'));
   };
 
   const tabs = {
@@ -1363,6 +1608,11 @@ views.config = (root, initial, initialTab) => {
       const note = $('#pending-note', root);
       setText(note, g.reloading ? 'Applying…' : g.lastReload?.ok === false ? g.lastReload.message || 'Apply failed' :
         pending ? `${pending} pending` : '');
+      const dot = $('#nav-config-dot');
+      if (dot) dot.hidden = !(required || hasDraft);
+    } else {
+      const dot = $('#nav-config-dot');
+      if (dot) dot.hidden = !hasDraft;
     }
     if (!g.reloading && !hasDraft) {
       const status = $('#saved-at', root);
@@ -1395,6 +1645,7 @@ async function gatewayEditor(body) {
   let checkSeq = 0;
   body.innerHTML = `<div class="editor-layout gateway-editor">
     <section><div class="row"><b>Gateway settings</b><span class="spacer"></span>
+      <button class="btn small" id="gateway-format">Format JSON</button>
       <button class="btn" id="gateway-check">Check</button><button class="btn primary" id="gateway-save" disabled>Save settings</button></div>
       <textarea class="code" id="gateway-text" aria-label="gateway.json" spellcheck="false"></textarea></section>
     <aside class="card config-preview preview-idle" id="gateway-preview" aria-live="polite"><h3>Resolved settings</h3>
@@ -1404,6 +1655,14 @@ async function gatewayEditor(body) {
   const checkBtn = $('#gateway-check', body);
   const saveBtn = $('#gateway-save', body);
   text.value = config.text;
+  text.addEventListener('keydown', ev => {
+    handleCodeTab(ev);
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); if (!saveBtn.disabled) saveBtn.click(); }
+  });
+  $('#gateway-format', body).addEventListener('click', () => {
+    try { text.value = JSON.stringify(JSON.parse(text.value), null, 2) + '\n'; text.dispatchEvent(new Event('input')); }
+    catch (e) { toast(`Not valid JSON: ${e.message}`, 'bad'); }
+  });
   let busy = false;
   const syncButtons = () => {
     const dirty = text.value !== savedText;
@@ -1479,10 +1738,13 @@ async function registry(body, initial, rememberFiles) {
       </aside>
       <div class="stack registry-editor">
         <div class="row"><div><h2 id="editing-name">Registration</h2><small id="editing" class="mono muted"></small></div></div>
-        <div class="row"><div class="pills" aria-label="Editing mode"><button class="pill on" id="fields-mode">Fields</button><button class="pill" id="json-mode">Raw JSON</button></div><span class="spacer"></span>
+        <div class="row"><div class="pills" aria-label="Editing mode"><button class="pill on" id="fields-mode">Fields</button><button class="pill" id="json-mode">Raw JSON</button></div>
+          <span id="json-status" class="json-state" hidden></span>
+          <button class="btn small" id="format-app" hidden title="Pretty-print JSON">Format JSON</button>
+          <span class="spacer"></span>
           <select id="history" aria-label="Earlier versions"></select>
           <details class="action-menu"><summary class="btn small">More</summary><div class="menu-items">
-          <button id="format-app" hidden>Format JSON</button><button class="danger" id="delete-app">Delete registration</button></div></details></div>
+          <button class="danger" id="delete-app">Delete registration</button></div></details></div>
         <div id="app-fields" class="card registry-fields">
           <label>Display name<input data-field="name"></label>
           <label>Public prefix<input data-field="basePath" placeholder="/example"></label>
@@ -1490,12 +1752,21 @@ async function registry(body, initial, rememberFiles) {
           <label class="field-wide">Description<input data-field="description"></label>
           <label>Icon<select id="icon-mode"><option value="">Fallback glyph</option><option value="glyph">Character</option><option value="file">Application file</option></select></label>
           <label id="icon-field" hidden><span id="icon-label">Icon value</span><input id="icon-value"></label>
-          <p class="muted small">Use Raw JSON for named ports, launch arguments or routes.</p>
+          <label>Sort order<input type="number" data-int="order" placeholder="100"></label>
+          <div class="field-flags field-wide">
+            <label class="check"><input type="checkbox" data-bool="enabled"> Enabled at startup</label>
+            <label class="check"><input type="checkbox" data-bool="hidden"> Hide from landing page</label>
+            <label class="check" id="flag-auto-restart" hidden><input type="checkbox" data-launch-bool="autoRestart"> Auto-restart on crash</label>
+            <label class="check" id="flag-restart-running" hidden><input type="checkbox" data-launch-bool="restartIfRunning"> Take over if already running</label>
+          </div>
+          <p class="muted small">Use Raw JSON for named ports, launch arguments, environment variables or routes.</p>
         </div>
         <textarea class="code" id="app-text" spellcheck="false" aria-label="App file" hidden></textarea>
       </div>
-      <aside class="reg-inspector"><div id="applied-info"></div>
-        <div class="config-preview preview-idle" id="app-preview" aria-live="polite" tabindex="-1"></div></aside>
+      <aside class="reg-inspector">
+        <div class="config-preview preview-idle" id="app-preview" aria-live="polite" tabindex="-1"></div>
+        <div id="applied-info"></div>
+      </aside>
     </div><footer class="reg-footer"><span class="reg-state"><b id="saved-at"></b><small id="pending-note" class="muted"></small></span>
       <span class="spacer"></span><button class="btn small" id="apply-restart" hidden>Apply and restart</button>
       <button class="btn" id="check-app">Check</button><button class="btn" id="save-app" disabled>Save registration</button>
@@ -1578,11 +1849,38 @@ async function registry(body, initial, rememberFiles) {
     $('#icon-value', body).placeholder = mode === 'file' ? 'app/static/icon.svg' : '◇';
   }
 
+  function updateJsonStatus() {
+    const status = $('#json-status', body);
+    if (!jsonMode || !text.value.trim()) { status.hidden = true; return; }
+    status.hidden = false;
+    try {
+      JSON.parse(text.value);
+      status.className = 'json-state ok';
+      setText(status, 'Valid JSON');
+      status.title = '';
+    } catch (e) {
+      status.className = 'json-state bad';
+      setText(status, 'Invalid JSON');
+      status.title = e.message;
+    }
+  }
+
   function syncFields() {
     let app;
     try { app = JSON.parse(text.value); }
     catch { return false; }
     $$('[data-field]', fields).forEach(input => { input.value = app[input.dataset.field] || ''; });
+    $$('[data-int]', fields).forEach(input => { input.value = app[input.dataset.int] ?? ''; });
+    $$('[data-bool]', fields).forEach(input => {
+      const k = input.dataset.bool;
+      input.checked = k === 'enabled' ? app.enabled !== false : Boolean(app[k]);
+    });
+    const hasLaunch = Boolean(app.launch && typeof app.launch === 'object');
+    $('#flag-auto-restart', body).hidden = !hasLaunch;
+    $('#flag-restart-running', body).hidden = !hasLaunch;
+    if (hasLaunch) {
+      $$('[data-launch-bool]', fields).forEach(input => { input.checked = Boolean(app.launch[input.dataset.launchBool]); });
+    }
     const mode = typeof app.icon === 'string' && app.icon ? 'glyph' : app.icon?.file ? 'file' : '';
     $('#icon-mode', body).value = mode;
     $('#icon-value', body).value = mode === 'file' ? app.icon.file : typeof app.icon === 'string' ? app.icon : '';
@@ -1602,16 +1900,37 @@ async function registry(body, initial, rememberFiles) {
     fields.hidden = raw;
     $('#fields-mode', body).classList.toggle('on', !raw);
     $('#json-mode', body).classList.toggle('on', raw);
+    updateJsonStatus();
   }
   $('#fields-mode', body).addEventListener('click', () => setMode(false));
   $('#json-mode', body).addEventListener('click', () => setMode(true));
   fields.addEventListener('input', ev => {
     if (!text.value) return;
-    const app = JSON.parse(text.value);
-    const field = ev.target.dataset.field;
-    if (field) {
-      if (ev.target.value || field === 'name' || field === 'root') app[field] = ev.target.value;
+    let app;
+    try { app = JSON.parse(text.value); } catch { return; }
+    const el = ev.target;
+    if (el.dataset.field) {
+      const field = el.dataset.field;
+      if (el.value || field === 'name' || field === 'root') app[field] = el.value;
       else delete app[field];
+    } else if (el.dataset.int) {
+      const key = el.dataset.int;
+      if (el.value === '') delete app[key];
+      else {
+        const num = Number.parseInt(el.value, 10);
+        if (!Number.isNaN(num)) app[key] = num;
+      }
+    } else if (el.dataset.bool) {
+      const key = el.dataset.bool;
+      if (key === 'enabled') app.enabled = el.checked;
+      else if (el.checked) app[key] = true;
+      else delete app[key];
+    } else if (el.dataset.launchBool) {
+      if (app.launch && typeof app.launch === 'object') {
+        const key = el.dataset.launchBool;
+        if (el.checked) app.launch[key] = true;
+        else delete app.launch[key];
+      }
     } else {
       const mode = $('#icon-mode', body).value;
       iconField(mode);
@@ -1666,13 +1985,18 @@ async function registry(body, initial, rememberFiles) {
   });
 
   const loadHistory = async id => {
-    historySelect.innerHTML = '<option value="">History…</option>';
+    historySelect.innerHTML = '<option value="">No backups yet</option>';
     historySelect.disabled = true;
+    historySelect.title = 'Previous versions are saved automatically when you edit or delete this registration.';
     try {
       const { versions } = await api(`/config/apps/${encodeURIComponent(id)}/history`);
       if (selected !== id || creating) return;
-      historySelect.innerHTML += versions.map(v => `<option value="${esc(v.file)}">${esc(stamp(v.saved))}${v.deleted ? ' (deleted)' : ''}</option>`).join('');
-      historySelect.disabled = !versions.length;
+      if (versions.length) {
+        historySelect.innerHTML = `<option value="">History (${versions.length})…</option>` +
+          versions.map(v => `<option value="${esc(v.file)}">${esc(stamp(v.saved))}${v.deleted ? ' (deleted)' : ''}</option>`).join('');
+        historySelect.disabled = false;
+        historySelect.title = 'Load an earlier backup into the editor';
+      }
     } catch { /* The current file remains editable. */ }
   };
 
@@ -1729,9 +2053,10 @@ async function registry(body, initial, rememberFiles) {
     mark(false, applied ? 'Applied' : 'Saved · pending apply');
   }
 
-  text.addEventListener('input', () => mark(true));
+  text.addEventListener('input', () => { updateJsonStatus(); mark(true); });
+  text.addEventListener('keydown', handleCodeTab);
   editor.addEventListener('keydown', ev => {
-    if ((ev.ctrlKey || ev.metaKey) && ev.key === 's') { ev.preventDefault(); $('#save-app', body).click(); }
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); $('#save-app', body).click(); }
   });
 
   historySelect.addEventListener('change', async () => {
@@ -1750,7 +2075,11 @@ async function registry(body, initial, rememberFiles) {
   });
 
   $('#format-app', body).addEventListener('click', () => {
-    try { text.value = JSON.stringify(JSON.parse(text.value), null, 2) + '\n'; mark(true); }
+    try {
+      text.value = JSON.stringify(JSON.parse(text.value), null, 2) + '\n';
+      updateJsonStatus();
+      mark(true);
+    }
     catch (e) { toast(`Not valid JSON: ${e.message}`, 'bad'); }
   });
 
@@ -1848,17 +2177,20 @@ views.ports = root => {
     <div class="range-index" id="port-ranges" aria-label="Port ranges"><span class="skeleton"></span></div>
     <select class="range-select" aria-label="Port range"><option>Reading ranges…</option></select>
     <div class="port-summary row"><span id="scope-summary"></span><span class="muted small" id="ports-message" role="status">Reading listeners…</span>
-      <span class="spacer"></span><label class="check"><input type="checkbox" id="only-issues"> Unclaimed only</label></div>
+      <span class="spacer"></span>
+      <input type="search" id="port-search" placeholder="Filter ports, apps or processes…" aria-label="Filter ports">
+      <label class="check"><input type="checkbox" id="only-issues"> Unclaimed only</label></div>
     <div class="ports-list"><table><colgroup><col class="col-port"><col class="col-range"><col class="col-app"><col class="col-state"><col class="col-listener"></colgroup><thead><tr><th>Port</th><th>Range / slot</th><th>Declared by</th><th>State</th><th>Listener</th></tr></thead>
       <tbody id="port-rows">${'<tr class="port-loading"><td colspan="5"><span class="skeleton"></span></td></tr>'.repeat(6)}</tbody></table></div>`;
   const index = $('#port-ranges', root), select = $('.range-select', root), table = $('#port-rows', root);
-  const issues = $('#only-issues', root), message = $('#ports-message', root);
+  const issues = $('#only-issues', root), portSearch = $('#port-search', root), message = $('#ports-message', root);
   let data, active = '', loading = false, updatedAt;
   const expanded = new Set();
 
   function render() {
     if (!data) return;
-    const choices = [{ key: '', name: 'All ranges', info: `${data.ranges.length} ranges` }];
+    const rangeCount = data.ranges.length;
+    const choices = [{ key: '', name: 'All ranges', info: `${rangeCount} ${rangeCount === 1 ? 'range' : 'ranges'}` }];
     for (const range of data.ranges) {
       const ports = data.ports.filter(p => p.range === range.name);
       const slots = new Set(ports.map(p => p.slot)).size;
@@ -1877,10 +2209,12 @@ views.ports = root => {
     const scoped = data.ports.filter(p => !active || p.range === active);
     const unclaimed = p => p.listening && !p.app;
     setText($('#scope-summary', root), (range ? `${range.from}–${range.to} · ` : '') + `${scoped.filter(p => p.listening).length} listening · ${scoped.filter(unclaimed).length} unclaimed`);
-    const rows = scoped.filter(p => !issues.checked || unclaimed(p));
+    const q = portSearch.value.trim().toLowerCase();
+    const rows = scoped.filter(p => (!issues.checked || unclaimed(p)) && (!q || [p.port, p.range, p.slot, p.app, p.name, p.process, p.pid].join(' ').toLowerCase().includes(q)));
     reconcile(table, rows.length ? rows : [{port: ':empty'}], p => p.port, () => document.createElement('tr'), (row, p) => {
       if (p.port === ':empty') {
-        setMarkup(row, `<td colspan="5" class="port-empty">${issues.checked ? 'No unclaimed listeners match.' : 'No ports recorded in this range.'} ${issues.checked || active ? '<button class="link-button" data-clear>Clear filters</button>' : ''}</td>`);
+        const filtered = issues.checked || active || q;
+        setMarkup(row, `<td colspan="5" class="port-empty">${q ? 'No matching ports.' : issues.checked ? 'No unclaimed listeners match.' : 'No ports recorded in this range.'} ${filtered ? '<button class="link-button" data-clear>Clear filters</button>' : ''}</td>`);
         return;
       }
       const bindings = (p.bindings || []).map(b => esc(b.address) + (b.pid !== p.pid ? ' · PID ' + esc(b.pid) : '')).join('<br>');
@@ -1893,19 +2227,24 @@ views.ports = root => {
       const button = $('button', row);
       setText(button, p.port + (isOpen ? ' ▴' : ' ▾'));
       button.setAttribute('aria-expanded', String(isOpen));
-      setMarkup(row.cells[1], `${esc(p.range || '—')}<small>Slot ${esc(p.slot ?? '—')}</small>`);
-      setMarkup(row.cells[2], `${esc(p.app || '—')}<small>${esc(p.name)}</small>`);
+      const rangeCell = p.range ? `${esc(p.range)}<small>Slot ${esc(p.slot)}</small>` : `—<small>Unranged</small>`;
+      const appCell = p.app && p.app !== '(gateway)'
+        ? `<a href="#apps/app/${encodeURIComponent(p.app)}">${esc(p.app)}</a><small>${esc(p.name)}</small>`
+        : `${esc(p.app || '—')}<small>${esc(p.name)}</small>`;
+      setMarkup(row.cells[1], rangeCell);
+      setMarkup(row.cells[2], appCell);
       setMarkup(row.cells[3], `<span class="badge s-${p.listening ? 'running' : 'stopped'}">${p.listening ? 'Listening' : 'Closed'}</span> ${unclaimed(p) ? '<span class="badge s-external plain">Unclaimed</span>' : ''}`);
       setMarkup(row.cells[4], listener);
       row.cells[5].hidden = !isOpen;
-      if (isOpen) setMarkup(row.cells[5], `${esc(p.range || '—')} · Slot ${esc(p.slot ?? '—')}<br>${listener}`);
+      if (isOpen) setMarkup(row.cells[5], `${p.range ? esc(p.range) + ' · Slot ' + esc(p.slot) : 'Unranged'}<br>${listener}`);
     });
   }
   index.onclick = e => { const b = e.target.closest('[data-range]'); if (b) { active = b.dataset.range; render(); } };
   select.onchange = () => { active = select.value; render(); };
   issues.onchange = render;
+  portSearch.oninput = render;
   table.onclick = e => {
-    if (e.target.closest('[data-clear]')) { active = ''; issues.checked = false; render(); issues.focus(); }
+    if (e.target.closest('[data-clear]')) { active = ''; issues.checked = false; portSearch.value = ''; render(); portSearch.focus(); }
     const b = e.target.closest('[data-port]');
     if (b) { const n = Number(b.dataset.port); if (expanded.has(n)) expanded.delete(n); else expanded.add(n); render(); }
   };
@@ -2061,26 +2400,31 @@ function jumpTo(hash) {
 function commands() {
   const go = (label, hash) => ({ label, hint: 'Go to', run: () => { jumpTo(hash); } });
   const list = [
-    go('Overview', '#overview'), go('Apps', '#apps'), go('Logs', '#logs'), go('Config', '#config'), go('Ports', '#ports'), go('Security', '#security'),
-    { label: 'Reload routes', hint: 'Gateway', run: () => gatewayAction('reload') },
+    go('Overview', '#overview'), go('Apps', '#apps'), go('Ports', '#ports'), go('Logs', '#logs'), go('Config', '#config'), go('Security', '#security'),
+    { label: 'Apply routes', hint: 'Gateway', sep: true, run: () => gatewayAction('reload') },
     { label: 'Start enabled apps', hint: 'Gateway', run: () => gatewayAction('start-all') },
-    { label: 'Stop all apps', hint: 'Gateway', run: () => gatewayAction('stop-all') },
-    { label: 'Shut down gateway', hint: 'Gateway', run: () => gatewayAction('shutdown') },
-    { label: 'Choose color theme', hint: 'Page', run: openTheme },
+    { label: 'Restart live apps', hint: 'Gateway', run: () => gatewayAction('restart-all') },
+    { label: 'Choose color theme', hint: 'Page', sep: true, run: openTheme },
     { label: 'Sign out', hint: 'Page', run: signOut },
+    { label: 'Stop all apps', hint: 'Gateway', sep: true, danger: true, run: () => gatewayAction('stop-all') },
+    { label: 'Shut down Gateway', hint: 'Gateway', danger: true, run: () => gatewayAction('shutdown') },
   ];
   for (const a of apps()) {
+    const href = entryHref(a);
     list.push({ app: a, label: `${a.name} · Open details`, hint: a.state, run: () => jumpTo(`#apps/app/${encodeURIComponent(a.id)}`) });
+    if (href) {
+      list.push({ app: a, label: `${a.name}: open entry ↗`, hint: 'App', run: () => window.open(href, '_blank', 'noopener') });
+    }
     if (a.launch) {
       if (isLive(a)) {
         list.push({ app: a, label: `${a.name}: restart`, hint: 'App', run: () => appAction(a.id, 'restart') });
-        list.push({ app: a, label: `${a.name}: stop`, hint: 'App', run: () => appAction(a.id, 'stop') });
+        list.push({ app: a, label: `${a.name}: stop`, hint: 'App', danger: true, run: () => appAction(a.id, 'stop') });
       } else {
         list.push({ app: a, label: `${a.name}: start`, hint: 'App', run: () => appAction(a.id, 'start') });
       }
       list.push({ app: a, label: `${a.name}: logs`, hint: 'App', run: () => { jumpTo(`#logs/${encodeURIComponent(a.id)}`); } });
     }
-    list.push({ app: a, label: `${a.name}: edit file`, hint: 'App', run: () => { jumpTo(`#config/${encodeURIComponent(a.id)}`); } });
+    list.push({ app: a, label: `${a.name}: edit registration`, hint: 'App', run: () => { jumpTo(`#config/${encodeURIComponent(a.id)}`); } });
   }
   return list;
 }
@@ -2091,9 +2435,13 @@ function commands() {
 
   const paint = () => {
     const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+    const filtering = words.length > 0;
     shown = commands().filter(c => words.every(w => `${c.label} ${c.hint}`.toLowerCase().includes(w))).slice(0, 40);
     index = Math.min(index, Math.max(0, shown.length - 1));
-    listEl.innerHTML = shown.map((c, i) => `<li role="option" id="cmd-${i}" aria-selected="false" data-i="${i}">${c.app ? appIcon(c.app) : ''}<span>${esc(c.label)}</span><small>${esc(c.hint)}</small></li>`).join('')
+    listEl.innerHTML = shown.map((c, i) => {
+      const cls = [c.danger ? 'danger' : '', !filtering && c.sep && i > 0 ? 'sep' : ''].filter(Boolean).join(' ');
+      return `<li role="option" id="cmd-${i}" aria-selected="false" data-i="${i}"${cls ? ` class="${cls}"` : ''}>${c.app ? appIcon(c.app) : ''}<span>${esc(c.label)}</span><small>${esc(c.hint)}</small></li>`;
+    }).join('')
       || '<li class="none">No matching commands. Try a page or application name.</li>';
     select(index);
   };

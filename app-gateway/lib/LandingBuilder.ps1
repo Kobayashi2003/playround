@@ -40,10 +40,10 @@ function New-LandingPage {
         # canonical and 30x-es the slashed one to it. Linking at the canonical form
         # skips a redirect hop.
         @"
-      <div class="card">
+      <div class="card" data-app-id="$(& $enc $app.Id)">
         <span class="icon" aria-hidden="true">$icon</span>
         <span class="body">
-          <span class="name">$(& $enc $app.Name)</span>
+          <span class="title-row"><span class="name">$(& $enc $app.Name)</span><span class="status-slot" hidden></span></span>
           <span class="desc">$(& $enc $app.Description)</span>
         </span>
         <code class="address">$(& $enc $app.BasePath)</code>
@@ -58,7 +58,7 @@ function New-LandingPage {
     $localSection = if ($AdminPath) {
         @"
     <section id="local" data-admin="$(& $enc $AdminPath)" hidden>
-      <h2>On this machine</h2>
+      <h2>On this machine <span class="count" id="local-count"></span></h2>
       <div class="grid" id="local-grid"></div>
     </section>
 "@
@@ -82,6 +82,7 @@ function New-LandingPage {
     --bg: #f1f4f9; --fg: #182638; --muted: #506478; --card: #ffffff;
     --raised: #f6f8fb; --hover: #edf2f8; --line: #d4dde8; --line-soft: #e5ebf3;
     --accent: #215da6; --selected: #dfebfb;
+    --ok: #177048; --warn: #8f5407; --bad: #b4372f; --busy: #166c84;
     --scroll-thumb: rgb(24 38 56 / .20); --scroll-thumb-hover: rgb(24 38 56 / .36);
   }
   @media (prefers-color-scheme: dark) {
@@ -90,6 +91,7 @@ function New-LandingPage {
       --bg: #101720; --fg: #e5ecf4; --muted: #a6b6c7; --card: #18222d;
       --raised: #141d27; --hover: #22303f; --line: #2d3c4c; --line-soft: #222f3d;
       --accent: #8ebeff; --selected: #203956;
+      --ok: #4bcf8d; --warn: #edb04c; --bad: #f47a70; --busy: #5ab8ee;
       --scroll-thumb: rgb(176 191 206 / .22); --scroll-thumb-hover: rgb(176 191 206 / .38);
     }
   }
@@ -98,6 +100,7 @@ function New-LandingPage {
     --bg: #101720; --fg: #e5ecf4; --muted: #a6b6c7; --card: #18222d;
     --raised: #141d27; --hover: #22303f; --line: #2d3c4c; --line-soft: #222f3d;
     --accent: #8ebeff; --selected: #203956;
+    --ok: #4bcf8d; --warn: #edb04c; --bad: #f47a70; --busy: #5ab8ee;
     --scroll-thumb: rgb(176 191 206 / .22); --scroll-thumb-hover: rgb(176 191 206 / .38);
   }
   * { box-sizing: border-box; }
@@ -132,23 +135,51 @@ function New-LandingPage {
   h1 { margin: 0; font-size: 24px; line-height: 1.25; letter-spacing: -.02em; font-weight: 650; }
   .sub { margin: 4px 0 0; color: var(--muted); }
   .sub:empty { display: none; }
-  h2 { margin: 0 0 10px; font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  h2 {
+    display: flex; align-items: center; gap: 8px;
+    margin: 0 0 10px; font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  }
+  .count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 20px; height: 18px; padding-inline: 5px; border-radius: 5px;
+    background: var(--raised); border: 1px solid var(--line-soft);
+    color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums;
+  }
+  .count:empty { display: none; }
   section + section { margin-top: 26px; }
   .grid, .empty { border: 1px solid var(--line); border-radius: 8px; background: var(--card); overflow: clip; }
   .card {
+    position: relative;
+    cursor: pointer;
     display: grid; grid-template-columns: 36px minmax(130px, 1fr) minmax(108px, auto) 76px;
     align-items: center; gap: 16px; min-height: 62px; padding: 10px 16px;
     transition: background-color .12s ease;
   }
   .card:hover { background: var(--hover); }
+  .card:hover .open { background: var(--selected); color: var(--accent); }
+  .card[data-state="exited"] .name, .card[data-state="stopped"] .name { color: var(--muted); }
   .card + .card { border-top: 1px solid var(--line-soft); }
   .icon {
     display: grid; place-items: center; width: 36px; height: 36px; border-radius: 7px;
     background: var(--raised); border: 1px solid var(--line-soft); color: var(--accent); font-size: 17px;
   }
   .icon img { object-fit: contain; }
-  .body { min-width: 0; display: grid; gap: 1px; overflow-wrap: anywhere; }
+  .body { min-width: 0; display: grid; gap: 2px; overflow-wrap: anywhere; }
+  .title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
   .name { font-weight: 620; }
+  .status-slot {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 620; text-transform: capitalize;
+    padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+    background: color-mix(in srgb, var(--st, var(--muted)) 14%, transparent);
+    color: var(--st, var(--muted));
+  }
+  .status-slot::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .status-slot.s-running { --st: var(--ok); }
+  .status-slot.s-starting, .status-slot.s-stopping { --st: var(--busy); }
+  .status-slot.s-external { --st: var(--warn); }
+  .status-slot.s-exited { --st: var(--bad); }
+  .status-slot.s-stopped, .status-slot.s-routed { --st: var(--muted); }
   .desc, .address, .empty p { color: var(--muted); }
   .desc { font-size: 13px; }
   .desc:empty { display: none; }
@@ -159,6 +190,7 @@ function New-LandingPage {
     transition: background-color .12s ease, border-color .12s ease, color .12s ease;
   }
   .open { color: var(--accent); font-weight: 600; padding-inline: 10px; }
+  .open::after { content: ""; position: absolute; inset: 0; }
   .open:hover, .control:hover { background: var(--selected); color: var(--accent); }
   .control, input {
     border: 1px solid var(--line); background: var(--card); color: var(--fg);
@@ -191,9 +223,9 @@ function New-LandingPage {
   <main class="wrap">
     <div class="heading">
       <div><h1>Applications</h1><p class="sub">$(& $enc $Tagline)</p></div>
-      <input id="search" type="search" placeholder="Search applications" aria-label="Search applications">
+      <input id="search" type="search" placeholder="Search applications (/)" aria-label="Search applications">
     </div>
-    <section id="public"><h2>Via Gateway</h2><div class="grid">
+    <section id="public" data-admin="$(& $enc $AdminPath)"><h2>Via Gateway <span class="count" id="public-count"></span></h2><div class="grid">
 $($cards -join "`n")
     </div></section>
 $localSection
@@ -207,30 +239,54 @@ $localSection
   const search = document.getElementById('search');
   const clear = document.getElementById('clear');
 
+  function applyStatus(card, state) {
+    if (!card || !state) return;
+    card.dataset.state = state;
+    const slot = card.querySelector('.status-slot');
+    if (!slot) return;
+    slot.className = 'status-slot s-' + state;
+    slot.textContent = state;
+    slot.hidden = false;
+  }
+
   function makeLocalCard(app) {
     const card = document.createElement('div');
     card.className = 'card';
+    if (app.id) card.dataset.appId = app.id;
 
     const icon = document.createElement('span');
     icon.className = 'icon';
     icon.setAttribute('aria-hidden', 'true');
     icon.textContent = app.icon || '*';
     if (app.iconUrl) {
-      const image = new Image(24, 24);
-      image.alt = '';
-      image.onload = () => icon.replaceChildren(image);
-      image.src = app.iconUrl;
+      const loadIcon = (attempt = 0) => {
+        const image = new Image(24, 24);
+        image.alt = '';
+        image.onload = () => icon.replaceChildren(image);
+        image.onerror = () => {
+          if (attempt < 2) setTimeout(() => loadIcon(attempt + 1), 800 * (attempt + 1));
+        };
+        const sep = app.iconUrl.includes('?') ? '&' : '?';
+        image.src = attempt ? (app.iconUrl + sep + 'r=' + attempt) : app.iconUrl;
+      };
+      loadIcon();
     }
 
     const body = document.createElement('span');
     body.className = 'body';
+    const titleRow = document.createElement('span');
+    titleRow.className = 'title-row';
     const name = document.createElement('span');
     name.className = 'name';
     name.textContent = app.name || app.id || '';
+    const status = document.createElement('span');
+    status.className = 'status-slot';
+    status.hidden = true;
+    titleRow.append(name, status);
     const desc = document.createElement('span');
     desc.className = 'desc';
     desc.textContent = app.description || '';
-    body.append(name, desc);
+    body.append(titleRow, desc);
 
     const address = document.createElement('code');
     address.className = 'address';
@@ -243,6 +299,7 @@ $localSection
     open.textContent = 'Open ↗';
 
     card.append(icon, body, address, open);
+    if (app.state) applyStatus(card, app.state);
     return card;
   }
 
@@ -256,6 +313,8 @@ $localSection
         count += Number(!row.hidden);
       }
       section.hidden = count === 0;
+      const badge = section.querySelector('.count');
+      if (badge) badge.textContent = count || '';
       matches += count;
     }
     document.getElementById('empty').hidden = matches > 0;
@@ -264,12 +323,15 @@ $localSection
     clear.hidden = !term;
   }
 
-  async function loadLocalApps() {
+  async function loadLocalApps(attempt = 0) {
     if (!local || !local.dataset.admin) return;
     if (!['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) return;
     try {
       const response = await fetch(local.dataset.admin + 'api/local-apps', { cache: 'no-store', credentials: 'same-origin' });
-      if (!response.ok) return;
+      if (!response.ok) {
+        if (response.status >= 500 && attempt < 3) setTimeout(() => loadLocalApps(attempt + 1), 700 * (attempt + 1));
+        return;
+      }
       const data = await response.json();
       const items = Array.isArray(data.apps) ? data.apps : [];
       if (!items.length) return;
@@ -277,13 +339,47 @@ $localSection
       grid.replaceChildren(...items.map(makeLocalCard));
       sections.push(local);
       filter();
-    } catch { /* Local list stays hidden when unavailable. */ }
+    } catch {
+      if (attempt < 3) setTimeout(() => loadLocalApps(attempt + 1), 700 * (attempt + 1));
+    }
+  }
+
+  async function loadStatuses() {
+    const adminBase = document.getElementById('public')?.dataset.admin;
+    if (!adminBase) return;
+    try {
+      const response = await fetch(adminBase + 'api/session?status=1', { cache: 'no-store', credentials: 'same-origin' });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (!data.authenticated || !data.states) return;
+      for (const [id, state] of Object.entries(data.states)) {
+        const card = document.querySelector('.card[data-app-id="' + CSS.escape(id) + '"]');
+        applyStatus(card, state);
+      }
+    } catch { /* Status badges are optional. */ }
   }
 
   search.addEventListener('input', filter);
   clear.addEventListener('click', () => { search.value = ''; filter(); search.focus(); });
+  document.addEventListener('click', event => {
+    if (event.defaultPrevented || event.button || event.target.closest('a, button, input')) return;
+    const card = event.target.closest('.card');
+    if (card) card.querySelector('.open')?.click();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey &&
+        !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+      event.preventDefault();
+      search.focus();
+      search.select();
+    } else if (event.key === 'Escape' && document.activeElement === search && search.value) {
+      search.value = '';
+      filter();
+    }
+  });
   filter();
   loadLocalApps();
+  loadStatuses();
 </script>
 </body>
 </html>

@@ -274,10 +274,27 @@ $Gw.BackupDir = [IO.Path]::GetFullPath([string](Get-JsonProperty $settings 'back
 
 # --------------------------------------------------------------------- config
 # A preview has separate files so it can run next to an active gateway.
+$nativePath = Join-Path $root 'lib\Native.cs'
+$nativeHash = (Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash
+if (-not $ConfigOnly -and ('AppGateway.LogHub' -as [type]) -and $global:AppGatewayNativeHash -ne $nativeHash) {
+    # .NET cannot reload a modified type with the same name into the current
+    # PowerShell session, so run in a fresh pwsh process when Native.cs changed.
+    Write-Host '[GATEWAY] lib\Native.cs changed since the previous run in this shell; starting in a fresh pwsh process.' -ForegroundColor Yellow
+    $reexec = @('-NoProfile', '-File', $PSCommandPath)
+    if ($App)       { $reexec += @('-App', ($App -join ',')) }
+    if ($Bind)      { $reexec += @('-Bind', $Bind) }
+    if ($Port)      { $reexec += @('-Port', ($Port -join ',')) }
+    if ($NoBrowser) { $reexec += '-NoBrowser' }
+    if ($NoAdmin)   { $reexec += '-NoAdmin' }
+    & pwsh @reexec
+    return
+}
 if ($ConfigOnly) {
     $preview = Join-Path $runtimeDir "previews/$([guid]::NewGuid().ToString('N'))"
     $Gw.Caddyfile = $caddyfile = Join-Path $preview 'Caddyfile'
     $Gw.WebRoot = $webRoot = Join-Path $preview 'web'
+} else {
+    Clear-StaleRuntimeDirs
 }
 $Gw.RouteEnv = Build-GatewayConfig -Apps $selected -Validate
 
@@ -301,7 +318,10 @@ if ($Gw.AdminPort -and (Test-LegacyAdminCredential $adminNode)) {
 }
 
 # --------------------------------------------------------------------- launch
-Add-Type -Path (Join-Path $root 'lib\Native.cs')
+if (-not ('AppGateway.LogHub' -as [type])) {
+    Add-Type -Path $nativePath
+    $global:AppGatewayNativeHash = $nativeHash
+}
 [AppGateway.SystemStats]::UseEnglishMessages()
 New-Item -ItemType Directory -Force -Path $Gw.LogDir, $Gw.BackupDir | Out-Null
 # Every child's output passes through here: to this console, prefixed with its

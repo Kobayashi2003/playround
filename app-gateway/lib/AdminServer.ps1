@@ -217,6 +217,17 @@ function Invoke-AdminRequest {
         -Bytes ([IO.File]::ReadAllBytes($file))
 }
 
+function Get-CachedAppIcon {
+    param([hashtable] $App)
+    if (-not $App -or -not $App.IconFile) { return $null }
+    if (-not $Gw.IconCache) { $Gw.IconCache = @{} }
+    $key = "$($App.Id):$($App.Root):$($App.IconFile):$($App.IconHash)"
+    if ($Gw.IconCache.ContainsKey($key)) { return $Gw.IconCache[$key] }
+    $icon = Read-AppIcon -Root $App.Root -File $App.IconFile
+    $Gw.IconCache[$key] = $icon
+    return $icon
+}
+
 function Invoke-AdminApi {
     param($Req, $Res, [string] $Route)
 
@@ -228,7 +239,18 @@ function Invoke-AdminApi {
     if ($Route -eq '/session' -and $method -eq 'GET') {
         $s = Get-AdminSession -Auth $auth -Token (Get-AdminCookie $Req) -Passive
         if (-not $s) { Send-AdminJson -Res $Res -Body @{ authenticated = $false }; return }
-        Send-AdminJson -Res $Res -Body @{ authenticated = $true; user = $s.User; csrf = $s.Csrf; id = $s.Id }
+        $payload = [ordered]@{ authenticated = $true; user = $s.User; csrf = $s.Csrf; id = $s.Id }
+        if ($Req.QueryString['status'] -eq '1') {
+            $parents   = [AppGateway.ProcTree]::Parents()
+            $listening = Get-ListeningPorts
+            $states = [ordered]@{}
+            foreach ($a in (Get-ActiveApps)) {
+                $st = Get-AppStatus -App $a -Parents $parents -Listening $listening
+                $states[$a.Id] = $st.state
+            }
+            $payload.states = $states
+        }
+        Send-AdminJson -Res $Res -Body $payload
         return
     }
 
@@ -237,8 +259,14 @@ function Invoke-AdminApi {
         $s = Get-AdminSession -Auth $auth -Token (Get-AdminCookie $Req) -Passive
         $site = Get-JsonProperty $Gw.Settings 'site'
         $fallback = [string](Get-JsonProperty $site 'fallbackIcon' '*')
+        $parents = $null; $listening = $null
+        if ($s) {
+            $parents   = [AppGateway.ProcTree]::Parents()
+            $listening = Get-ListeningPorts
+        }
         $localApps = @(Get-ActiveApps | Where-Object { $_.LocalUrl -and -not $_.Hidden } | ForEach-Object {
             $uri = [uri]$_.LocalUrl
+            $st = if ($s) { (Get-AppStatus -App $_ -Parents $parents -Listening $listening).state } else { $null }
             [ordered]@{
                 id          = $_.Id
                 name        = $_.Name
@@ -246,10 +274,23 @@ function Invoke-AdminApi {
                 url         = $_.LocalUrl
                 address     = ":$($uri.Port)$($uri.PathAndQuery)"
                 icon        = $(if ($_.Icon) { $_.Icon } else { $fallback })
-                iconUrl     = $(if ($s -and $_.IconFile) { "/admin/api/icons/$($_.Id)?v=$($_.IconHash)" })
+                iconUrl     = $(if ($_.IconFile) { "/admin/api/local-icons/$($_.Id)?v=$($_.IconHash)" })
+                state       = $st
             }
         })
         Send-AdminJson -Res $Res -Body @{ apps = $localApps }
+        return
+    }
+
+    if ($Route -match '^/local-icons/([a-z0-9._-]+)$' -and $method -eq 'GET') {
+        if (-not (Test-DirectLoopbackRequest $Req)) { Stop-AdminRequest 403 'Local directory is only available on the gateway host.' }
+        $id = $Matches[1]
+        $app = Get-ActiveApps | Where-Object { $_.Id -eq $id -and $_.LocalUrl -and -not $_.Hidden } | Select-Object -First 1
+        if (-not $app -or -not $app.IconFile) { Stop-AdminRequest 404 'No local icon is registered.' }
+        try { $icon = Get-CachedAppIcon $app }
+        catch { Stop-AdminRequest 404 'The registered icon is unavailable.' }
+        $Res.Headers['Cache-Control'] = 'private, max-age=3600'
+        Send-AdminBytes -Res $Res -Type $icon.Type -Bytes $icon.Bytes
         return
     }
 
@@ -311,9 +352,9 @@ function Invoke-AdminApi {
             $id = $Matches[1]
             $app = $Gw.All | Where-Object { $_.Id -eq $id } | Select-Object -First 1
             if (-not $app.IconFile) { Stop-AdminRequest 404 'No file icon is registered.' }
-            try { $icon = Read-AppIcon -Root $app.Root -File $app.IconFile }
+            try { $icon = Get-CachedAppIcon $app }
             catch { Stop-AdminRequest 404 'The registered icon is unavailable.' }
-            $Res.Headers['Cache-Control'] = 'private, no-store'
+            $Res.Headers['Cache-Control'] = 'private, max-age=3600'
             Send-AdminBytes -Res $Res -Type $icon.Type -Bytes $icon.Bytes
             return
         }
@@ -377,6 +418,13 @@ function Invoke-AdminApi {
 
         '^GET /logs/([a-z0-9._-]+)/file$' {
             $source = $Matches[1]
+            if ($source -eq '_all') {
+                $lines = @($Gw.Hub.ReadAll(0, 5000) | ForEach-Object {
+                    '{0:yyyy-MM-dd HH:mm:ss.fff} {1} [{2}] {3}' -f $_.Time, $(if ($_.Stream -eq 'err') { 'E' } else { '-' }), $_.Source, $_.Text
+                })
+                Send-AdminText -Res $Res -Text (($lines -join "`n") + "`n") -FileName 'all-sources.log'
+                return
+            }
             $file = $Gw.Hub.FileFor($source)
             if (-not $file -or -not (Test-Path -LiteralPath $file)) { Stop-AdminRequest 404 "No log file for '$source' yet." }
             Send-AdminText -Res $Res -Text (Read-SharedText $file) -FileName "$source.log"
@@ -384,8 +432,9 @@ function Invoke-AdminApi {
         }
 
         '^POST /logs/([a-z0-9._-]+)/clear$' {
-            $Gw.Hub.Clear($Matches[1])
-            Send-AdminJson -Res $Res -Body @{ ok = $true }
+            if ($Matches[1] -eq '_all') { $Gw.Hub.ClearAll() }
+            else { $Gw.Hub.Clear($Matches[1]) }
+            Send-AdminJson -Res $Res -Body @{ ok = $true; message = $(if ($Matches[1] -eq '_all') { 'Cleared all log buffers.' } else { "Cleared $($Matches[1]) log buffer." }) }
             return
         }
 
@@ -427,9 +476,12 @@ function Invoke-AdminApi {
         }
 
         '^GET /config/backups/([a-z0-9._-]+\.json)$' {
-            $file = Join-Path $Gw.BackupDir $Matches[1]
-            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { Stop-AdminRequest 404 'No such backup.' }
-            Send-AdminJson -Res $Res -Body @{ file = $Matches[1]; text = [IO.File]::ReadAllText($file) }
+            $name = $Matches[1]
+            if ($name.Contains('..')) { Stop-AdminRequest 400 'Bad backup name.' }
+            $file = [IO.Path]::GetFullPath((Join-Path $Gw.BackupDir $name))
+            $parent = [IO.Path]::GetFullPath($Gw.BackupDir)
+            if ([IO.Path]::GetDirectoryName($file) -ne $parent -or -not (Test-Path -LiteralPath $file -PathType Leaf)) { Stop-AdminRequest 404 'No such backup.' }
+            Send-AdminJson -Res $Res -Body @{ file = $name; text = [IO.File]::ReadAllText($file) }
             return
         }
 
@@ -589,7 +641,7 @@ function Invoke-AdminApi {
             return
         }
 
-        '^POST /gateway/(start|stop)-all$' {
+        '^POST /gateway/(start|stop|restart)-all$' {
             $verb = $Matches[1]
             if ($Gw.RouteChange) { Stop-AdminRequest 409 'Wait for the routed application to finish restarting first.' }
             $messages = @()
@@ -602,6 +654,14 @@ function Invoke-AdminApi {
                 foreach ($a in $targets) {
                     try { $messages += Start-GatewayApp -Id $a.Id } catch { $messages += "$($a.Id): $($_.Exception.Message)" }
                 }
+            } elseif ($verb -eq 'restart') {
+                foreach ($a in $Gw.All | Where-Object { $_.Launch }) {
+                    $run = $Gw.Runs[$a.Id]
+                    if ($run -and ((Test-Alive $run.Child) -or (Test-Alive $run.Stopper))) {
+                        try { $messages += Stop-GatewayApp -Id $a.Id -Restart } catch { $messages += "$($a.Id): $($_.Exception.Message)" }
+                    }
+                }
+                if (-not $messages.Count) { $messages += 'No running managed apps to restart.' }
             } else {
                 foreach ($a in $Gw.All | Where-Object { $_.Launch }) {
                     $run = $Gw.Runs[$a.Id]
@@ -611,6 +671,7 @@ function Invoke-AdminApi {
                 }
             }
             & $audit "gateway.$verb-all"
+            $Gw.PortCache = $null
             Send-AdminJson -Res $Res -Body @{ ok = $true; message = ($messages -join ' ') }
             return
         }

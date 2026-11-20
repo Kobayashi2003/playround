@@ -37,7 +37,7 @@ function Get-RunRecord {
             Deadline    = $null
             Stopping    = $false  # an exit now is asked for, not a crash
             Note        = ''      # the last thing worth telling the admin page
-            CpuSample   = $null
+            CpuSamples  = @{}     # channel ('Live' | 'History') -> @{ Pid; At; ProcCpu; LastCpu }
         }
     }
     return $Gw.Runs[$Id]
@@ -156,6 +156,29 @@ function Get-GatewayRestartFields {
     $newAdmin = Get-JsonProperty $Settings 'admin'
     foreach ($name in 'enabled', 'port', 'sessionHours') {
         if ((Get-JsonProperty $oldAdmin $name) -cne (Get-JsonProperty $newAdmin $name)) { "admin.$name" }
+    }
+}
+
+function Clear-StaleRuntimeDirs {
+    <# Remove orphaned revision folders from previous runs and old ConfigOnly previews
+       so .runtime/ does not accumulate indefinitely. #>
+    $revisions = Join-Path $Gw.RuntimeDir 'revisions'
+    if (Test-Path -LiteralPath $revisions -PathType Container) {
+        Get-ChildItem -LiteralPath $revisions -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -cmatch '^[0-9a-f]{32}$' -and -not $_.LinkType } |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    $previews = Join-Path $Gw.RuntimeDir 'previews'
+    if (Test-Path -LiteralPath $previews -PathType Container) {
+        $cutoff = (Get-Date).AddHours(-24)
+        $dirs = @(Get-ChildItem -LiteralPath $previews -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -cmatch '^[0-9a-f]{32}$' -and -not $_.LinkType } |
+            Sort-Object LastWriteTime -Descending)
+        foreach ($d in ($dirs | Select-Object -Skip 3)) {
+            if ($d.LastWriteTime -lt $cutoff -or $dirs.Count -gt 10) {
+                Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 }
 
@@ -422,8 +445,8 @@ function Invoke-AppLaunch {
     $run.ExitedAt  = $null
     $run.ExitCode  = $null
     $run.Stopping  = $false
-    $run.Pending   = $null
-    $run.CpuSample = $null
+    $run.Pending    = $null
+    $run.CpuSamples = @{}
     $run.Starts++
     $run.Note = ''
     Write-GatewayLog "[START] $($App.Id) (PID $($proc.Id))"
@@ -579,6 +602,7 @@ function Step-Gateway {
                 $Gw[$key] = $candidate[$key]
             }
             $Gw.PortCache = $null
+            $Gw.IconCache = @{}
             $Gw.RouteChange = $null
             Write-GatewayLog 'Caddy applied the new routes and directory.'
         } else {
@@ -621,12 +645,13 @@ function Add-GatewaySample {
     $listening = Get-ListeningPorts
     $apps = @{}
     foreach ($a in $Gw.All) {
-        $u = (Get-AppStatus -App $a -Parents $parents -Listening $listening).usage
+        $u = (Get-AppStatus -App $a -Parents $parents -Listening $listening -SampleChannel 'History').usage
         if ($u) { $apps[$a.Id] = @{ Cpu = $u.cpu; Mem = $u.memory } }
     }
+    $sysCpu = [AppGateway.SystemStats]::Cpu()
     $Gw.History.Add(@{
         T    = [DateTimeOffset]::new($now).ToUnixTimeSeconds()
-        Cpu  = [AppGateway.SystemStats]::Cpu()
+        Cpu  = $(if ($sysCpu -ge 0) { $sysCpu } else { $null })
         Mem  = [long]($mem[0] - $mem[1])
         Apps = $apps
     })
@@ -674,9 +699,44 @@ function Test-LaunchChange {
     return $false
 }
 
+function Measure-AppCpuPercent {
+    <# Per-PID delta CPU over all cores (0–100%). Tracking each (pid, startTime)
+       independently avoids false zeros when a short-lived child exits and avoids
+       false spikes on first sample. Separate channels keep 10s history clean from
+       3s /overview polling. #>
+    param([hashtable] $Record, [int] $RootPid, $Usage, [string] $Channel = 'Live', [double] $MinSeconds = 1.5)
+
+    if (-not $Record.CpuSamples) { $Record.CpuSamples = @{} }
+    $now = Get-Date
+    $prev = $Record.CpuSamples[$Channel]
+    if (-not $prev -or $prev.Pid -ne $RootPid) {
+        $Record.CpuSamples[$Channel] = @{ Pid = $RootPid; At = $now; ProcCpu = $Usage.ProcCpu; LastCpu = $null }
+        return $null
+    }
+    $dt = ($now - $prev.At).TotalSeconds
+    if ($dt -lt $MinSeconds) { return $prev.LastCpu }
+
+    $delta = 0.0
+    foreach ($kv in $Usage.ProcCpu.GetEnumerator()) {
+        $prevCpu = 0.0
+        if ($prev.ProcCpu -and $prev.ProcCpu.TryGetValue($kv.Key, [ref]$prevCpu)) {
+            if ($kv.Value -gt $prevCpu) { $delta += ($kv.Value - $prevCpu) }
+        } else {
+            # Brand-new child process created after the previous sample: count its CPU so far.
+            $startAt = [datetime]::MinValue
+            if ($Usage.ProcStart -and $Usage.ProcStart.TryGetValue($kv.Key, [ref]$startAt) -and $startAt -ge $prev.At) {
+                $delta += $kv.Value
+            }
+        }
+    }
+    $pct = [Math]::Round([Math]::Max(0.0, [Math]::Min(100.0, $delta / $dt / [Environment]::ProcessorCount * 100.0)), 2)
+    $Record.CpuSamples[$Channel] = @{ Pid = $RootPid; At = $now; ProcCpu = $Usage.ProcCpu; LastCpu = $pct }
+    return $pct
+}
+
 function Get-AppStatus {
     <# One app as the admin page shows it. #>
-    param([hashtable] $App, $Parents, [hashtable] $Listening)
+    param([hashtable] $App, $Parents, [hashtable] $Listening, [string] $SampleChannel = 'Live')
 
     $run = $Gw.Runs[$App.Id]
     $alive   = $run -and (Test-Alive $run.Child)
@@ -703,16 +763,13 @@ function Get-AppStatus {
     $rootPid = if ($alive) { $run.Child.Id } elseif ($anyListening) { ($ports | Where-Object { $_.listening } | Select-Object -First 1).pid } else { $null }
     if ($rootPid) {
         $u = [AppGateway.ProcTree]::Usage([int]$rootPid, $Parents)
-        $cpu = $null
-        $now = Get-Date
-        if ($run -and $run.CpuSample -and $run.CpuSample.Pid -eq $rootPid) {
-            $dt = ($now - $run.CpuSample.At).TotalSeconds
-            if ($dt -gt 0) {
-                $cpu = [Math]::Round([Math]::Max(0, ($u.CpuSeconds - $run.CpuSample.Cpu) / $dt / [Environment]::ProcessorCount * 100), 1)
-            }
-        }
         $record = Get-RunRecord $App.Id
-        $record.CpuSample = @{ Pid = $rootPid; At = $now; Cpu = $u.CpuSeconds }
+        $minSec = if ($SampleChannel -eq 'History') { 5.0 } else { 1.5 }
+        $cpu = Measure-AppCpuPercent -Record $record -RootPid ([int]$rootPid) -Usage $u -Channel $SampleChannel -MinSeconds $minSec
+        # Fall back to the other channel's latest reading on the very first poll so UI isn't blank.
+        if ($null -eq $cpu -and $SampleChannel -eq 'Live' -and $record.CpuSamples['History']) {
+            $cpu = $record.CpuSamples['History'].LastCpu
+        }
         $usage = [ordered]@{ pids = @($u.Pids); memory = $u.WorkingSet; cpu = $cpu; threads = $u.Threads }
     }
 

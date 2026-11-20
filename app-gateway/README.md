@@ -75,7 +75,9 @@ filters, and log position. The theme menu supports Light, Dark and the system pr
 - **Overview** — uptime, Caddy, app states, gateway events, disks, and the last hour of
   machine CPU and memory. The supervisor samples these every 10 seconds, each app's too, so
   the charts are there when the page opens. Recent activity shows four events on desktop and
-  three on narrow screens. **View activity** opens the Gateway stream in Logs.
+  three on narrow screens. **View activity** opens the Gateway stream in Logs. The **More** menu
+  includes **Apply routes**, **Start enabled apps**, **Restart live apps**, **Stop all apps**
+  and **Shut down Gateway**.
 - **Apps** — select a registration in the resource list to see its process, entry, ports,
   startup settings and live output together. Use the arrow keys to move between resources,
   or the application picker on a narrow screen. A link such as `#apps/app/sample` opens
@@ -83,21 +85,28 @@ filters, and log position. The theme menu supports Light, Dark and the system pr
   At smaller widths it moves below them. Scroll up in **Recent output** to read earlier lines, then choose
   **Jump to latest** to follow the tail. Starting an app this run did not include adds its route
   to Caddy on the fly. Restart takes over a copy started elsewhere through its own `stop.ps1`.
+  Route probes check live entries with `HEAD` (falling back to `GET` on `405`/`501`) and can be
+  re-run on demand with **Re-check**.
 - **Logs** — live tail of every source interleaved, or one app, Caddy or the gateway alone;
-  errors and warnings highlighted, with filter, pause and download. Output wraps by default.
-  Turn off **Wrap lines** to scroll wide lines horizontally.
-- **Config** — create local-launch, managed-proxy or proxy-only registrations. Check the
-  resolved root, ports and icon, then save to disk. Edits mark the previous check out of date.
-  **Gateway files** contains gateway.json and Caddyfile. **Reference** contains variables,
-  the schema and PORTS.md. Restore drafts from History
+  errors and warnings highlighted, with filter, pause, copy, clear and download (including
+  **All sources**). Structured Caddy JSON lines are summarized by default; enable **Raw JSON**
+  to inspect the full JSON payloads. Output wraps by default; turn off **Wrap lines** to scroll
+  wide lines horizontally.
+- **Config** — create local-launch, managed-proxy or proxy-only registrations. Edit common
+  fields (including sort order, startup/visibility flags and launch policies) or switch to
+  **Raw JSON** with live JSON validation, `Tab` indentation, `Ctrl+S` save and **Format JSON**.
+  Check the resolved root, ports and icon, then save to disk. Edits mark the previous check out
+  of date. **Gateway files** contains `gateway.json` and `Caddyfile`. **Reference** contains
+  variables, the schema and `PORTS.md` (with one-click copy). Restore drafts from History
   (`backups/`). **Apply routes** re-reads `gateway.json` and the registry,
   validates and stages a candidate, and switches the directory and routes after Caddy accepts
   it. A running app picks up new startup parameters on its next start. For managed routed
   ports, **Apply and restart** waits for the app to listen on the new ports before switching
   the route, and restores the prior launch on failure. Stop externally managed apps yourself.
 - **Ports** — every listener in the PORTS.md ranges, who declares it and which process holds it.
-  Select a range and combine it with **Unclaimed only**. On narrow screens, expand a port
-  number to see its slot, process and bindings.
+  Select a range, filter by port, app or process, and combine with **Unclaimed only**. Click a
+  declared app name to open its details. On narrow screens, expand a port number to see its
+  slot, process and bindings.
 - **Security** — inspect sessions, expand browser details, change your password and filter the
   audit log. Active lockouts appear above sessions with their expiration and a clear action.
   Audit events are stored in `logs/admin-audit.log`.
@@ -149,9 +158,11 @@ Save the registration and use **Apply routes** after changing the path or replac
 
 Public routed entries use a content-hashed copy on the landing page. The public HTML
 includes only routed entries; on the gateway host, **On this machine** is fetched from
-`/admin/api/local-apps` (enforced loopback-only on the server), which attaches app icons only
-for signed-in admin sessions and falls back to glyphs for guests. Hidden apps stay out of the
-directory.
+`/admin/api/local-apps` (enforced loopback-only on the server), which loads local app icons
+via loopback-only `/admin/api/local-icons/<id>` and attaches live states for signed-in admin
+sessions. Signed-in admin sessions also see live status badges on routed cards via
+`/admin/api/session?status=1`. Press `/` on the landing page to focus search, or click any
+card to open it. Hidden apps stay out of the directory.
 
 Ports follow PORTS.md. An app takes every slot from its lowest port to its highest. Before
 launching, the gateway rejects a port outside the app's range or slots, two apps in one slot,

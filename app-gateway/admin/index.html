@@ -8,8 +8,8 @@
 <link rel="icon" href="favicon.svg?v=2" type="image/svg+xml">
 <script src="theme.js?v=2"></script>
 <link rel="stylesheet" href="theme.css?v=3">
-<link rel="stylesheet" href="admin.css?v=9">
-<script src="admin.js?v=9" defer></script>
+<link rel="stylesheet" href="admin.css?v=13">
+<script src="admin.js?v=13" defer></script>
 </head>
 <body>
   <div id="login" class="login" hidden>
@@ -37,12 +37,12 @@
     </header>
     <div class="workspace">
       <nav id="nav" aria-label="Jump to section">
-        <a href="#overview" data-view="overview"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"/></svg>Overview</a>
-        <a href="#apps" data-view="apps"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 5h18v14H3z M3 10h18"/></svg>Apps</a>
-        <a href="#ports" data-view="ports"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4v5 M12 4v5 M19 4v5 M5 9h14v6l-7 5-7-5z"/></svg>Ports</a>
-        <a href="#logs" data-view="logs"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16 M4 12h12 M4 18h16"/></svg>Logs</a>
-        <a href="#config" data-view="config"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4v16 M12 4v16 M19 4v16 M2 9h6 M9 15h6 M16 8h6"/></svg>Config</a>
-        <a href="#security" data-view="security"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l8 3v7c0 4-4 7-8 10-4-3-8-6-8-10z"/></svg>Security</a>
+        <a href="#overview" data-view="overview"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"/></svg><span>Overview</span></a>
+        <a href="#apps" data-view="apps"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 5h18v14H3z M3 10h18"/></svg><span>Apps</span><span class="nav-badge" id="nav-apps-badge" hidden></span></a>
+        <a href="#ports" data-view="ports"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4v5 M12 4v5 M19 4v5 M5 9h14v6l-7 5-7-5z"/></svg><span>Ports</span></a>
+        <a href="#logs" data-view="logs"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16 M4 12h12 M4 18h16"/></svg><span>Logs</span></a>
+        <a href="#config" data-view="config"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4v16 M12 4v16 M19 4v16 M2 9h6 M9 15h6 M16 8h6"/></svg><span>Config</span><span class="nav-dot" id="nav-config-dot" hidden title="Unapplied changes"></span></a>
+        <a href="#security" data-view="security"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l8 3v7c0 4-4 7-8 10-4-3-8-6-8-10z"/></svg><span>Security</span></a>
       </nav>
       <main id="view" class="view" tabindex="-1"></main>
     </div>

@@ -34,6 +34,8 @@ namespace AppGateway
             new Dictionary<string, LinkedList<LogLine>>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, StreamWriter> _files =
             new Dictionary<string, StreamWriter>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, int> _writeCounts =
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private readonly string _dir;
         private readonly int _capacity;
         private readonly long _rotateBytes;
@@ -88,7 +90,24 @@ namespace AppGateway
                 var w = Writer(source);
                 if (w != null)
                 {
-                    try { w.WriteLine("{0:yyyy-MM-dd HH:mm:ss.fff} {1} {2}", now, stream == "err" ? "E" : "-", text); }
+                    try
+                    {
+                        w.WriteLine("{0:yyyy-MM-dd HH:mm:ss.fff} {1} {2}", now, stream == "err" ? "E" : "-", text);
+                        int count;
+                        _writeCounts.TryGetValue(source, out count);
+                        count++;
+                        if (count >= 256)
+                        {
+                            count = 0;
+                            if (_rotateBytes > 0 && w.BaseStream.Length > _rotateBytes)
+                            {
+                                w.Dispose();
+                                _files.Remove(source);
+                                RotateFile(FileFor(source));
+                            }
+                        }
+                        _writeCounts[source] = count;
+                    }
                     catch (IOException) { }
                 }
             }
@@ -101,6 +120,22 @@ namespace AppGateway
             }
         }
 
+        private void RotateFile(string path)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (info.Exists && info.Length > _rotateBytes)
+                {
+                    var old = path + ".1";
+                    if (File.Exists(old)) File.Delete(old);
+                    File.Move(path, old);
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
         private StreamWriter Writer(string source)
         {
             if (string.IsNullOrEmpty(_dir)) return null;
@@ -109,15 +144,9 @@ namespace AppGateway
             var path = FileFor(source);
             try
             {
-                // Rotated once, when first opened in this run: a single .1 keeps the
-                // previous run's tail without the folder growing without bound.
-                var info = new FileInfo(path);
-                if (info.Exists && info.Length > _rotateBytes)
-                {
-                    var old = path + ".1";
-                    if (File.Exists(old)) File.Delete(old);
-                    File.Move(path, old);
-                }
+                // Rotated when exceeding _rotateBytes (at open and periodically mid-run):
+                // a single .1 keeps the previous tail without the folder growing without bound.
+                RotateFile(path);
                 var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
                 w = new StreamWriter(fs, new UTF8Encoding(false)) { AutoFlush = true };
             }
@@ -172,6 +201,14 @@ namespace AppGateway
             }
         }
 
+        public void ClearAll()
+        {
+            lock (_lock)
+            {
+                foreach (var buf in _buffers.Values) buf.Clear();
+            }
+        }
+
         public Process Start(string source, string file, string[] args, string cwd, IDictionary<string, string> env)
         {
             var psi = new ProcessStartInfo(file)
@@ -214,6 +251,8 @@ namespace AppGateway
         public long WorkingSet { get; set; }
         public double CpuSeconds { get; set; }
         public int Threads { get; set; }
+        public Dictionary<string, double> ProcCpu { get; set; }
+        public Dictionary<string, DateTime> ProcStart { get; set; }
     }
 
     public static class ProcTree
@@ -280,7 +319,11 @@ namespace AppGateway
             }
 
             var pids = new List<int>();
-            var usage = new ProcUsage();
+            var usage = new ProcUsage
+            {
+                ProcCpu = new Dictionary<string, double>(),
+                ProcStart = new Dictionary<string, DateTime>()
+            };
             var queue = new Queue<KeyValuePair<int, DateTime>>();
             var seen = new HashSet<int>();
             queue.Enqueue(new KeyValuePair<int, DateTime>(rootPid, DateTime.MinValue));
@@ -298,7 +341,15 @@ namespace AppGateway
                     if (start < item.Value) continue;
                     pids.Add(item.Key);
                     try { usage.WorkingSet += p.WorkingSet64; } catch (Exception) { }
-                    try { usage.CpuSeconds += p.TotalProcessorTime.TotalSeconds; } catch (Exception) { }
+                    try
+                    {
+                        var procCpu = p.TotalProcessorTime.TotalSeconds;
+                        usage.CpuSeconds += procCpu;
+                        var procKey = item.Key + ":" + start.Ticks;
+                        usage.ProcCpu[procKey] = procCpu;
+                        usage.ProcStart[procKey] = start;
+                    }
+                    catch (Exception) { }
                     try { usage.Threads += p.Threads.Count; } catch (Exception) { }
                     List<int> kids;
                     if (children.TryGetValue(item.Key, out kids))
@@ -349,6 +400,7 @@ namespace AppGateway
         }
 
         private static long _idle, _total;
+        private static DateTime _lastAt = DateTime.MinValue;
         private static double _last = -1;
 
         /// <summary>Busy share of all cores since the previous call, 0-100.</summary>
@@ -356,13 +408,23 @@ namespace AppGateway
         {
             long idle, kernel, user;
             if (!GetSystemTimes(out idle, out kernel, out user)) return -1;
+            var now = DateTime.UtcNow;
             // Kernel time includes idle time.
             var total = kernel + user;
+            if (_total == 0)
+            {
+                _idle = idle;
+                _total = total;
+                _lastAt = now;
+                return -1;
+            }
+            // Avoid noisy quantization spikes when /overview and sampler call back-to-back.
+            if ((now - _lastAt).TotalSeconds < 1.0 && _last >= 0) return _last;
             var dTotal = total - _total;
             var dIdle = idle - _idle;
-            _idle = idle; _total = total;
+            _idle = idle; _total = total; _lastAt = now;
             if (dTotal <= 0) return _last;
-            _last = Math.Round(100.0 * (dTotal - dIdle) / dTotal, 1);
+            _last = Math.Round(Math.Max(0.0, Math.Min(100.0, 100.0 * (dTotal - dIdle) / dTotal)), 1);
             return _last;
         }
 
