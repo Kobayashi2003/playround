@@ -20,10 +20,8 @@ and `meta.ts` (the Component Atlas demo), `tests/`, `conformance/`,
 `fixtures/`, `scripts/`, `examples/`, the `tsconfig.*` files and
 `package.json`.
 
-Do not trim files out of `core/` or `react/` either. Unused code costs nothing
-(the bundler drops what is never imported), while a trimmed copy has to be
-trimmed again, by hand, at every update. The Kindle reader is already loaded
-only when a Kindle file is opened.
+Keep the four entries together on each update. The bundler loads the Kindle
+adapter when the reader opens a Kindle file.
 
 ```ts
 import { EpubReader, configureReaderUi } from './vendor/epub-reader/react';
@@ -43,13 +41,13 @@ import './vendor/epub-reader/styles.css';
 ## Keep the copy identical
 
 A copy that matches this folder byte for byte can be updated by copying again.
-Anything an application needs to change belongs in the application, through
-the public contracts: `configureReaderUi` (messages, themes, layout), the
-reader options and storage ports, `readerRef` for driving the reader, the
-`--epub-host-chrome-top` token for a header of its own, and CSS in the
-application's stylesheet that targets the reader's documented `data-*`
-attributes. If none of those can express a need, change the reader here and
-update every copy, rather than patching one copy.
+Keep application-specific behavior in the application's integration. Use
+`configureReaderUi` for messages, themes, and layout, reader options and
+storage ports for behavior, `readerRef` for driving the reader, and
+`--epub-host-chrome-top` or documented `data-*` attributes for styling.
+Change EPUB Reader when a fix belongs in the shared reader or a reusable
+capability needs a new public interface. Fix reader bugs in EPUB Reader first
+and distribute the fix from here to every consumer.
 
 ## Updating a copy
 

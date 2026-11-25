@@ -8,11 +8,14 @@ browser.
 
 Requires [uv](https://docs.astral.sh/uv/) (standard library only) and, to build the interface once, Node.js with pnpm.
 
+Run these commands from the project root. Replace the example book folders
+with your library paths.
+
 ```bash
 cd web && pnpm install && pnpm build && cd ..
 
-uv run main.py config --add-root "D:\Books\Novels"                    # shelves layout
-uv run main.py config --add-root "D:\Books\Calibre" --layout authors  # Calibre layout
+uv run main.py config --add-root "D:\path\to\novels"                    # shelves layout
+uv run main.py config --add-root "D:\path\to\calibre" --layout authors  # Calibre layout
 uv run main.py scan
 uv run main.py serve          # http://127.0.0.1:16020
 ```
