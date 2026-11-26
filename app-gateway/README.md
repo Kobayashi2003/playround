@@ -15,7 +15,8 @@ No app knows about the gateway: it starts each one exactly as it would run on it
 
 ## Run
 
-Requires PowerShell 7 and Caddy on `PATH`.
+Requires PowerShell 7 and Caddy on `PATH`. Run the commands in this section
+from the project root.
 
 For a new checkout, copy [gateway.example.json](gateway.example.json) to `gateway.json`.
 Create `apps/` and select a template from [examples/apps/](examples/apps/). Copy it to
